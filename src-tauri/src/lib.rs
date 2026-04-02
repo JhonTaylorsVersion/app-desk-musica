@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 use tauri::State;
 
 // === NUEVAS DEPENDENCIAS PRO ===
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphoniaError;
@@ -43,7 +43,8 @@ struct AudioMetadata {
     composer: Option<String>,
     lyricist: Option<String>,
     comment: Option<String>,
-    lyrics: Option<String>,
+    lyrics: Option<String>,        // Letras embebidas normales
+    synced_lyrics: Option<String>, // NUEVO: Letras sincronizadas (.lrc)
     track_number: Option<String>,
     track_total: Option<String>,
     disc_number: Option<String>,
@@ -72,8 +73,8 @@ pub enum AudioCommand {
     Pause,
     Resume,
     Stop,
-    Seek(f64),         // Segundo exacto
-    SetVolume(f32),    // 0.0 a 100.0
+    Seek(f64),      // Segundo exacto
+    SetVolume(f32), // 0.0 a 100.0
 }
 
 struct AudioPlayerState {
@@ -90,7 +91,11 @@ struct AudioPlayerState {
 fn non_empty(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let trimmed = v.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     })
 }
 
@@ -108,9 +113,13 @@ fn format_duration(total_seconds: u64) -> String {
 
 fn build_tag_list<'a>(tagged_file: &'a lofty::file::TaggedFile) -> Vec<&'a Tag> {
     let mut tags: Vec<&Tag> = Vec::new();
-    if let Some(primary) = tagged_file.primary_tag() { tags.push(primary); }
+    if let Some(primary) = tagged_file.primary_tag() {
+        tags.push(primary);
+    }
     for tag in tagged_file.tags() {
-        if !tags.iter().any(|t| t.tag_type() == tag.tag_type()) { tags.push(tag); }
+        if !tags.iter().any(|t| t.tag_type() == tag.tag_type()) {
+            tags.push(tag);
+        }
     }
     tags
 }
@@ -121,7 +130,9 @@ where
 {
     for tag in tags {
         if let Some(value) = getter(tag) {
-            if !value.trim().is_empty() { return Some(value.trim().to_string()); }
+            if !value.trim().is_empty() {
+                return Some(value.trim().to_string());
+            }
         }
     }
     None
@@ -161,29 +172,58 @@ fn extract_cover_art(tags: &[&Tag]) -> Option<CoverArt> {
 
 #[tauri::command]
 fn leer_metadata(path: String) -> Result<AudioMetadata, String> {
-    let tagged_file = read_from_path(path).map_err(|e| e.to_string())?;
+    let tagged_file = read_from_path(&path).map_err(|e| e.to_string())?;
     let tags = build_tag_list(&tagged_file);
 
     let properties = tagged_file.properties();
     let duration = properties.duration();
     let duration_seconds = duration.as_secs();
 
+    // NUEVO: Intentar leer el archivo .lrc en la misma ruta
+    let lrc_path = std::path::Path::new(&path).with_extension("lrc");
+    let synced_lyrics = std::fs::read_to_string(lrc_path).ok();
+
     let metadata = AudioMetadata {
         title: first_text(&tags, |tag| tag.title().map(|s| s.to_string())),
         artist: first_text(&tags, |tag| tag.artist().map(|s| s.to_string())),
         album: first_text(&tags, |tag| tag.album().map(|s| s.to_string())),
         genre: first_text(&tags, |tag| tag.genre().map(|s| s.to_string())),
-        album_artist: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string()))),
-        composer: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::Composer).map(|s| s.to_string()))),
-        lyricist: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::Lyricist).map(|s| s.to_string()))),
-        comment: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::Comment).map(|s| s.to_string()))),
-        lyrics: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::Lyrics).or_else(|| tag.get_string(ItemKey::UnsyncLyrics)).map(|s| s.to_string()))),
-        track_number: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::TrackNumber).map(|s| s.to_string()))),
-        track_total: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::TrackTotal).map(|s| s.to_string()))),
-        disc_number: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::DiscNumber).map(|s| s.to_string()))),
-        disc_total: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::DiscTotal).map(|s| s.to_string()))),
-        year: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::Year).map(|s| s.to_string()))),
-        release_date: non_empty(first_text(&tags, |tag| tag.get_string(ItemKey::ReleaseDate).map(|s| s.to_string()))),
+        album_artist: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string())
+        })),
+        composer: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::Composer).map(|s| s.to_string())
+        })),
+        lyricist: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::Lyricist).map(|s| s.to_string())
+        })),
+        comment: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::Comment).map(|s| s.to_string())
+        })),
+        lyrics: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::Lyrics)
+                .or_else(|| tag.get_string(ItemKey::UnsyncLyrics))
+                .map(|s| s.to_string())
+        })),
+        synced_lyrics,
+        track_number: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::TrackNumber).map(|s| s.to_string())
+        })),
+        track_total: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::TrackTotal).map(|s| s.to_string())
+        })),
+        disc_number: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::DiscNumber).map(|s| s.to_string())
+        })),
+        disc_total: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::DiscTotal).map(|s| s.to_string())
+        })),
+        year: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::Year).map(|s| s.to_string())
+        })),
+        release_date: non_empty(first_text(&tags, |tag| {
+            tag.get_string(ItemKey::ReleaseDate).map(|s| s.to_string())
+        })),
         duration_seconds: Some(duration_seconds),
         duration_formatted: Some(format_duration(duration_seconds)),
         channels: properties.channels(),
@@ -202,12 +242,22 @@ fn leer_metadata(path: String) -> Result<AudioMetadata, String> {
 
 #[tauri::command]
 fn play_audio_file(path: String, state: State<'_, AudioPlayerState>) -> Result<(), String> {
-    state.tx.send(AudioCommand::Play(path, 0.0)).map_err(|_| "Error de comunicación con el hilo de audio".into())
+    state
+        .tx
+        .send(AudioCommand::Play(path, 0.0))
+        .map_err(|_| "Error de comunicación con el hilo de audio".into())
 }
 
 #[tauri::command]
-fn play_audio_file_at(path: String, position: f64, state: State<'_, AudioPlayerState>) -> Result<(), String> {
-    state.tx.send(AudioCommand::Play(path, position)).map_err(|_| "Error de comunicación".into())
+fn play_audio_file_at(
+    path: String,
+    position: f64,
+    state: State<'_, AudioPlayerState>,
+) -> Result<(), String> {
+    state
+        .tx
+        .send(AudioCommand::Play(path, position))
+        .map_err(|_| "Error de comunicación".into())
 }
 
 #[tauri::command]
@@ -223,17 +273,25 @@ fn resume_audio(state: State<'_, AudioPlayerState>) {
 #[tauri::command]
 fn stop_audio_backend(state: State<'_, AudioPlayerState>) {
     let _ = state.tx.send(AudioCommand::Stop);
-    if let Ok(mut pos) = state.current_position_secs.lock() { *pos = 0.0; }
+    if let Ok(mut pos) = state.current_position_secs.lock() {
+        *pos = 0.0;
+    }
 }
 
 #[tauri::command]
 fn seek_audio(position: f64, state: State<'_, AudioPlayerState>) -> Result<(), String> {
-    state.tx.send(AudioCommand::Seek(position)).map_err(|_| "Error al hacer seek".into())
+    state
+        .tx
+        .send(AudioCommand::Seek(position))
+        .map_err(|_| "Error al hacer seek".into())
 }
 
 #[tauri::command]
 fn get_audio_position(state: State<'_, AudioPlayerState>) -> f64 {
-    *state.current_position_secs.lock().unwrap_or_else(|e| e.into_inner())
+    *state
+        .current_position_secs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 #[tauri::command]
@@ -249,41 +307,49 @@ fn start_audio_thread(rx: Receiver<AudioCommand>, position_state: Arc<Mutex<f64>
     std::thread::spawn(move || {
         // Inicializar CPAL (Tarjeta de sonido)
         let host = cpal::default_host();
-        let device = host.default_output_device().expect("No se encontró dispositivo de salida de audio");
-        let config = device.default_output_config().expect("No se pudo obtener la config de audio");
-        
+        let device = host
+            .default_output_device()
+            .expect("No se encontró dispositivo de salida de audio");
+        let config = device
+            .default_output_config()
+            .expect("No se pudo obtener la config de audio");
+
         let sample_rate = config.sample_rate().0;
 
-        // BÚFER REDUCIDO: 8192 muestras. Esto evita cuelgues y mantiene una latencia 
+        // BÚFER REDUCIDO: 8192 muestras. Esto evita cuelgues y mantiene una latencia
         // de apenas ~90ms, haciendo que el seek sea casi instantáneo.
-        let (sample_tx, sample_rx) = bounded::<f32>(8192); 
-        
+        let (sample_tx, sample_rx) = bounded::<f32>(8192);
+
         let err_fn = |err| eprintln!("Un error ocurrió en el hilo de reproducción CPAL: {}", err);
 
         // Construir y arrancar el stream de salida de la tarjeta de sonido
         let stream = match config.sample_format() {
-            SampleFormat::F32 => device.build_output_stream(
-                &config.into(),
-                move |data: &mut [f32], _| {
-                    for sample in data.iter_mut() {
-                        *sample = sample_rx.try_recv().unwrap_or(0.0);
-                    }
-                },
-                err_fn,
-                None,
-            ).unwrap(),
+            SampleFormat::F32 => device
+                .build_output_stream(
+                    &config.into(),
+                    move |data: &mut [f32], _| {
+                        for sample in data.iter_mut() {
+                            *sample = sample_rx.try_recv().unwrap_or(0.0);
+                        }
+                    },
+                    err_fn,
+                    None,
+                )
+                .unwrap(),
             // Soporte genérico para otros formatos si F32 no es el default
-            _ => device.build_output_stream(
-                &config.into(),
-                move |data: &mut [i16], _| {
-                    for sample in data.iter_mut() {
-                        let f32_sample = sample_rx.try_recv().unwrap_or(0.0);
-                        *sample = cpal::Sample::from_sample(f32_sample);
-                    }
-                },
-                err_fn,
-                None,
-            ).unwrap(),
+            _ => device
+                .build_output_stream(
+                    &config.into(),
+                    move |data: &mut [i16], _| {
+                        for sample in data.iter_mut() {
+                            let f32_sample = sample_rx.try_recv().unwrap_or(0.0);
+                            *sample = cpal::Sample::from_sample(f32_sample);
+                        }
+                    },
+                    err_fn,
+                    None,
+                )
+                .unwrap(),
         };
 
         stream.play().unwrap();
@@ -293,59 +359,84 @@ fn start_audio_thread(rx: Receiver<AudioCommand>, position_state: Arc<Mutex<f64>
         let mut decoder: Option<Box<dyn symphonia::core::codecs::Decoder>> = None;
         let mut track_id = 0;
         let mut sample_buf: Option<SampleBuffer<f32>> = None;
-        
+
         let mut is_playing = false;
         let mut volume = 1.0f32;
 
         // Bucle infinito que procesa comandos y decodifica
         loop {
             // 1. Revisar si hay nuevos comandos de Tauri
-            let command_result = if is_playing { rx.try_recv() } else { rx.recv().map_err(|_| crossbeam_channel::TryRecvError::Disconnected) };
+            let command_result = if is_playing {
+                rx.try_recv()
+            } else {
+                rx.recv()
+                    .map_err(|_| crossbeam_channel::TryRecvError::Disconnected)
+            };
 
             if let Ok(command) = command_result {
                 match command {
                     AudioCommand::Play(path, pos) => {
                         let src = std::fs::File::open(&path).expect("No se pudo abrir el archivo");
                         let mss = MediaSourceStream::new(Box::new(src), Default::default());
-                        
+
                         let hint = Hint::new();
                         let probed = symphonia::default::get_probe()
-                            .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+                            .format(
+                                &hint,
+                                mss,
+                                &FormatOptions::default(),
+                                &MetadataOptions::default(),
+                            )
                             .expect("Formato de audio no soportado");
 
                         let mut new_format = probed.format;
-                        let track = new_format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL).expect("No se encontró pista de audio");
+                        let track = new_format
+                            .tracks()
+                            .iter()
+                            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                            .expect("No se encontró pista de audio");
                         track_id = track.id;
 
                         let new_decoder = symphonia::default::get_codecs()
-    .make(&track.codec_params, &DecoderOptions::default())
-    .expect("Codec no soportado");
+                            .make(&track.codec_params, &DecoderOptions::default())
+                            .expect("Codec no soportado");
 
                         // Si hay posición inicial, hacer Seek instantáneo
                         if pos > 0.0 {
-                            let seek_time = SeekTo::Time { time: std::time::Duration::from_secs_f64(pos).into(), track_id: Some(track_id) };
+                            let seek_time = SeekTo::Time {
+                                time: std::time::Duration::from_secs_f64(pos).into(),
+                                track_id: Some(track_id),
+                            };
                             let _ = new_format.seek(SeekMode::Accurate, seek_time);
                         }
 
                         format = Some(new_format);
                         decoder = Some(new_decoder);
                         is_playing = true;
-                    },
+                    }
                     AudioCommand::Pause => is_playing = false,
-                    AudioCommand::Resume => if format.is_some() { is_playing = true; },
+                    AudioCommand::Resume => {
+                        if format.is_some() {
+                            is_playing = true;
+                        }
+                    }
                     AudioCommand::Stop => {
                         is_playing = false;
                         format = None;
                         decoder = None;
-                    },
+                    }
                     AudioCommand::SetVolume(v) => volume = v.clamp(0.0, 100.0) / 100.0,
                     AudioCommand::Seek(pos) => {
                         if let Some(fmt) = format.as_mut() {
-                            let seek_time = SeekTo::Time { time: std::time::Duration::from_secs_f64(pos).into(), track_id: Some(track_id) };
+                            let seek_time = SeekTo::Time {
+                                time: std::time::Duration::from_secs_f64(pos).into(),
+                                track_id: Some(track_id),
+                            };
                             if let Ok(res) = fmt.seek(SeekMode::Accurate, seek_time) {
                                 // Actualizar el reloj de la UI instantáneamente
                                 if let Ok(mut state_pos) = position_state.lock() {
-                                    *state_pos = res.actual_ts as f64 / sample_rate as f64; // Cálculo aproximado
+                                    *state_pos = res.actual_ts as f64 / sample_rate as f64;
+                                    // Cálculo aproximado
                                 }
                             }
                         }
@@ -361,12 +452,15 @@ fn start_audio_thread(rx: Receiver<AudioCommand>, position_state: Arc<Mutex<f64>
                             match dec.decode(&packet) {
                                 Ok(decoded) => {
                                     if sample_buf.is_none() {
-                                        sample_buf = Some(SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec()));
+                                        sample_buf = Some(SampleBuffer::<f32>::new(
+                                            decoded.capacity() as u64,
+                                            *decoded.spec(),
+                                        ));
                                     }
-                                    
+
                                     if let Some(buf) = sample_buf.as_mut() {
                                         buf.copy_interleaved_ref(decoded);
-                                        
+
                                         // Enviar cada sample a CPAL con el volumen aplicado
                                         for &sample in buf.samples() {
                                             let _ = sample_tx.send(sample * volume);
@@ -375,14 +469,25 @@ fn start_audio_thread(rx: Receiver<AudioCommand>, position_state: Arc<Mutex<f64>
                                         // Actualizar el tiempo para la UI en Vue
                                         let current_ts = packet.ts();
                                         if let Ok(mut state_pos) = position_state.lock() {
-                                            let tb = fmt.tracks().iter().find(|t| t.id == track_id).unwrap().codec_params.time_base.unwrap();
+                                            let tb = fmt
+                                                .tracks()
+                                                .iter()
+                                                .find(|t| t.id == track_id)
+                                                .unwrap()
+                                                .codec_params
+                                                .time_base
+                                                .unwrap();
                                             let time = tb.calc_time(current_ts);
                                             *state_pos = time.seconds as f64 + time.frac;
                                         }
                                     }
                                 }
-                                Err(SymphoniaError::DecodeError(e)) => eprintln!("Error decodificando: {}", e),
-                                Err(_) => { is_playing = false; }
+                                Err(SymphoniaError::DecodeError(e)) => {
+                                    eprintln!("Error decodificando: {}", e)
+                                }
+                                Err(_) => {
+                                    is_playing = false;
+                                }
                             }
                         }
                         Err(SymphoniaError::IoError(_)) => {

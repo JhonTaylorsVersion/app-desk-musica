@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -20,6 +20,7 @@ type AudioMetadata = {
   lyricist?: string | null;
   comment?: string | null;
   lyrics?: string | null;
+  synced_lyrics?: string | null; // <-- NUEVO CAMPO PARA LETRAS SINCRONIZADAS
   track_number?: string | null;
   track_total?: string | null;
   disc_number?: string | null;
@@ -42,6 +43,12 @@ type PlaylistTrack = {
   path: string;
   fileName: string;
   extension: string;
+};
+
+// --- NUEVO TIPO PARA LETRAS ---
+type ParsedLyric = {
+  time: number;
+  text: string;
 };
 
 const playlist = ref<PlaylistTrack[]>([]);
@@ -69,6 +76,113 @@ const isSeekInFlight = ref(false);
 let seekRequestId = 0;
 
 let progressInterval: number | null = null;
+
+// ====== NUEVO ESTADO Y LÓGICA PARA LETRAS (KARAOKE) ======
+const isLyricsMode = ref(false);
+const parsedLyrics = ref<ParsedLyric[]>([]);
+const lyricsContainerRef = ref<HTMLElement | null>(null);
+
+// NUEVO: Estado para saber si el usuario pausó el auto-scroll navegando manualmente
+const isUserScrolling = ref(false);
+
+const onUserInteraction = () => {
+  if (isLyricsMode.value && parsedLyrics.value.length > 0) {
+    isUserScrolling.value = true;
+  }
+};
+
+const syncLyricsView = async () => {
+  isUserScrolling.value = false;
+  if (activeLyricIndex.value !== -1 && lyricsContainerRef.value) {
+    await nextTick();
+    const activeEl = lyricsContainerRef.value.querySelector(
+      `.lyric-line[data-index="${activeLyricIndex.value}"]`
+    );
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+};
+
+// NUEVO: Función para saltar en el audio y reanudar el auto-scroll
+const seekAndSync = async (time: number) => {
+  isUserScrolling.value = false; // Al hacer clic en una letra, reanudamos el seguimiento
+  await seekTo(time);
+};
+
+const parseLrc = (lrcContent: string): ParsedLyric[] => {
+  const lines = lrcContent.split("\n");
+  const result: ParsedLyric[] = [];
+  const timeReg = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+
+  for (const line of lines) {
+    const match = timeReg.exec(line);
+    if (match) {
+      const mins = parseInt(match[1]);
+      const secs = parseInt(match[2]);
+      const ms =
+        match[3].length === 2 ? parseInt(match[3]) * 10 : parseInt(match[3]);
+      const time = mins * 60 + secs + ms / 1000;
+      const text = line.replace(timeReg, "").trim();
+      if (text) {
+        result.push({ time, text });
+      }
+    }
+  }
+  return result;
+};
+
+const activeLyricIndex = computed(() => {
+  if (!parsedLyrics.value.length) return -1;
+  const time = visibleCurrentTime.value;
+  // Buscar de atrás hacia adelante para encontrar la línea activa actual
+  for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
+    // Se resta 0.3s para que la letra se ilumine un pelín antes (más natural)
+    if (time >= parsedLyrics.value[i].time - 0.3) {
+      return i;
+    }
+  }
+  return -1;
+});
+
+// Auto-Scroll cuando cambia la línea activa
+watch(activeLyricIndex, async (newIdx) => {
+  if (newIdx !== -1 && isLyricsMode.value && lyricsContainerRef.value) {
+    // NUEVO: Solo hacer auto-scroll si el usuario NO está interactuando manualmente
+    if (!isUserScrolling.value) {
+      await nextTick();
+      const activeEl = lyricsContainerRef.value.querySelector(
+        `.lyric-line[data-index="${newIdx}"]`
+      );
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }
+});
+
+const toggleLyricsMode = async () => {
+  isLyricsMode.value = !isLyricsMode.value;
+  isUserScrolling.value = false; // Resetear al entrar/salir del modo
+  
+  // Si entramos al modo y hay una letra activa, centramos la vista de inmediato
+  if (
+    isLyricsMode.value &&
+    activeLyricIndex.value !== -1 &&
+    lyricsContainerRef.value
+  ) {
+    await nextTick();
+    setTimeout(() => {
+      const activeEl = lyricsContainerRef.value?.querySelector(
+        `.lyric-line[data-index="${activeLyricIndex.value}"]`
+      );
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: "auto", block: "center" });
+      }
+    }, 50);
+  }
+};
+// ==========================================================
 
 const hasTrack = computed(
   () => currentIndex.value >= 0 && currentIndex.value < playlist.value.length,
@@ -173,7 +287,7 @@ const startProgress = () => {
   progressInterval = window.setInterval(() => {
     if (!isPlaying.value) return;
     void syncPositionFromBackend();
-  }, 250);
+  }, 100); // <-- Cambiado a 100ms para que las letras se iluminen rápido y fluido
 };
 
 const resetVisualState = () => {
@@ -184,6 +298,8 @@ const resetVisualState = () => {
   isDraggingSeek.value = false;
   seekPreviewTime.value = 0;
   isSeekInFlight.value = false;
+  parsedLyrics.value = []; // <-- Limpiar letras cargadas anteriores
+  isUserScrolling.value = false;
   stopProgress();
 };
 
@@ -209,6 +325,16 @@ const loadTrack = async (index: number, autoplay = true, startAt = 0) => {
       path: track.path,
     });
     duration.value = Number(metadata.value?.duration_seconds || 0);
+
+    // NUEVO: Intentar parsear las letras (desde el .lrc o embebidas)
+    if (metadata.value?.synced_lyrics) {
+      parsedLyrics.value = parseLrc(metadata.value.synced_lyrics);
+    } else if (
+      metadata.value?.lyrics &&
+      /\[\d{2}:\d{2}\.\d{2,3}\]/.test(metadata.value.lyrics)
+    ) {
+      parsedLyrics.value = parseLrc(metadata.value.lyrics);
+    }
   } catch (error) {
     console.error("Error al leer metadata:", error);
   }
@@ -458,7 +584,10 @@ onBeforeUnmount(() => {
       <img :src="coverUrl" alt="" />
     </div>
 
-    <div class="player-shell glass-panel">
+    <div
+      class="player-shell glass-panel"
+      :class="{ 'full-lyrics-shell': isLyricsMode }"
+    >
       <div class="topbar">
         <div>
           <div class="eyebrow">APP DESK MÚSICA</div>
@@ -489,7 +618,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="filePath" class="player-layout">
+      <div v-if="filePath && !isLyricsMode" class="player-layout">
         <div class="left-panel">
           <div class="cover-container">
             <template v-if="coverUrl">
@@ -645,6 +774,16 @@ onBeforeUnmount(() => {
 
             <div class="right-extras">
               <button
+                class="control-btn small text-btn mic-btn"
+                :class="{ active: parsedLyrics.length > 0 }"
+                type="button"
+                @click="toggleLyricsMode"
+                title="Modo Letras"
+              >
+                🎤
+              </button>
+
+              <button
                 class="control-btn small text-btn"
                 :class="{ active: isLooping }"
                 type="button"
@@ -745,6 +884,156 @@ onBeforeUnmount(() => {
               metadata?.lyrics ||
               "No se encontraron letras embebidas en este archivo."
             }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="filePath && isLyricsMode" class="lyrics-layout" style="position: relative;">
+        
+        <button
+          v-if="isUserScrolling"
+          class="sync-fab glass-button glass-shadow"
+          @click="syncLyricsView"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+            <path d="M21 3v5h-5"></path>
+          </svg>
+          Sincronizar
+        </button>
+
+        <div 
+          class="synced-lyrics-container" 
+          ref="lyricsContainerRef"
+          @wheel="onUserInteraction"
+          @touchmove="onUserInteraction"
+          @mousedown="onUserInteraction"
+        >
+          <div v-if="parsedLyrics.length === 0" class="no-lyrics-msg">
+            <div class="sad-mic">🎤</div>
+            No hay letra sincronizada (.lrc) disponible para esta canción.
+          </div>
+
+          <template v-else>
+            <div
+              v-for="(line, index) in parsedLyrics"
+              :key="index"
+              :data-index="index"
+              class="lyric-line"
+              :class="{
+                active: activeLyricIndex === index,
+                passed: activeLyricIndex > index,
+              }"
+              @click="seekAndSync(line.time)"
+            >
+              {{ line.text }}
+            </div>
+          </template>
+        </div>
+
+        <div class="bottom-mini-player glass-panel-inner">
+          <div class="mini-info">
+            <img v-if="coverUrl" :src="coverUrl" class="mini-cover" />
+            <div v-else class="mini-cover-placeholder">♪</div>
+            <div class="mini-text">
+              <div class="song-title mini-title">{{ displayTitle }}</div>
+              <div class="song-subtitle mini-subtitle">{{ displayArtist }}</div>
+            </div>
+          </div>
+
+          <div class="mini-center">
+            <div class="transport mini-transport">
+              <button class="control-btn icon-btn" @click="playPreviousTrack">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="11 19 2 12 11 5 11 19"></polygon>
+                  <polygon points="22 19 13 12 22 5 22 19"></polygon>
+                </svg>
+              </button>
+              <button
+                class="control-btn play-main mini-play"
+                @click="togglePlay"
+              >
+                <svg
+                  v-if="isPlaying"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <rect x="6" y="4" width="4" height="16"></rect>
+                  <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+                <svg
+                  v-else
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </button>
+              <button class="control-btn icon-btn" @click="playNextTrack()">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="13 19 22 12 13 5 13 19"></polygon>
+                  <polygon points="2 19 11 12 2 5 2 19"></polygon>
+                </svg>
+              </button>
+            </div>
+
+            <div class="mini-progress">
+              <span class="mini-time">{{
+                formatTime(visibleCurrentTime)
+              }}</span>
+              <input
+                class="progress-slider"
+                type="range"
+                min="0"
+                :max="duration || 0"
+                :value="visibleCurrentTime"
+                step="0.1"
+                @mousedown="onSeekStart"
+                @touchstart="onSeekStart"
+                @input="onSeekInput"
+                @change="onSeekCommit"
+                :style="{ backgroundSize: `${progressPercentage}% 100%` }"
+              />
+              <span class="mini-time">{{ formatTime(duration) }}</span>
+            </div>
+          </div>
+
+          <div class="mini-actions">
+            <button
+              class="control-btn small text-btn mic-btn is-active"
+              @click="toggleLyricsMode"
+              title="Volver a vista normal"
+            >
+              🎤
+            </button>
+            <button
+              class="control-btn small icon-btn-muted"
+              @click="toggleMute"
+            >
+              <span v-if="isMuted">🔇</span><span v-else>🔊</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1263,6 +1552,227 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
   .app {
     padding: 16px;
+  }
+}
+
+/* ====== ESTILOS MODO LETRAS ====== */
+
+.mic-btn {
+  font-size: 18px;
+  opacity: 0.4;
+  transition: all 0.3s ease;
+}
+.mic-btn.active {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+}
+.mic-btn.is-active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.full-lyrics-shell {
+  height: 90vh; /* Ocupar casi toda la pantalla en este modo */
+  display: flex;
+  flex-direction: column;
+}
+
+.lyrics-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: hidden;
+}
+
+.synced-lyrics-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px 20px 100px 20px; /* Padding extra abajo para scrollear */
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  text-align: center;
+  scroll-behavior: smooth;
+  /* Efecto de desvanecimiento arriba y abajo */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 15%,
+    black 85%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 15%,
+    black 85%,
+    transparent 100%
+  );
+}
+
+.synced-lyrics-container::-webkit-scrollbar {
+  display: none;
+} /* Ocultar scroll visualmente */
+
+.lyric-line {
+  font-size: 28px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.25);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transform-origin: center;
+  cursor: pointer; /* Para hacer click e ir a esa parte */
+}
+
+.lyric-line:hover {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.lyric-line.passed {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lyric-line.active {
+  color: #ffffff;
+  font-size: 34px;
+  transform: scale(1.05);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+}
+
+.no-lyrics-msg {
+  margin: auto;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.sad-mic {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+/* MINI PLAYER (Bottom bar) */
+.bottom-mini-player {
+  display: grid;
+  grid-template-columns: 250px 1fr 100px;
+  align-items: center;
+  padding: 12px 24px;
+  border-radius: 16px;
+  gap: 20px;
+}
+
+.mini-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.mini-cover {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.mini-cover-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+.mini-title {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+.mini-subtitle {
+  font-size: 13px;
+}
+
+.mini-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.mini-transport {
+  gap: 16px;
+}
+.mini-play {
+  width: 44px;
+  height: 44px;
+}
+
+.mini-progress {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 500px;
+  gap: 12px;
+}
+.mini-time {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .bottom-mini-player {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    text-align: center;
+  }
+  .mini-info {
+    justify-content: center;
+  }
+  .mini-actions {
+    position: absolute;
+    right: 20px;
+    top: 20px;
+  }
+  .lyric-line {
+    font-size: 20px;
+  }
+  .lyric-line.active {
+    font-size: 24px;
+  }
+}
+
+/* ====== BOTÓN DE SINCRONIZACIÓN FLOTANTE ====== */
+.sync-fab {
+  position: absolute;
+  bottom: 120px; /* Queda flotando justo encima del mini-reproductor inferior */
+  left: 0;
+  right: 0;
+  margin: 0 auto; /* Centrado horizontal sin usar transform */
+  width: fit-content; /* Necesario para que el margin auto funcione */
+  z-index: 10;
+  padding: 10px 20px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  animation: fadeInFab 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes fadeInFab {
+  from {
+    opacity: 0;
+    transform: translateY(15px); /* Ya no necesitamos el 50% aquí tampoco */
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>
