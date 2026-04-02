@@ -37,3 +37,5 @@ cpal = "0.15"
 symphonia = { version = "0.5.3", features = ["all"] }
 # Crossbeam: Para la comunicación ultrarrápida entre Tauri y el hilo de audio
 crossbeam-channel = "0.5"
+walkdir = "2.3"
+notify = "6.1"

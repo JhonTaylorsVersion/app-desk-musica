@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, nextTick } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  nextTick,
+} from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type CoverArt = {
   data_url?: string | null;
@@ -20,7 +28,7 @@ type AudioMetadata = {
   lyricist?: string | null;
   comment?: string | null;
   lyrics?: string | null;
-  synced_lyrics?: string | null; // <-- NUEVO CAMPO PARA LETRAS SINCRONIZADAS
+  synced_lyrics?: string | null;
   track_number?: string | null;
   track_total?: string | null;
   disc_number?: string | null;
@@ -45,14 +53,81 @@ type PlaylistTrack = {
   extension: string;
 };
 
-// --- NUEVO TIPO PARA LETRAS ---
+type LibraryTrackMetadata = {
+  title: string;
+  artist: string;
+  album: string;
+  duration_seconds: number;
+  duration_formatted: string;
+  cover_art: CoverArt | null;
+};
+
+const libraryMetadataMap = ref<Record<string, LibraryTrackMetadata>>({});
+const loadingLibraryMetadata = ref(false);
+
 type ParsedLyric = {
   time: number;
   text: string;
 };
 
+type PlaybackSource = "library" | "queue";
+
 const playlist = ref<PlaylistTrack[]>([]);
+const queue = ref<PlaylistTrack[]>([]);
+
 const currentIndex = ref(-1);
+const currentQueueIndex = ref(-1);
+const currentSource = ref<PlaybackSource>("library");
+
+const hoveredLibraryTrackPath = ref<string | null>(null);
+
+const isLibraryTrackHovered = (track: PlaylistTrack) => {
+  return hoveredLibraryTrackPath.value === track.path;
+};
+
+const isLibraryTrackCurrent = (track: PlaylistTrack) => {
+  return currentSource.value === "library" && filePath.value === track.path;
+};
+
+const shouldShowLibraryEqualizer = (track: PlaylistTrack) => {
+  return (
+    isLibraryTrackCurrent(track) &&
+    isPlaying.value &&
+    !isLibraryTrackHovered(track)
+  );
+};
+
+const shouldShowLibraryPauseIcon = (track: PlaylistTrack) => {
+  return (
+    isLibraryTrackCurrent(track) &&
+    isPlaying.value &&
+    isLibraryTrackHovered(track)
+  );
+};
+
+const shouldShowLibraryPlayIcon = (track: PlaylistTrack) => {
+  if (!isLibraryTrackHovered(track)) return false;
+
+  // Hover sobre la actual en pausa => play
+  if (isLibraryTrackCurrent(track) && !isPlaying.value) return true;
+
+  // Hover sobre una que no es la actual => play
+  if (!isLibraryTrackCurrent(track)) return true;
+
+  return false;
+};
+
+const shouldShowLibraryIndexNumber = (track: PlaylistTrack) => {
+  // Activa reproduciendo sin hover => equalizer
+  if (shouldShowLibraryEqualizer(track)) return false;
+
+  // Hover sobre cualquier fila => icono
+  if (shouldShowLibraryPlayIcon(track) || shouldShowLibraryPauseIcon(track)) {
+    return false;
+  }
+
+  return true;
+};
 
 const filePath = ref<string | null>(null);
 const fileExtension = ref("");
@@ -64,7 +139,7 @@ const isStopped = ref(false);
 
 const currentTime = ref(0);
 const duration = ref(0);
-const volume = ref(80);
+const volume = ref(10);
 const playbackRate = ref(1);
 
 const rawFileName = ref("");
@@ -77,26 +152,109 @@ let seekRequestId = 0;
 
 let progressInterval: number | null = null;
 
-// ====== NUEVO ESTADO Y LÓGICA PARA LETRAS (KARAOKE) ======
+const musicDirectories = ref<string[]>([]);
+let unlistenFsChanges: UnlistenFn | null = null;
+
+// ====== BIBLIOTECA / BÚSQUEDA / PANEL ======
+const librarySearch = ref("");
+const queueSearch = ref("");
+const isQueuePanelOpen = ref(true);
+
+// ====== ESTADO Y LÓGICA PARA LETRAS ======
 const isLyricsMode = ref(false);
 const parsedLyrics = ref<ParsedLyric[]>([]);
 const lyricsContainerRef = ref<HTMLElement | null>(null);
-
-// NUEVO: Estado para saber si el usuario pausó el auto-scroll navegando manualmente
 const isUserScrolling = ref(false);
+const activeLyricsTab = ref<"synced" | "static">("synced");
+
+const hasSynced = computed(() => parsedLyrics.value.length > 0);
+
+const hasStatic = computed(() => {
+  if (!metadata.value?.lyrics) return false;
+
+  if (
+    !metadata.value?.synced_lyrics &&
+    /\[\d{2}:\d{2}\.\d{2,3}\]/.test(metadata.value.lyrics)
+  ) {
+    return false;
+  }
+
+  return metadata.value.lyrics.trim().length > 0;
+});
+
+const hasBothLyrics = computed(() => hasSynced.value && hasStatic.value);
+
+const currentLyricsView = computed(() => {
+  if (hasBothLyrics.value) return activeLyricsTab.value;
+  if (hasSynced.value) return "synced";
+  if (hasStatic.value) return "static";
+  return "none";
+});
+
+watch(currentLyricsView, async (newView) => {
+  if (newView === "synced" && !isUserScrolling.value) {
+    await nextTick();
+    syncLyricsView();
+  }
+});
+
+const activePlaybackList = computed(() => {
+  return currentSource.value === "queue" ? queue.value : playlist.value;
+});
+
+const activePlaybackIndex = computed(() => {
+  return currentSource.value === "queue"
+    ? currentQueueIndex.value
+    : currentIndex.value;
+});
+
+const hasTrack = computed(() => {
+  const idx = activePlaybackIndex.value;
+  const list = activePlaybackList.value;
+  return idx >= 0 && idx < list.length;
+});
+
+const normalizedLibrarySearch = computed(() =>
+  librarySearch.value.trim().toLowerCase(),
+);
+
+const filteredPlaylist = computed(() => {
+  if (!normalizedLibrarySearch.value) return playlist.value;
+
+  return playlist.value.filter((track) => {
+    const base =
+      `${track.fileName} ${track.extension} ${track.path}`.toLowerCase();
+    return base.includes(normalizedLibrarySearch.value);
+  });
+});
+
+const normalizedQueueSearch = computed(() =>
+  queueSearch.value.trim().toLowerCase(),
+);
+
+const filteredQueue = computed(() => {
+  if (!normalizedQueueSearch.value) return queue.value;
+
+  return queue.value.filter((track) => {
+    const base =
+      `${track.fileName} ${track.extension} ${track.path}`.toLowerCase();
+    return base.includes(normalizedQueueSearch.value);
+  });
+});
 
 const onUserInteraction = () => {
-  if (isLyricsMode.value && parsedLyrics.value.length > 0) {
+  if (currentLyricsView.value === "synced" && parsedLyrics.value.length > 0) {
     isUserScrolling.value = true;
   }
 };
 
 const syncLyricsView = async () => {
   isUserScrolling.value = false;
+
   if (activeLyricIndex.value !== -1 && lyricsContainerRef.value) {
     await nextTick();
     const activeEl = lyricsContainerRef.value.querySelector(
-      `.lyric-line[data-index="${activeLyricIndex.value}"]`
+      `.lyric-line[data-index="${activeLyricIndex.value}"]`,
     );
     if (activeEl) {
       activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -104,9 +262,8 @@ const syncLyricsView = async () => {
   }
 };
 
-// NUEVO: Función para saltar en el audio y reanudar el auto-scroll
 const seekAndSync = async (time: number) => {
-  isUserScrolling.value = false; // Al hacer clic en una letra, reanudamos el seguimiento
+  isUserScrolling.value = false;
   await seekTo(time);
 };
 
@@ -124,69 +281,139 @@ const parseLrc = (lrcContent: string): ParsedLyric[] => {
         match[3].length === 2 ? parseInt(match[3]) * 10 : parseInt(match[3]);
       const time = mins * 60 + secs + ms / 1000;
       const text = line.replace(timeReg, "").trim();
+
       if (text) {
         result.push({ time, text });
       }
     }
   }
-  return result;
+
+  return result.sort((a, b) => a.time - b.time);
+};
+
+const syncLibrary = async () => {
+  if (musicDirectories.value.length === 0) {
+    playlist.value = [];
+    return;
+  }
+
+  try {
+    const tracks: PlaylistTrack[] = await invoke("scan_directories", {
+      directories: musicDirectories.value,
+    });
+
+    playlist.value = tracks;
+
+    // limpiar metadata de archivos que ya no existen
+    const validPaths = new Set(tracks.map((t) => t.path));
+    libraryMetadataMap.value = Object.fromEntries(
+      Object.entries(libraryMetadataMap.value).filter(([path]) =>
+        validPaths.has(path),
+      ),
+    );
+
+    void preloadLibraryMetadata(tracks);
+
+    if (
+      !isPlaying.value &&
+      playlist.value.length > 0 &&
+      currentIndex.value === -1 &&
+      currentQueueIndex.value === -1
+    ) {
+      await loadTrack({
+        source: "library",
+        index: 0,
+        autoplay: false,
+        startAt: 0,
+      });
+    }
+  } catch (error) {
+    console.error("Error al sincronizar la biblioteca:", error);
+  }
+};
+
+const añadirRutaMusica = async () => {
+  try {
+    const selected = await open({
+      multiple: true,
+      directory: true,
+    });
+
+    if (!selected) return;
+
+    const selectedPaths = Array.isArray(selected) ? selected : [selected];
+    if (!selectedPaths.length) return;
+
+    selectedPaths.forEach((path) => {
+      if (!musicDirectories.value.includes(path)) {
+        musicDirectories.value.push(path);
+      }
+    });
+
+    await syncLibrary();
+    await invoke("watch_directories", { directories: musicDirectories.value });
+  } catch (error) {
+    console.error("Error al seleccionar carpeta:", error);
+  }
 };
 
 const activeLyricIndex = computed(() => {
   if (!parsedLyrics.value.length) return -1;
+
   const time = visibleCurrentTime.value;
-  // Buscar de atrás hacia adelante para encontrar la línea activa actual
   for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
-    // Se resta 0.3s para que la letra se ilumine un pelín antes (más natural)
     if (time >= parsedLyrics.value[i].time - 0.3) {
       return i;
     }
   }
+
   return -1;
 });
 
-// Auto-Scroll cuando cambia la línea activa
 watch(activeLyricIndex, async (newIdx) => {
-  if (newIdx !== -1 && isLyricsMode.value && lyricsContainerRef.value) {
-    // NUEVO: Solo hacer auto-scroll si el usuario NO está interactuando manualmente
-    if (!isUserScrolling.value) {
-      await nextTick();
-      const activeEl = lyricsContainerRef.value.querySelector(
-        `.lyric-line[data-index="${newIdx}"]`
-      );
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
+  if (
+    newIdx !== -1 &&
+    isLyricsMode.value &&
+    currentLyricsView.value === "synced" &&
+    lyricsContainerRef.value &&
+    !isUserScrolling.value
+  ) {
+    await nextTick();
+    const activeEl = lyricsContainerRef.value.querySelector(
+      `.lyric-line[data-index="${newIdx}"]`,
+    );
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
 });
 
 const toggleLyricsMode = async () => {
   isLyricsMode.value = !isLyricsMode.value;
-  isUserScrolling.value = false; // Resetear al entrar/salir del modo
-  
-  // Si entramos al modo y hay una letra activa, centramos la vista de inmediato
-  if (
-    isLyricsMode.value &&
-    activeLyricIndex.value !== -1 &&
-    lyricsContainerRef.value
-  ) {
-    await nextTick();
-    setTimeout(() => {
-      const activeEl = lyricsContainerRef.value?.querySelector(
-        `.lyric-line[data-index="${activeLyricIndex.value}"]`
-      );
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: "auto", block: "center" });
-      }
-    }, 50);
+  isUserScrolling.value = false;
+
+  if (isLyricsMode.value) {
+    if (hasBothLyrics.value) {
+      activeLyricsTab.value = "synced";
+    }
+
+    if (
+      currentLyricsView.value === "synced" &&
+      activeLyricIndex.value !== -1 &&
+      lyricsContainerRef.value
+    ) {
+      await nextTick();
+      setTimeout(() => {
+        const activeEl = lyricsContainerRef.value?.querySelector(
+          `.lyric-line[data-index="${activeLyricIndex.value}"]`,
+        );
+        if (activeEl) {
+          activeEl.scrollIntoView({ behavior: "auto", block: "center" });
+        }
+      }, 50);
+    }
   }
 };
-// ==========================================================
-
-const hasTrack = computed(
-  () => currentIndex.value >= 0 && currentIndex.value < playlist.value.length,
-);
 
 const displayTitle = computed(() => {
   return metadata.value?.title?.trim() || rawFileName.value || "Sin título";
@@ -228,6 +455,16 @@ const progressPercentage = computed(() => {
   return (visibleCurrentTime.value / total) * 100;
 });
 
+const currentQueueTrackPath = computed(() => {
+  if (
+    currentQueueIndex.value < 0 ||
+    currentQueueIndex.value >= queue.value.length
+  ) {
+    return null;
+  }
+  return queue.value[currentQueueIndex.value]?.path ?? null;
+});
+
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
 
@@ -243,6 +480,107 @@ const formatTime = (seconds: number) => {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
+const getTrackDisplayTitle = (track: PlaylistTrack) => {
+  return track.fileName || "Sin nombre";
+};
+
+const getLibraryTrackMetadata = (track: PlaylistTrack) => {
+  return libraryMetadataMap.value[track.path] ?? null;
+};
+
+const getLibraryTrackArtist = (track: PlaylistTrack) => {
+  return getLibraryTrackMetadata(track)?.artist || "Artista desconocido";
+};
+
+const getLibraryTrackAlbum = (track: PlaylistTrack) => {
+  return getLibraryTrackMetadata(track)?.album || "—";
+};
+
+const getLibraryTrackDuration = (track: PlaylistTrack) => {
+  return getLibraryTrackMetadata(track)?.duration_formatted || "—";
+};
+
+const getLibraryTrackCover = (track: PlaylistTrack) => {
+  return getLibraryTrackMetadata(track)?.cover_art?.data_url || null;
+};
+
+const preloadLibraryMetadata = async (tracks: PlaylistTrack[]) => {
+  if (!tracks.length) return;
+
+  loadingLibraryMetadata.value = true;
+
+  try {
+    const batchSize = 8;
+
+    for (let i = 0; i < tracks.length; i += batchSize) {
+      const batch = tracks.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map(async (track) => {
+          if (libraryMetadataMap.value[track.path]) return;
+
+          try {
+            const data = await invoke<AudioMetadata>("leer_metadata", {
+              path: track.path,
+            });
+
+            libraryMetadataMap.value = {
+              ...libraryMetadataMap.value,
+              [track.path]: {
+                title: data?.title?.trim() || track.fileName || "Sin título",
+                artist: data?.artist?.trim() || "Artista desconocido",
+                album: data?.album?.trim() || "—",
+                duration_seconds: Number(data?.duration_seconds || 0),
+                duration_formatted:
+                  data?.duration_formatted ||
+                  formatTime(Number(data?.duration_seconds || 0)),
+                cover_art: data?.cover_art || null,
+              },
+            };
+          } catch (error) {
+            console.error(
+              `Error cargando metadata de ${track.fileName}:`,
+              error,
+            );
+
+            libraryMetadataMap.value = {
+              ...libraryMetadataMap.value,
+              [track.path]: {
+                title: track.fileName || "Sin título",
+                artist: "Artista desconocido",
+                album: "—",
+                duration_seconds: 0,
+                duration_formatted: "—",
+                cover_art: null,
+              },
+            };
+          }
+        }),
+      );
+    }
+  } finally {
+    loadingLibraryMetadata.value = false;
+  }
+};
+
+const isLibraryTrackActive = (track: PlaylistTrack) => {
+  return currentSource.value === "library" && filePath.value === track.path;
+};
+
+const isQueueTrackActive = (track: PlaylistTrack, realIndex: number) => {
+  return (
+    currentSource.value === "queue" &&
+    filePath.value === track.path &&
+    currentQueueIndex.value === realIndex
+  );
+};
+
+const getRealQueueIndex = (track: PlaylistTrack) => {
+  return queue.value.findIndex(
+    (item, index) => item.path === track.path && index >= 0,
+  );
+};
+
 const stopProgress = () => {
   if (progressInterval !== null) {
     clearInterval(progressInterval);
@@ -251,7 +589,7 @@ const stopProgress = () => {
 };
 
 const syncPositionFromBackend = async () => {
-  if (!hasTrack.value || !filePath.value) return;
+  if (!filePath.value) return;
   if (isDraggingSeek.value || isSeekInFlight.value) return;
 
   try {
@@ -259,20 +597,22 @@ const syncPositionFromBackend = async () => {
     const max = duration.value || metadata.value?.duration_seconds || 0;
 
     if (max > 0) {
-      // 1. Actualizamos el reloj visual
       currentTime.value = Math.min(Math.max(pos, 0), max);
 
-      // 2. Detectamos si la canción terminó
-      // Le damos un pequeño margen de 0.5 segundos para no cortar el final abruptamente
       if (currentTime.value >= max - 0.5 && isPlaying.value) {
         isPlaying.value = false;
         currentTime.value = max;
         stopProgress();
 
         if (isLooping.value) {
-          void loadTrack(currentIndex.value, true, 0);
+          await loadTrack({
+            source: currentSource.value,
+            index: activePlaybackIndex.value,
+            autoplay: true,
+            startAt: 0,
+          });
         } else {
-          void playNextTrack(true);
+          await playNextTrack(true);
         }
       }
     }
@@ -283,11 +623,10 @@ const syncPositionFromBackend = async () => {
 
 const startProgress = () => {
   stopProgress();
-
   progressInterval = window.setInterval(() => {
     if (!isPlaying.value) return;
     void syncPositionFromBackend();
-  }, 100); // <-- Cambiado a 100ms para que las letras se iluminen rápido y fluido
+  }, 100);
 };
 
 const resetVisualState = () => {
@@ -298,7 +637,7 @@ const resetVisualState = () => {
   isDraggingSeek.value = false;
   seekPreviewTime.value = 0;
   isSeekInFlight.value = false;
-  parsedLyrics.value = []; // <-- Limpiar letras cargadas anteriores
+  parsedLyrics.value = [];
   isUserScrolling.value = false;
   stopProgress();
 };
@@ -309,13 +648,30 @@ const setTrackState = (track: PlaylistTrack) => {
   rawFileName.value = track.fileName;
 };
 
-const loadTrack = async (index: number, autoplay = true, startAt = 0) => {
-  if (index < 0 || index >= playlist.value.length) return;
+const loadTrack = async ({
+  source,
+  index,
+  autoplay = true,
+  startAt = 0,
+}: {
+  source: PlaybackSource;
+  index: number;
+  autoplay?: boolean;
+  startAt?: number;
+}) => {
+  const list = source === "queue" ? queue.value : playlist.value;
+  if (index < 0 || index >= list.length) return;
 
-  const track = playlist.value[index];
-  currentIndex.value = index;
+  const track = list[index];
+
+  currentSource.value = source;
+  if (source === "queue") {
+    currentQueueIndex.value = index;
+  } else {
+    currentIndex.value = index;
+  }
+
   setTrackState(track);
-
   resetVisualState();
   metadata.value = null;
   isStopped.value = false;
@@ -324,9 +680,9 @@ const loadTrack = async (index: number, autoplay = true, startAt = 0) => {
     metadata.value = await invoke<AudioMetadata>("leer_metadata", {
       path: track.path,
     });
+
     duration.value = Number(metadata.value?.duration_seconds || 0);
 
-    // NUEVO: Intentar parsear las letras (desde el .lrc o embebidas)
     if (metadata.value?.synced_lyrics) {
       parsedLyrics.value = parseLrc(metadata.value.synced_lyrics);
     } else if (
@@ -366,47 +722,95 @@ const loadTrack = async (index: number, autoplay = true, startAt = 0) => {
   }
 };
 
-const seleccionarArchivo = async () => {
-  try {
-    const selected = await open({
-      multiple: true,
-      directory: false,
-      filters: [
-        {
-          name: "Audio",
-          extensions: ["mp3", "flac", "wav", "ogg", "m4a", "aac"],
-        },
-      ],
-    });
+const playTrackFromLibrary = async (track: PlaylistTrack) => {
+  const realIndex = playlist.value.findIndex(
+    (item) => item.path === track.path,
+  );
+  if (realIndex === -1) return;
 
-    if (!selected) return;
+  await loadTrack({
+    source: "library",
+    index: realIndex,
+    autoplay: true,
+    startAt: 0,
+  });
+};
 
-    const selectedPaths = Array.isArray(selected) ? selected : [selected];
-    if (!selectedPaths.length) return;
+const toggleLibraryTrackPlayback = async (track: PlaylistTrack) => {
+  const realIndex = playlist.value.findIndex(
+    (item) => item.path === track.path,
+  );
+  if (realIndex === -1) return;
 
-    await invoke("stop_audio_backend");
+  const isCurrentLibraryTrack =
+    currentSource.value === "library" && filePath.value === track.path;
 
-    playlist.value = selectedPaths.map((path) => {
-      const fileName = path.split(/[/\\]/).pop() || "Archivo de audio";
-      const extension = fileName.includes(".")
-        ? fileName.split(".").pop()?.toLowerCase() || ""
-        : "";
+  if (isCurrentLibraryTrack) {
+    await togglePlay();
+    return;
+  }
 
-      return {
-        path,
-        fileName,
-        extension,
-      };
-    });
+  await loadTrack({
+    source: "library",
+    index: realIndex,
+    autoplay: true,
+    startAt: 0,
+  });
+};
 
-    await loadTrack(0, true, 0);
-  } catch (error) {
-    console.error("Error al seleccionar archivo:", error);
+const playTrackFromQueue = async (queueIndex: number) => {
+  if (queueIndex < 0 || queueIndex >= queue.value.length) return;
+
+  await loadTrack({
+    source: "queue",
+    index: queueIndex,
+    autoplay: true,
+    startAt: 0,
+  });
+};
+
+const addToQueue = (track: PlaylistTrack) => {
+  queue.value.push({ ...track });
+  isQueuePanelOpen.value = true;
+};
+
+const addAllFilteredToQueue = () => {
+  filteredPlaylist.value.forEach((track) => {
+    queue.value.push({ ...track });
+  });
+  isQueuePanelOpen.value = true;
+};
+
+const removeFromQueue = (queueIndex: number) => {
+  if (queueIndex < 0 || queueIndex >= queue.value.length) return;
+
+  const removingCurrent =
+    currentSource.value === "queue" && currentQueueIndex.value === queueIndex;
+
+  queue.value.splice(queueIndex, 1);
+
+  if (currentSource.value === "queue") {
+    if (removingCurrent) {
+      if (queue.value.length === 0) {
+        currentQueueIndex.value = -1;
+      } else if (queueIndex >= queue.value.length) {
+        currentQueueIndex.value = queue.value.length - 1;
+      }
+    } else if (currentQueueIndex.value > queueIndex) {
+      currentQueueIndex.value -= 1;
+    }
+  }
+};
+
+const clearQueue = () => {
+  queue.value = [];
+  if (currentSource.value === "queue") {
+    currentQueueIndex.value = -1;
   }
 };
 
 const togglePlay = async () => {
-  if (!hasTrack.value || !filePath.value) return;
+  if (!filePath.value) return;
 
   try {
     audioError.value = "";
@@ -419,7 +823,21 @@ const togglePlay = async () => {
     }
 
     if (isStopped.value || currentTime.value >= (duration.value || 0)) {
-      await loadTrack(currentIndex.value, true, 0);
+      if (currentSource.value === "queue" && currentQueueIndex.value >= 0) {
+        await loadTrack({
+          source: "queue",
+          index: currentQueueIndex.value,
+          autoplay: true,
+          startAt: 0,
+        });
+      } else if (currentIndex.value >= 0) {
+        await loadTrack({
+          source: "library",
+          index: currentIndex.value,
+          autoplay: true,
+          startAt: 0,
+        });
+      }
       return;
     }
 
@@ -502,33 +920,120 @@ const onSeekCommit = async (e: Event) => {
 };
 
 const playPreviousTrack = async () => {
-  if (!hasTrack.value) return;
+  if (!filePath.value) return;
 
   if (currentTime.value > 10) {
-    await loadTrack(currentIndex.value, true, 0);
+    await loadTrack({
+      source: currentSource.value,
+      index: activePlaybackIndex.value,
+      autoplay: true,
+      startAt: 0,
+    });
+    return;
+  }
+
+  if (currentSource.value === "queue") {
+    if (currentQueueIndex.value > 0) {
+      await loadTrack({
+        source: "queue",
+        index: currentQueueIndex.value - 1,
+        autoplay: true,
+        startAt: 0,
+      });
+      return;
+    }
+
+    await loadTrack({
+      source: "queue",
+      index: Math.max(currentQueueIndex.value, 0),
+      autoplay: true,
+      startAt: 0,
+    });
     return;
   }
 
   if (currentIndex.value > 0) {
-    await loadTrack(currentIndex.value - 1, true, 0);
+    await loadTrack({
+      source: "library",
+      index: currentIndex.value - 1,
+      autoplay: true,
+      startAt: 0,
+    });
     return;
   }
 
-  await loadTrack(currentIndex.value, true, 0);
+  await loadTrack({
+    source: "library",
+    index: Math.max(currentIndex.value, 0),
+    autoplay: true,
+    startAt: 0,
+  });
 };
 
 const playNextTrack = async (fromAutoEnd = false) => {
-  if (!hasTrack.value) return;
+  if (!filePath.value) return;
 
-  const nextIndex = currentIndex.value + 1;
+  if (currentSource.value === "queue") {
+    const nextQueueIndex = currentQueueIndex.value + 1;
 
-  if (nextIndex < playlist.value.length) {
-    await loadTrack(nextIndex, true, 0);
+    if (nextQueueIndex < queue.value.length) {
+      await loadTrack({
+        source: "queue",
+        index: nextQueueIndex,
+        autoplay: true,
+        startAt: 0,
+      });
+      return;
+    }
+
+    if (isLooping.value) {
+      await loadTrack({
+        source: "queue",
+        index: 0,
+        autoplay: true,
+        startAt: 0,
+      });
+      return;
+    }
+
+    if (fromAutoEnd) {
+      isPlaying.value = false;
+      isStopped.value = true;
+      currentTime.value = 0;
+      stopProgress();
+      return;
+    }
+  }
+
+  if (queue.value.length > 0 && currentSource.value !== "queue") {
+    await loadTrack({
+      source: "queue",
+      index: 0,
+      autoplay: true,
+      startAt: 0,
+    });
     return;
   }
 
-  if (isLooping.value || fromAutoEnd) {
-    await loadTrack(currentIndex.value, true, 0);
+  const nextLibraryIndex = currentIndex.value + 1;
+
+  if (nextLibraryIndex < playlist.value.length) {
+    await loadTrack({
+      source: "library",
+      index: nextLibraryIndex,
+      autoplay: true,
+      startAt: 0,
+    });
+    return;
+  }
+
+  if (isLooping.value && playlist.value.length > 0) {
+    await loadTrack({
+      source: "library",
+      index: 0,
+      autoplay: true,
+      startAt: 0,
+    });
     return;
   }
 
@@ -572,9 +1077,21 @@ const toggleLoop = () => {
   isLooping.value = !isLooping.value;
 };
 
+onMounted(async () => {
+  unlistenFsChanges = await listen("library-updated", () => {
+    console.log("Detectado cambio en la carpeta, actualizando canciones...");
+    void syncLibrary();
+  });
+});
+
 onBeforeUnmount(() => {
   stopProgress();
   invoke("stop_audio_backend").catch(console.error);
+
+  if (unlistenFsChanges) {
+    unlistenFsChanges();
+    unlistenFsChanges = null;
+  }
 });
 </script>
 
@@ -594,31 +1111,42 @@ onBeforeUnmount(() => {
           <h1>Reproductor local</h1>
         </div>
 
-        <button
-          class="file-picker glass-button"
-          type="button"
-          @click="seleccionarArchivo"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            style="margin-right: 8px"
+        <div class="topbar-actions">
+          <button
+            class="file-picker glass-button"
+            type="button"
+            @click="añadirRutaMusica"
           >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-          Seleccionar canción
-        </button>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              style="margin-right: 8px"
+            >
+              <path
+                d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+              ></path>
+            </svg>
+            Añadir Ruta(s)
+          </button>
+
+          <button
+            class="glass-button secondary-button"
+            type="button"
+            @click="isQueuePanelOpen = !isQueuePanelOpen"
+          >
+            {{ isQueuePanelOpen ? "Ocultar fila" : "Mostrar fila" }}
+          </button>
+        </div>
       </div>
 
-      <div v-if="filePath && !isLyricsMode" class="player-layout">
+      <div v-if="!isLyricsMode" class="main-layout">
+        <!-- IZQUIERDA: REPRODUCTOR -->
         <div class="left-panel">
           <div class="cover-container">
             <template v-if="coverUrl">
@@ -638,6 +1166,17 @@ onBeforeUnmount(() => {
             <div class="song-subtitle">
               {{ displayArtist }} &bull; {{ displayAlbum }}
             </div>
+          </div>
+
+          <div class="playing-source-badge glass-panel-inner">
+            <span>
+              Reproduciendo desde:
+              <strong>{{
+                currentSource === "queue"
+                  ? "Fila de reproducción"
+                  : "Biblioteca"
+              }}</strong>
+            </span>
           </div>
 
           <div class="progress-card glass-panel-inner">
@@ -775,7 +1314,7 @@ onBeforeUnmount(() => {
             <div class="right-extras">
               <button
                 class="control-btn small text-btn mic-btn"
-                :class="{ active: parsedLyrics.length > 0 }"
+                :class="{ active: hasSynced || hasStatic }"
                 type="button"
                 @click="toggleLyricsMode"
                 title="Modo Letras"
@@ -812,123 +1351,437 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="right-panel">
-          <div class="meta-card glass-panel-inner">
+        <!-- CENTRO: BIBLIOTECA -->
+        <div class="library-panel glass-panel-inner">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Biblioteca</div>
+              <div class="panel-subtitle">
+                {{ filteredPlaylist.length }} de {{ playlist.length }} canciones
+              </div>
+            </div>
+
+            <button
+              class="small-action-btn"
+              type="button"
+              @click="addAllFilteredToQueue"
+              :disabled="filteredPlaylist.length === 0"
+            >
+              Añadir visibles a la fila
+            </button>
+          </div>
+
+          <div class="search-row">
+            <input
+              v-model="librarySearch"
+              type="text"
+              class="search-input"
+              placeholder="Buscar en toda la biblioteca..."
+            />
+          </div>
+
+          <div v-if="playlist.length === 0" class="library-empty">
+            <div class="empty-icon small">🎼</div>
+            <div class="empty-title small-title">No hay canciones cargadas</div>
+            <div class="empty-subtitle">
+              Añade una o varias carpetas de música para construir tu
+              biblioteca.
+            </div>
+          </div>
+
+          <div v-else class="tracks-list spotify-list">
+            <div class="library-table-head">
+              <div class="col-index">#</div>
+              <div class="col-title">Título</div>
+              <div class="col-album">Álbum</div>
+              <div class="col-added">Agregado</div>
+              <div class="col-time">⏱</div>
+            </div>
+
+            <div
+              v-for="(track, index) in filteredPlaylist"
+              :key="track.path"
+              class="track-row spotify-row"
+              :class="{
+                active: isLibraryTrackActive(track),
+                hovered: isLibraryTrackHovered(track),
+                playing: isLibraryTrackCurrent(track) && isPlaying,
+                paused: isLibraryTrackCurrent(track) && !isPlaying,
+              }"
+              @mouseenter="hoveredLibraryTrackPath = track.path"
+              @mouseleave="hoveredLibraryTrackPath = null"
+              @dblclick="playTrackFromLibrary(track)"
+            >
+              <div
+                class="col-index row-index interactive-index"
+                @click.stop="toggleLibraryTrackPlayback(track)"
+              >
+                <span
+                  v-if="shouldShowLibraryIndexNumber(track)"
+                  class="row-index-number"
+                >
+                  {{ index + 1 }}
+                </span>
+
+                <span
+                  v-else-if="shouldShowLibraryPlayIcon(track)"
+                  class="row-index-icon"
+                  aria-label="Reproducir"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <polygon points="7,5 19,12 7,19"></polygon>
+                  </svg>
+                </span>
+
+                <span
+                  v-else-if="shouldShowLibraryPauseIcon(track)"
+                  class="row-index-icon"
+                  aria-label="Pausar"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <rect x="6" y="5" width="4" height="14"></rect>
+                    <rect x="14" y="5" width="4" height="14"></rect>
+                  </svg>
+                </span>
+
+                <span
+                  v-else-if="shouldShowLibraryEqualizer(track)"
+                  class="row-equalizer"
+                  aria-label="Reproduciendo"
+                >
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </span>
+              </div>
+
+              <div
+                class="col-title row-title-wrap"
+                @click="playTrackFromLibrary(track)"
+              >
+                <div class="row-cover">
+                  <img
+                    v-if="getLibraryTrackCover(track)"
+                    :src="getLibraryTrackCover(track)!"
+                    alt="cover"
+                  />
+                  <div v-else class="row-cover-placeholder">♪</div>
+                </div>
+
+                <div class="row-title-meta">
+                  <div class="track-name spotify-track-name">
+                    {{ getTrackDisplayTitle(track) }}
+                  </div>
+                  <div class="track-path spotify-track-subtitle">
+                    {{ track.extension.toUpperCase() }} •
+                    {{ getLibraryTrackArtist(track) }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-album row-album">
+                {{ getLibraryTrackAlbum(track) }}
+              </div>
+
+              <div class="col-added row-added">Local</div>
+
+              <div class="col-time row-time-actions">
+                <span class="row-duration">{{
+                  getLibraryTrackDuration(track)
+                }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DERECHA: FILA + METADATA -->
+        <div v-if="isQueuePanelOpen" class="right-panel">
+          <div class="queue-panel glass-panel-inner">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Fila de reproducción</div>
+                <div class="panel-subtitle">{{ queue.length }} elemento(s)</div>
+              </div>
+
+              <button
+                class="small-action-btn danger"
+                type="button"
+                @click="clearQueue"
+                :disabled="queue.length === 0"
+              >
+                Limpiar
+              </button>
+            </div>
+
+            <div class="search-row">
+              <input
+                v-model="queueSearch"
+                type="text"
+                class="search-input"
+                placeholder="Buscar en la fila..."
+              />
+            </div>
+
+            <div v-if="queue.length === 0" class="queue-empty">
+              <div class="empty-icon small">🧾</div>
+              <div class="empty-title small-title">La fila está vacía</div>
+              <div class="empty-subtitle">
+                Añade canciones desde la biblioteca para verlas aquí.
+              </div>
+            </div>
+
+            <div v-else class="queue-list">
+              <div
+                v-for="track in filteredQueue"
+                :key="`${track.path}-${getRealQueueIndex(track)}`"
+                class="queue-row"
+                :class="{
+                  active: isQueueTrackActive(track, getRealQueueIndex(track)),
+                }"
+              >
+                <div
+                  class="track-main-info"
+                  @click="playTrackFromQueue(getRealQueueIndex(track))"
+                >
+                  <div class="track-name">
+                    {{ getTrackDisplayTitle(track) }}
+                  </div>
+                  <div class="track-path">
+                    {{ track.extension.toUpperCase() }}
+                  </div>
+                </div>
+
+                <div class="track-actions">
+                  <button
+                    class="row-btn"
+                    type="button"
+                    @click.stop="playTrackFromQueue(getRealQueueIndex(track))"
+                  >
+                    ▶
+                  </button>
+                  <button
+                    class="row-btn remove"
+                    type="button"
+                    @click.stop="removeFromQueue(getRealQueueIndex(track))"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="filePath" class="meta-card glass-panel-inner">
             <div class="meta-card-title">Propiedades del Archivo</div>
 
             <div class="meta-grid">
               <div class="meta-item">
-                <span class="meta-label">Título</span>
-                <span class="meta-value">{{ metadata?.title || "—" }}</span>
+                <span class="meta-label">Título</span
+                ><span class="meta-value">{{ metadata?.title || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Artista</span>
-                <span class="meta-value">{{ metadata?.artist || "—" }}</span>
+                <span class="meta-label">Artista</span
+                ><span class="meta-value">{{ metadata?.artist || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Álbum</span>
-                <span class="meta-value">{{ metadata?.album || "—" }}</span>
+                <span class="meta-label">Álbum</span
+                ><span class="meta-value">{{ metadata?.album || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Artista del álbum</span>
-                <span class="meta-value">{{
+                <span class="meta-label">Artista del álbum</span
+                ><span class="meta-value">{{
                   metadata?.album_artist || "—"
                 }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Género</span>
-                <span class="meta-value">{{ metadata?.genre || "—" }}</span>
+                <span class="meta-label">Género</span
+                ><span class="meta-value">{{ metadata?.genre || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Compositor</span>
-                <span class="meta-value">{{ metadata?.composer || "—" }}</span>
+                <span class="meta-label">Compositor</span
+                ><span class="meta-value">{{ metadata?.composer || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Track</span>
-                <span class="meta-value">{{ trackLabel }}</span>
+                <span class="meta-label">Track</span
+                ><span class="meta-value">{{ trackLabel }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Disco</span>
-                <span class="meta-value">{{ discLabel }}</span>
+                <span class="meta-label">Disco</span
+                ><span class="meta-value">{{ discLabel }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Año</span>
-                <span class="meta-value">{{ metadata?.year || "—" }}</span>
+                <span class="meta-label">Año</span
+                ><span class="meta-value">{{ metadata?.year || "—" }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Duración</span>
-                <span class="meta-value">{{
+                <span class="meta-label">Duración</span
+                ><span class="meta-value">{{
                   metadata?.duration_formatted || formatTime(duration)
                 }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Bitrate de Audio</span>
-                <span class="meta-value">{{
+                <span class="meta-label">Bitrate</span
+                ><span class="meta-value">{{
                   metadata?.audio_bitrate
                     ? `${metadata.audio_bitrate} kbps`
                     : "—"
                 }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">Formato</span>
-                <span class="meta-value uppercase">{{
+                <span class="meta-label">Formato</span
+                ><span class="meta-value uppercase">{{
+                  fileExtension || "—"
+                }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Sample rate</span
+                ><span class="meta-value">{{
+                  metadata?.sample_rate ? `${metadata.sample_rate} Hz` : "—"
+                }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Bit depth</span
+                ><span class="meta-value">{{
+                  metadata?.bit_depth ? `${metadata.bit_depth} bits` : "—"
+                }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Canales</span
+                ><span class="meta-value">{{ metadata?.channels || "—" }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="collapsed-side">
+          <div v-if="filePath" class="meta-card glass-panel-inner">
+            <div class="meta-card-title">Propiedades del Archivo</div>
+
+            <div class="meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">Título</span
+                ><span class="meta-value">{{ metadata?.title || "—" }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Artista</span
+                ><span class="meta-value">{{ metadata?.artist || "—" }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Álbum</span
+                ><span class="meta-value">{{ metadata?.album || "—" }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Duración</span
+                ><span class="meta-value">{{
+                  metadata?.duration_formatted || formatTime(duration)
+                }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Formato</span
+                ><span class="meta-value uppercase">{{
                   fileExtension || "—"
                 }}</span>
               </div>
             </div>
           </div>
-
-          <div class="meta-card glass-panel-inner lyrics-card">
-            <div class="meta-card-title">Letra de la canción</div>
-            <pre class="lyrics-block">{{
-              metadata?.lyrics ||
-              "No se encontraron letras embebidas en este archivo."
-            }}</pre>
-          </div>
         </div>
       </div>
 
-      <div v-else-if="filePath && isLyricsMode" class="lyrics-layout" style="position: relative;">
-        
+      <!-- MODO LETRAS -->
+      <div
+        v-else-if="filePath && isLyricsMode"
+        class="lyrics-layout"
+        style="position: relative"
+      >
+        <div v-if="hasBothLyrics" class="lyrics-tabs-container">
+          <div class="lyrics-tabs glass-panel-inner">
+            <button
+              class="tab-btn"
+              :class="{ active: activeLyricsTab === 'synced' }"
+              @click="activeLyricsTab = 'synced'"
+            >
+              Letra Sincronizada
+            </button>
+            <button
+              class="tab-btn"
+              :class="{ active: activeLyricsTab === 'static' }"
+              @click="activeLyricsTab = 'static'"
+            >
+              Letra Embebida
+            </button>
+          </div>
+        </div>
+
         <button
-          v-if="isUserScrolling"
+          v-if="isUserScrolling && currentLyricsView === 'synced'"
           class="sync-fab glass-button glass-shadow"
           @click="syncLyricsView"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
             <path d="M21 3v5h-5"></path>
           </svg>
           Sincronizar
         </button>
 
-        <div 
-          class="synced-lyrics-container" 
+        <div
+          v-show="currentLyricsView === 'synced'"
+          class="synced-lyrics-container"
           ref="lyricsContainerRef"
           @wheel="onUserInteraction"
           @touchmove="onUserInteraction"
           @mousedown="onUserInteraction"
         >
-          <div v-if="parsedLyrics.length === 0" class="no-lyrics-msg">
-            <div class="sad-mic">🎤</div>
-            No hay letra sincronizada (.lrc) disponible para esta canción.
+          <div
+            v-for="(line, index) in parsedLyrics"
+            :key="index"
+            :data-index="index"
+            class="lyric-line"
+            :class="{
+              active: activeLyricIndex === index,
+              passed: activeLyricIndex > index,
+            }"
+            @click="seekAndSync(line.time)"
+          >
+            {{ line.text }}
           </div>
+        </div>
 
-          <template v-else>
-            <div
-              v-for="(line, index) in parsedLyrics"
-              :key="index"
-              :data-index="index"
-              class="lyric-line"
-              :class="{
-                active: activeLyricIndex === index,
-                passed: activeLyricIndex > index,
-              }"
-              @click="seekAndSync(line.time)"
-            >
-              {{ line.text }}
-            </div>
-          </template>
+        <div
+          v-show="currentLyricsView === 'static'"
+          class="static-lyrics-container"
+        >
+          <pre class="static-lyrics-text">{{ metadata?.lyrics }}</pre>
+        </div>
+
+        <div
+          v-show="currentLyricsView === 'none'"
+          class="synced-lyrics-container"
+        >
+          <div class="no-lyrics-msg">
+            <div class="sad-mic">🎤</div>
+            No hay letra sincronizada ni embebida para esta canción.
+          </div>
         </div>
 
         <div class="bottom-mini-player glass-panel-inner">
@@ -1042,7 +1895,8 @@ onBeforeUnmount(() => {
         <div class="empty-icon">🎧</div>
         <div class="empty-title">Tu música, a tu manera</div>
         <div class="empty-subtitle">
-          Selecciona un archivo MP3, FLAC, WAV, OGG, M4A o AAC para empezar
+          Añade una o varias carpetas para ver toda tu biblioteca, buscar y
+          crear tu fila de reproducción.
         </div>
       </div>
     </div>
@@ -1062,7 +1916,7 @@ onBeforeUnmount(() => {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
-  padding: 32px;
+  padding: 24px;
   overflow: hidden;
   display: flex;
   justify-content: center;
@@ -1115,12 +1969,14 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 1100px;
+  max-width: 1600px;
+  height: 88vh;
   border-radius: 24px;
-  padding: 32px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
+  overflow: hidden;
 }
 
 .topbar {
@@ -1128,6 +1984,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -1160,35 +2023,58 @@ onBeforeUnmount(() => {
   font-size: 14px;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: all 0.25s ease;
   backdrop-filter: blur(10px);
 }
 
 .glass-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
 }
 
-.player-layout {
+.secondary-button {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.main-layout {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 32px;
-  align-items: start;
+  grid-template-columns: 360px minmax(0, 1fr) 360px;
+  gap: 20px;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .left-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   align-items: center;
   text-align: center;
+  min-height: 0;
+}
+
+.library-panel,
+.queue-panel,
+.meta-card,
+.collapsed-side {
+  min-height: 0;
 }
 
 .right-panel {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.collapsed-side {
+  display: flex;
+  flex-direction: column;
 }
 
 .cover-container {
@@ -1196,14 +2082,13 @@ onBeforeUnmount(() => {
   max-width: 320px;
   aspect-ratio: 1 / 1;
   position: relative;
-  margin-bottom: 8px;
 }
 
 .cover-image,
 .cover-placeholder {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  border-radius: 14px;
   object-fit: cover;
 }
 
@@ -1245,6 +2130,14 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
+.playing-source-badge {
+  width: 100%;
+  padding: 10px 14px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+}
+
 .transport {
   display: flex;
   align-items: center;
@@ -1278,13 +2171,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: all 0.2s ease;
 }
 
 .play-main:hover {
-  transform: scale(1.05);
+  transform: scale(1.04);
   background: #f0f0f0;
-  box-shadow: 0 10px 25px rgba(255, 255, 255, 0.2);
 }
 
 .play-main:active {
@@ -1314,7 +2206,7 @@ input[type="range"] {
   background-image: linear-gradient(#ffffff, #ffffff);
   background-size: 0% 100%;
   background-repeat: no-repeat;
-  border-radius: 2px;
+  border-radius: 999px;
   height: 4px;
   outline: none;
   margin: 0;
@@ -1351,7 +2243,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 input[type="range"]:hover::-webkit-slider-thumb {
   opacity: 1;
-  transform: scale(1.2);
+  transform: scale(1.15);
 }
 
 .extra-controls {
@@ -1400,7 +2292,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .text-btn.active {
   opacity: 1;
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.4));
 }
 
 .rate-select {
@@ -1421,8 +2313,215 @@ input[type="range"]:hover::-webkit-slider-thumb {
   color: white;
 }
 
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.panel-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+.small-action-btn {
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background 0.2s ease;
+}
+
+.small-action-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.small-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.small-action-btn.danger {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.small-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.search-row {
+  margin-bottom: 14px;
+}
+
+.search-input {
+  width: 100%;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+  padding: 0 14px;
+  outline: none;
+  font-size: 14px;
+}
+
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.library-panel,
+.queue-panel {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.queue-panel {
+  flex: 1 1 55%;
+  min-height: 0;
+}
+
+.tracks-list,
+.queue-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.tracks-list::-webkit-scrollbar,
+.queue-list::-webkit-scrollbar,
+.synced-lyrics-container::-webkit-scrollbar,
+.static-lyrics-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tracks-list::-webkit-scrollbar-thumb,
+.queue-list::-webkit-scrollbar-thumb,
+.synced-lyrics-container::-webkit-scrollbar-thumb,
+.static-lyrics-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.track-row,
+.queue-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.track-row:hover,
+.queue-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.track-row.active,
+.queue-row.active {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.track-main-info {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.track-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-path {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.52);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-btn {
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 42px;
+}
+
+.row-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.row-btn.remove {
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.row-btn.remove:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.library-empty,
+.queue-empty {
+  flex: 1;
+  min-height: 220px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 18px;
+  flex-direction: column;
+}
+
 .meta-card {
-  padding: 24px;
+  padding: 20px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.meta-card {
+  flex: 1 1 45%;
 }
 
 .meta-card-title {
@@ -1438,7 +2537,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .meta-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 16px;
 }
 
@@ -1467,40 +2566,6 @@ input[type="range"]:hover::-webkit-slider-thumb {
   text-transform: uppercase;
 }
 
-.lyrics-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.lyrics-block {
-  margin: 0;
-  flex: 1;
-  max-height: 300px;
-  overflow-y: auto;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.8;
-  color: rgba(255, 255, 255, 0.8);
-  white-space: pre-wrap;
-  padding-right: 12px;
-}
-
-.lyrics-block::-webkit-scrollbar {
-  width: 6px;
-}
-.lyrics-block::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 3px;
-}
-.lyrics-block::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-.lyrics-block::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
 .empty-state {
   min-height: 500px;
   display: flex;
@@ -1518,15 +2583,25 @@ input[type="range"]:hover::-webkit-slider-thumb {
   opacity: 0.5;
 }
 
+.empty-icon.small {
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
 .empty-title {
   font-size: 24px;
   font-weight: 700;
   margin-bottom: 8px;
 }
 
+.empty-title.small-title {
+  font-size: 16px;
+}
+
 .empty-subtitle {
   color: rgba(255, 255, 255, 0.5);
   font-size: 15px;
+  line-height: 1.5;
 }
 
 .error-box {
@@ -1540,32 +2615,17 @@ input[type="range"]:hover::-webkit-slider-thumb {
   width: 100%;
 }
 
-@media (max-width: 900px) {
-  .player-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .left-panel {
-    max-width: 400px;
-    margin: 0 auto;
-  }
-
-  .app {
-    padding: 16px;
-  }
-}
-
-/* ====== ESTILOS MODO LETRAS ====== */
-
 .mic-btn {
   font-size: 18px;
   opacity: 0.4;
   transition: all 0.3s ease;
 }
+
 .mic-btn.active {
   opacity: 1;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
 }
+
 .mic-btn.is-active {
   opacity: 1;
   background: rgba(255, 255, 255, 0.2);
@@ -1574,7 +2634,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 .full-lyrics-shell {
-  height: 90vh; /* Ocupar casi toda la pantalla en este modo */
+  height: 90vh;
   display: flex;
   flex-direction: column;
 }
@@ -1587,16 +2647,53 @@ input[type="range"]:hover::-webkit-slider-thumb {
   overflow: hidden;
 }
 
+.lyrics-tabs-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+  margin-bottom: -10px;
+  z-index: 5;
+}
+
+.lyrics-tabs {
+  display: flex;
+  padding: 6px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  gap: 4px;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 8px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.tab-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.tab-btn.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
 .synced-lyrics-container {
   flex: 1;
   overflow-y: auto;
-  padding: 40px 20px 100px 20px; /* Padding extra abajo para scrollear */
+  padding: 40px 20px 100px 20px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   text-align: center;
   scroll-behavior: smooth;
-  /* Efecto de desvanecimiento arriba y abajo */
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
@@ -1613,17 +2710,48 @@ input[type="range"]:hover::-webkit-slider-thumb {
   );
 }
 
-.synced-lyrics-container::-webkit-scrollbar {
-  display: none;
-} /* Ocultar scroll visualmente */
+.static-lyrics-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 5%,
+    black 95%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 5%,
+    black 95%,
+    transparent 100%
+  );
+}
+
+.static-lyrics-text {
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 2;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: pre-wrap;
+  text-align: center;
+  max-width: 800px;
+  margin: auto;
+  padding: 40px 0;
+}
 
 .lyric-line {
   font-size: 28px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.25);
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: all 0.4s ease;
   transform-origin: center;
-  cursor: pointer; /* Para hacer click e ir a esa parte */
+  cursor: pointer;
 }
 
 .lyric-line:hover {
@@ -1645,14 +2773,15 @@ input[type="range"]:hover::-webkit-slider-thumb {
   margin: auto;
   font-size: 20px;
   color: rgba(255, 255, 255, 0.5);
+  text-align: center;
 }
+
 .sad-mic {
   font-size: 48px;
   margin-bottom: 16px;
   opacity: 0.5;
 }
 
-/* MINI PLAYER (Bottom bar) */
 .bottom-mini-player {
   display: grid;
   grid-template-columns: 250px 1fr 100px;
@@ -1667,12 +2796,14 @@ input[type="range"]:hover::-webkit-slider-thumb {
   align-items: center;
   gap: 16px;
 }
+
 .mini-cover {
   width: 56px;
   height: 56px;
   border-radius: 8px;
   object-fit: cover;
 }
+
 .mini-cover-placeholder {
   width: 56px;
   height: 56px;
@@ -1683,10 +2814,12 @@ input[type="range"]:hover::-webkit-slider-thumb {
   justify-content: center;
   font-size: 24px;
 }
+
 .mini-title {
   font-size: 16px;
   margin-bottom: 2px;
 }
+
 .mini-subtitle {
   font-size: 13px;
 }
@@ -1697,9 +2830,11 @@ input[type="range"]:hover::-webkit-slider-thumb {
   align-items: center;
   gap: 8px;
 }
+
 .mini-transport {
   gap: 16px;
 }
+
 .mini-play {
   width: 44px;
   height: 44px;
@@ -1712,6 +2847,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
   max-width: 500px;
   gap: 12px;
 }
+
 .mini-time {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
@@ -1724,36 +2860,13 @@ input[type="range"]:hover::-webkit-slider-thumb {
   gap: 12px;
 }
 
-@media (max-width: 900px) {
-  .bottom-mini-player {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    text-align: center;
-  }
-  .mini-info {
-    justify-content: center;
-  }
-  .mini-actions {
-    position: absolute;
-    right: 20px;
-    top: 20px;
-  }
-  .lyric-line {
-    font-size: 20px;
-  }
-  .lyric-line.active {
-    font-size: 24px;
-  }
-}
-
-/* ====== BOTÓN DE SINCRONIZACIÓN FLOTANTE ====== */
 .sync-fab {
   position: absolute;
-  bottom: 120px; /* Queda flotando justo encima del mini-reproductor inferior */
+  bottom: 120px;
   left: 0;
   right: 0;
-  margin: 0 auto; /* Centrado horizontal sin usar transform */
-  width: fit-content; /* Necesario para que el margin auto funcione */
+  margin: 0 auto;
+  width: fit-content;
   z-index: 10;
   padding: 10px 20px;
   border-radius: 30px;
@@ -1762,17 +2875,412 @@ input[type="range"]:hover::-webkit-slider-thumb {
   gap: 8px;
   font-size: 14px;
   letter-spacing: 0.5px;
-  animation: fadeInFab 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  animation: fadeInFab 0.3s ease;
 }
 
 @keyframes fadeInFab {
   from {
     opacity: 0;
-    transform: translateY(15px); /* Ya no necesitamos el 50% aquí tampoco */
+    transform: translateY(15px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (max-width: 1400px) {
+  .main-layout {
+    grid-template-columns: 330px minmax(0, 1fr) 320px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .left-panel {
+    max-width: 460px;
+    margin: 0 auto;
+  }
+
+  .library-panel,
+  .queue-panel,
+  .meta-card {
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    padding: 14px;
+  }
+
+  .player-shell {
+    padding: 16px;
+    height: auto;
+    min-height: auto;
+  }
+
+  .bottom-mini-player {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    text-align: center;
+  }
+
+  .mini-info {
+    justify-content: center;
+  }
+
+  .mini-actions {
+    position: static;
+    justify-content: center;
+  }
+
+  .lyric-line {
+    font-size: 20px;
+  }
+
+  .lyric-line.active {
+    font-size: 24px;
+  }
+}
+
+.spotify-list {
+  padding-top: 0;
+  position: relative;
+}
+
+.library-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1.8fr) minmax(120px, 1fr) 160px 90px;
+  align-items: center;
+  gap: 16px;
+
+  padding: 12px 12px 14px;
+  margin-bottom: 10px; /* 👈 separación con la primera fila */
+
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 13px;
+  font-weight: 600;
+
+  background: rgba(20, 24, 32, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.spotify-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1.8fr) minmax(120px, 1fr) 160px 90px;
+  gap: 16px;
+  align-items: center;
+  min-height: 72px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.18s ease;
+}
+
+.spotify-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spotify-row.active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.spotify-row.playing .spotify-track-name,
+.spotify-row.paused .spotify-track-name {
+  color: #1ed760;
+}
+
+.spotify-row.playing .row-index-number,
+.spotify-row.paused .row-index-number {
+  color: #1ed760;
+}
+
+.col-index,
+.col-title,
+.col-album,
+.col-added,
+.col-time {
+  min-width: 0;
+}
+
+.row-index {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+.interactive-index {
+  height: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.row-index-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.78);
+  transition: color 0.2s ease;
+}
+
+.row-index-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.spotify-row.playing .row-equalizer {
+  color: #1ed760;
+}
+
+.row-equalizer {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+
+.row-equalizer span {
+  width: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: libraryEqualizer 0.9s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+.row-equalizer span:nth-child(1) {
+  height: 8px;
+  animation-delay: 0s;
+}
+
+.row-equalizer span:nth-child(2) {
+  height: 14px;
+  animation-delay: 0.15s;
+}
+
+.row-equalizer span:nth-child(3) {
+  height: 10px;
+  animation-delay: 0.3s;
+}
+
+.row-equalizer span:nth-child(4) {
+  height: 16px;
+  animation-delay: 0.45s;
+}
+
+@keyframes libraryEqualizer {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.row-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.row-cover {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.row-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.row-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.row-title-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.spotify-track-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.2s ease;
+}
+
+.spotify-track-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-album,
+.row-added {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-time-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.row-duration {
+  min-width: 44px;
+  text-align: right;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-inline-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.spotify-inline-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.05);
+}
+@media (max-width: 1200px) {
+  .library-table-head,
+  .spotify-row {
+    grid-template-columns: 40px minmax(0, 1.8fr) minmax(0, 1fr) 90px;
+  }
+
+  .col-added,
+  .row-added {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .library-table-head,
+  .spotify-row {
+    grid-template-columns: 36px minmax(0, 1fr) 80px;
+    gap: 12px;
+  }
+
+  .col-album,
+  .row-album {
+    display: none;
+  }
+
+  .row-cover {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  .spotify-track-name {
+    font-size: 14px;
+  }
+
+  .spotify-track-subtitle {
+    font-size: 12px;
+  }
+}
+@media (max-width: 1200px) {
+  .library-table-head,
+  .spotify-row {
+    grid-template-columns: 40px minmax(0, 1.8fr) minmax(0, 1fr) 90px;
+  }
+
+  .col-added,
+  .row-added {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .library-table-head,
+  .spotify-row {
+    grid-template-columns: 36px minmax(0, 1fr) 80px;
+    gap: 12px;
+  }
+
+  .col-album,
+  .row-album {
+    display: none;
+  }
+
+  .row-cover {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  .spotify-track-name {
+    font-size: 14px;
+  }
+
+  .spotify-track-subtitle {
+    font-size: 12px;
   }
 }
 </style>

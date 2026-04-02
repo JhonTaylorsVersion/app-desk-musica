@@ -9,6 +9,11 @@ use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
+// === NUEVAS DEPENDENCIAS PARA BIBLIOTECA ===
+use notify::{EventKind, RecursiveMode, Watcher};
+use tauri::{AppHandle, Emitter};
+use walkdir::WalkDir; // Emitter es crucial para enviar eventos a Vue
+
 // === NUEVAS DEPENDENCIAS PRO ===
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
@@ -31,6 +36,19 @@ struct CoverArt {
     mime_type: Option<String>,
     description: Option<String>,
     picture_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct PlaylistTrack {
+    path: String,
+    #[serde(rename = "fileName")]
+    file_name: String,
+    extension: String,
+}
+
+// NUEVO: Estado para mantener vivo el vigilante de carpetas
+struct LibraryWatcherState {
+    watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -299,6 +317,74 @@ fn set_audio_volume(volume: f32, state: State<'_, AudioPlayerState>) {
     let _ = state.tx.send(AudioCommand::SetVolume(volume));
 }
 
+#[tauri::command]
+fn scan_directories(directories: Vec<String>) -> Vec<PlaylistTrack> {
+    let mut tracks = Vec::new();
+    let allowed_extensions = ["mp3", "flac", "wav", "ogg", "m4a", "aac"];
+
+    for dir in directories {
+        // WalkDir recorre la carpeta y todas sus subcarpetas
+        for entry in WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
+            let path = entry.path();
+
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    let ext_lower = ext.to_lowercase();
+                    if allowed_extensions.contains(&ext_lower.as_str()) {
+                        let file_name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+
+                        tracks.push(PlaylistTrack {
+                            path: path.to_string_lossy().to_string(),
+                            file_name,
+                            extension: ext_lower,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    tracks
+}
+
+#[tauri::command]
+fn watch_directories(
+    directories: Vec<String>,
+    app_handle: AppHandle,
+    watcher_state: State<'_, LibraryWatcherState>,
+) -> Result<(), String> {
+    // 1. Creamos un nuevo watcher que reaccionará a cambios en el sistema operativo
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        match res {
+            Ok(event) => {
+                // Si se crea o se borra un archivo, le avisamos a Vue
+                if matches!(event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
+                    let _ = app_handle.emit("library-updated", ());
+                }
+            }
+            Err(e) => eprintln!("Error en el watcher: {:?}", e),
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    // 2. Le decimos al watcher qué carpetas vigilar
+    for dir in directories {
+        let path = std::path::Path::new(&dir);
+        if path.exists() {
+            let _ = watcher.watch(path, RecursiveMode::Recursive);
+        }
+    }
+
+    // 3. Guardamos el watcher en el estado de Tauri para que no sea destruido por Rust
+    *watcher_state.watcher.lock().unwrap() = Some(watcher);
+
+    Ok(())
+}
+
 // ==========================================
 // 5. MOTOR DE AUDIO (SYMPHONIA + CPAL)
 // ==========================================
@@ -514,7 +600,6 @@ pub fn run() {
     let (tx, rx) = unbounded::<AudioCommand>();
     let position_state = Arc::new(Mutex::new(0.0));
 
-    // Arrancar el motor de audio en segundo plano
     start_audio_thread(rx, Arc::clone(&position_state));
 
     let player_state = AudioPlayerState {
@@ -526,6 +611,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(player_state)
+        // NUEVO: Administramos el estado del watcher
+        .manage(LibraryWatcherState {
+            watcher: std::sync::Mutex::new(None),
+        })
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -545,7 +634,10 @@ pub fn run() {
             stop_audio_backend,
             seek_audio,
             get_audio_position,
-            set_audio_volume
+            set_audio_volume,
+            // NUEVO: Añadimos los comandos
+            scan_directories,
+            watch_directories
         ])
         .run(tauri::generate_context!())
         .expect("Error al iniciar la aplicación Tauri");
