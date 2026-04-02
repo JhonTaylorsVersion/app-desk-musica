@@ -1,0 +1,16 @@
+:root {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  background: #e9ecef;
+}
