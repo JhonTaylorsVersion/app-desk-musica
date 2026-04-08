@@ -1,0 +1,13 @@
+C:\Proyectos\app-desk-musica\cargo-target-check-playlist-fix\debug\deps\log-14d9629d15c813b6.d: C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\lib.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\macros.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\serde.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\mod.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\error.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\key.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\source.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\value.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\__private_api.rs
+
+C:\Proyectos\app-desk-musica\cargo-target-check-playlist-fix\debug\deps\liblog-14d9629d15c813b6.rmeta: C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\lib.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\macros.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\serde.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\mod.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\error.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\key.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\source.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\value.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\__private_api.rs
+
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\lib.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\macros.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\serde.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\mod.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\error.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\key.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\source.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\kv\value.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\log-0.4.29\src\__private_api.rs:

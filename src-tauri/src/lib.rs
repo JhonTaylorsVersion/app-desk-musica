@@ -159,8 +159,21 @@ struct ViewSnapshot {
     artist: Option<String>,
     album: Option<String>,
     album_artist: Option<String>,
+    #[serde(default)]
+    playlist_id: Option<i64>,
     search: String,
     global_query: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PlaylistSummary {
+    id: i64,
+    name: String,
+    track_count: i64,
+    created_at: i64,
+    updated_at: i64,
+    track_paths: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -267,8 +280,30 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         );
 
+        CREATE TABLE IF NOT EXISTS playlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS playlist_tracks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playlist_id INTEGER NOT NULL,
+            track_path TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            added_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_library_cache_modified_at
         ON library_cache(modified_at);
+
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_position
+        ON playlist_tracks(playlist_id, position);
+
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_track_path
+        ON playlist_tracks(playlist_id, track_path);
         "#,
     )
     .map_err(|e| format!("No se pudo crear tabla cache: {}", e))?;
@@ -290,7 +325,73 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         [],
     );
 
+    migrate_playlist_tracks_table(&conn)?;
+
     Ok(db_path)
+}
+
+fn migrate_playlist_tracks_table(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(playlist_tracks)")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, i64>(5)?))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut has_id_column = false;
+    let mut track_path_is_primary_key = false;
+
+    for row in rows {
+        let (name, primary_key_index) = row.map_err(|e| e.to_string())?;
+        if name == "id" {
+            has_id_column = true;
+        }
+        if name == "track_path" && primary_key_index > 0 {
+            track_path_is_primary_key = true;
+        }
+    }
+
+    if has_id_column && !track_path_is_primary_key {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        r#"
+        BEGIN IMMEDIATE TRANSACTION;
+
+        ALTER TABLE playlist_tracks RENAME TO playlist_tracks_legacy;
+
+        CREATE TABLE playlist_tracks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playlist_id INTEGER NOT NULL,
+            track_path TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            added_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        );
+
+        INSERT INTO playlist_tracks (playlist_id, track_path, position, added_at)
+        SELECT playlist_id, track_path, position, added_at
+        FROM playlist_tracks_legacy
+        ORDER BY playlist_id ASC, position ASC, added_at ASC;
+
+        DROP TABLE playlist_tracks_legacy;
+
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_position
+        ON playlist_tracks(playlist_id, position);
+
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_track_path
+        ON playlist_tracks(playlist_id, track_path);
+
+        COMMIT;
+        "#,
+    )
+    .map_err(|e| format!("No se pudo migrar playlist_tracks: {}", e))?;
+
+    Ok(())
 }
 
 fn get_file_modified_at(path: &str) -> Result<i64, String> {
@@ -686,6 +787,305 @@ fn set_app_session(
         params![payload],
     )
     .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn load_playlist_track_paths(conn: &Connection, playlist_id: i64) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT track_path
+            FROM playlist_tracks
+            WHERE playlist_id = ?1
+            ORDER BY position ASC, added_at ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![playlist_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut track_paths = Vec::new();
+    for row in rows {
+        track_paths.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(track_paths)
+}
+
+#[tauri::command]
+fn get_playlists(
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<Vec<PlaylistSummary>, String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count
+            FROM playlists p
+            LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+            GROUP BY p.id, p.name, p.created_at, p.updated_at
+            ORDER BY p.updated_at DESC, p.id DESC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut playlists = Vec::new();
+    for row in rows {
+        let (id, name, created_at, updated_at, track_count) = row.map_err(|e| e.to_string())?;
+
+        playlists.push(PlaylistSummary {
+            id,
+            name,
+            track_count,
+            created_at,
+            updated_at,
+            track_paths: load_playlist_track_paths(&conn, id)?,
+        });
+    }
+
+    Ok(playlists)
+}
+
+#[tauri::command]
+fn create_playlist(
+    name: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<PlaylistSummary, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("La playlist necesita un nombre.".to_string());
+    }
+
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    conn.execute(
+        r#"
+        INSERT INTO playlists (name, created_at, updated_at)
+        VALUES (?1, strftime('%s','now'), strftime('%s','now'))
+        "#,
+        params![trimmed],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+
+    Ok(PlaylistSummary {
+        id,
+        name: trimmed.to_string(),
+        track_count: 0,
+        created_at: 0,
+        updated_at: 0,
+        track_paths: Vec::new(),
+    })
+}
+
+#[tauri::command]
+fn add_track_to_playlist(
+    playlist_id: i64,
+    track_path: String,
+    allow_duplicate: Option<bool>,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let mut conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let exists: Option<i64> = tx
+        .query_row(
+            "SELECT 1 FROM playlists WHERE id = ?1 LIMIT 1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if exists.is_none() {
+        return Err("La playlist ya no existe.".to_string());
+    }
+
+    let already_exists: Option<i64> = tx
+        .query_row(
+            r#"
+            SELECT 1
+            FROM playlist_tracks
+            WHERE playlist_id = ?1 AND track_path = ?2
+            LIMIT 1
+            "#,
+            params![playlist_id, track_path],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if already_exists.is_some() && !allow_duplicate.unwrap_or(false) {
+        tx.execute(
+            "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+            params![playlist_id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let next_position: i64 = tx
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        r#"
+        INSERT INTO playlist_tracks (playlist_id, track_path, position, added_at)
+        VALUES (?1, ?2, ?3, strftime('%s','now'))
+        "#,
+        params![playlist_id, track_path, next_position],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+        params![playlist_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_track_from_playlist(
+    playlist_id: i64,
+    track_path: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let mut conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let exists: Option<i64> = tx
+        .query_row(
+            "SELECT 1 FROM playlists WHERE id = ?1 LIMIT 1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if exists.is_none() {
+        return Err("La playlist ya no existe.".to_string());
+    }
+
+    let removed_track: Option<(i64, i64)> = tx
+        .query_row(
+            r#"
+            SELECT id, position
+            FROM playlist_tracks
+            WHERE playlist_id = ?1 AND track_path = ?2
+            ORDER BY position ASC, added_at ASC, id ASC
+            LIMIT 1
+            "#,
+            params![playlist_id, track_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+
+    let Some((removed_track_id, removed_position)) = removed_track else {
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(());
+    };
+
+    tx.execute(
+        "DELETE FROM playlist_tracks WHERE id = ?1",
+        params![removed_track_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+        params![playlist_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        r#"
+        UPDATE playlist_tracks
+        SET position = position - 1
+        WHERE playlist_id = ?1 AND position > ?2
+        "#,
+        params![playlist_id, removed_position],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn rename_playlist(
+    playlist_id: i64,
+    name: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("La playlist necesita un nombre.".to_string());
+    }
+
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let updated_rows = conn
+        .execute(
+            r#"
+            UPDATE playlists
+            SET name = ?1, updated_at = strftime('%s','now')
+            WHERE id = ?2
+            "#,
+            params![trimmed, playlist_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if updated_rows == 0 {
+        return Err("La playlist ya no existe.".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_playlist(
+    playlist_id: i64,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let deleted_rows = conn
+        .execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])
+        .map_err(|e| e.to_string())?;
+
+    if deleted_rows == 0 {
+        return Err("La playlist ya no existe.".to_string());
+    }
 
     Ok(())
 }
@@ -1539,6 +1939,12 @@ pub fn run() {
             get_music_directories,
             save_music_directories,
             set_music_directories,
+            get_playlists,
+            create_playlist,
+            add_track_to_playlist,
+            remove_track_from_playlist,
+            rename_playlist,
+            delete_playlist,
             get_recent_global_searches,
             set_recent_global_searches,
             get_app_session,

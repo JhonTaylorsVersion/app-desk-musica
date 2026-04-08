@@ -1,0 +1,10 @@
+C:\Proyectos\app-desk-musica\cargo-target-check-playlist-fix\debug\deps\lofty_attr-fc4c162928e70bfc.d: C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lib.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\attribute.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\internal.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_file.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_tag.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\util.rs
+
+C:\Proyectos\app-desk-musica\cargo-target-check-playlist-fix\debug\deps\lofty_attr-fc4c162928e70bfc.dll: C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lib.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\attribute.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\internal.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_file.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_tag.rs C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\util.rs
+
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lib.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\attribute.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\internal.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_file.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\lofty_tag.rs:
+C:\Users\jhonj\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\lofty_attr-0.12.0\src\util.rs:

@@ -1,0 +1,2 @@
+cargo:rustc-link-search=native=C:\Proyectos\app-desk-musica\cargo-target-check-playlist-fix\debug\build\webview2-com-sys-4eeb23fadefcd033\out\x64
+cargo:rustc-link-lib=advapi32
