@@ -20,7 +20,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "C:\\Users\\jhonj\\Videos\\CANVAS SPOT\\**",
+          "C:\\Users\\jhonj\\AppData\\Roaming\\com.tauri.dev\\covers\\**"
+        ]
+      }
     }
   },
   "bundle": {
