@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 // Asegúrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
 use std::fs;
+use std::io::Write;
 use std::process::Command;
+use std::process::Stdio;
 use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -1373,16 +1375,21 @@ fn default_music_directory() -> String {
     ".".to_string()
 }
 
+fn spotiflac_legacy_app_dir() -> Result<PathBuf, String> {
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        let path = PathBuf::from(user_profile).join(".spotiflac");
+        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+        return Ok(path);
+    }
+
+    let fallback = PathBuf::from(".").join(".spotiflac");
+    fs::create_dir_all(&fallback).map_err(|e| e.to_string())?;
+    Ok(fallback)
+}
+
 #[tauri::command]
-fn spotiflac_get_host_info(app_handle: AppHandle) -> Result<SpotiFlacHostInfo, String> {
-    let config_path = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("spotiflac");
-
-    fs::create_dir_all(&config_path).map_err(|e| e.to_string())?;
-
+fn spotiflac_get_host_info(_app_handle: AppHandle) -> Result<SpotiFlacHostInfo, String> {
+    let config_path = spotiflac_legacy_app_dir()?;
     Ok(SpotiFlacHostInfo {
         default_download_path: default_music_directory(),
         config_path: config_path.to_string_lossy().to_string(),
@@ -1443,6 +1450,11 @@ fn spotiflac_write_text_file(path: String, contents: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn spotiflac_read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn spotiflac_write_binary_file(path: String, base64_data: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if let Some(parent) = target.parent() {
@@ -1458,6 +1470,115 @@ fn spotiflac_write_binary_file(path: String, base64_data: String) -> Result<(), 
 #[tauri::command]
 fn spotiflac_file_exists(path: String) -> bool {
     Path::new(&path).exists()
+}
+
+#[tauri::command]
+fn spotiflac_download_track(request: serde_json::Value) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge("download-track", request)
+}
+
+fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Result<serde_json::Value, String> {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| "No se pudo resolver el workspace root".to_string())?
+        .to_path_buf();
+
+    let bridge_path = workspace_root
+        .join("SpotiFLAC-main")
+        .join("bridge")
+        .join("spotiflac-bridge.exe");
+
+    if !bridge_path.exists() {
+        return Err(format!(
+            "No se encontro el bridge de SpotiFLAC en {}",
+            bridge_path.display()
+        ));
+    }
+
+    let request_json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+
+    let mut child = Command::new(&bridge_path)
+        .arg(command_name)
+        .current_dir(
+            workspace_root
+                .join("SpotiFLAC-main"),
+        )
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("ALL_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("all_proxy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("No se pudo ejecutar el bridge: {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(&request_json)
+            .map_err(|e| format!("No se pudo enviar request al bridge: {}", e))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Fallo esperando el bridge: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if stdout.is_empty() {
+        return Err(if stderr.is_empty() {
+            "El bridge no devolvio salida".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("Respuesta JSON invalida del bridge: {} | stdout: {}", e, stdout))?;
+
+    if output.status.success() {
+        Ok(parsed)
+    } else if !stderr.is_empty() {
+        Ok(match parsed {
+            serde_json::Value::Object(mut map) => {
+                map.entry("error".to_string())
+                    .or_insert(serde_json::Value::String(stderr));
+                serde_json::Value::Object(map)
+            }
+            other => other,
+        })
+    } else {
+        Ok(parsed)
+    }
+}
+
+#[tauri::command]
+fn spotiflac_get_streaming_urls(
+    spotify_track_id: String,
+    region: Option<String>,
+) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "get-streaming-urls",
+        serde_json::json!({
+            "spotify_track_id": spotify_track_id,
+            "region": region.unwrap_or_default(),
+        }),
+    )
+}
+
+#[tauri::command]
+fn spotiflac_check_track_availability(
+    spotify_track_id: String,
+) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "check-track-availability",
+        serde_json::json!({
+            "spotify_track_id": spotify_track_id,
+        }),
+    )
 }
 
 #[tauri::command]
@@ -2273,8 +2394,12 @@ pub fn run() {
             spotiflac_get_host_info,
             spotiflac_open_folder,
             spotiflac_write_text_file,
+            spotiflac_read_text_file,
             spotiflac_write_binary_file,
             spotiflac_file_exists,
+            spotiflac_download_track,
+            spotiflac_get_streaming_urls,
+            spotiflac_check_track_availability,
             get_music_directories,
             save_music_directories,
             set_music_directories,

@@ -1,0 +1,5 @@
+./errors.go
+./parsepic.go
+./picture.go
+./utils.go
+./var.go

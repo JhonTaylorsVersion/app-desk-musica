@@ -1,0 +1,7 @@
+./doc.go
+./error.go
+./flacfile.go
+./metablock.go
+./stream.go
+./streamdata.go
+./util.go

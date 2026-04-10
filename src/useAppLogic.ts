@@ -283,8 +283,12 @@ export function useAppLogic() {
     | "openFolder"
     | "openConfigFolder"
     | "writeTextFile"
+    | "readTextFile"
     | "writeBinaryFile"
-    | "fileExists";
+    | "fileExists"
+    | "downloadTrack"
+    | "getStreamingURLs"
+    | "checkTrackAvailability";
 
   let detachSpotiFlacHost: (() => void) | null = null;
 
@@ -345,6 +349,10 @@ export function useAppLogic() {
             });
             return null;
           }
+          case "readTextFile":
+            return await invoke<string>("spotiflac_read_text_file", {
+              path: payload.path,
+            });
           case "writeBinaryFile": {
             await invoke("spotiflac_write_binary_file", {
               path: payload.path,
@@ -355,6 +363,23 @@ export function useAppLogic() {
           case "fileExists":
             return await invoke<boolean>("spotiflac_file_exists", {
               path: payload.path,
+            });
+          case "downloadTrack":
+            return await invoke("spotiflac_download_track", {
+              request:
+                payload && typeof payload.request === "object"
+                  ? payload.request
+                  : payload,
+            });
+          case "getStreamingURLs":
+            return await invoke("spotiflac_get_streaming_urls", {
+              spotifyTrackId: payload.spotifyTrackId,
+              region:
+                typeof payload.region === "string" ? payload.region : undefined,
+            });
+          case "checkTrackAvailability":
+            return await invoke("spotiflac_check_track_availability", {
+              spotifyTrackId: payload.spotifyTrackId,
             });
           default:
             throw new Error(`Metodo de SpotiFLAC no soportado: ${method}`);

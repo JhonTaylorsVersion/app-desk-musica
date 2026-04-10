@@ -238,6 +238,11 @@ async function getHostInfo(): Promise<SpotiFlacHostInfo> {
   return invokeHost<SpotiFlacHostInfo>("getHostInfo");
 }
 
+async function getConfigFilePath(): Promise<string> {
+  const info = await getHostInfo();
+  return `${String(info.configPath).replace(/[\\/]+$/, "")}\\config.json`;
+}
+
 type DownloadQueueItem = {
   id: string;
   spotify_id: string;
@@ -299,6 +304,19 @@ function updateQueueItem(id: string, patch: Partial<DownloadQueueItem>): void {
     item.id === id ? { ...item, ...patch, updated_at: Math.floor(Date.now() / 1000) } : item,
   );
   setQueueItems(items);
+}
+
+function appendDownloadHistory(item: backend.HistoryItem): void {
+  const items = readStorageArray<backend.HistoryItem>(DOWNLOAD_HISTORY_KEY)
+    .filter((entry) => !(entry.spotify_id === item.spotify_id && entry.path === item.path));
+
+  const nextItem = new backend.HistoryItem({
+    ...item,
+    id: item.id || crypto.randomUUID(),
+    timestamp: item.timestamp || Math.floor(Date.now() / 1000),
+  });
+
+  writeStorageArray(DOWNLOAD_HISTORY_KEY, [nextItem, ...items].slice(0, 500));
 }
 
 function normalizeAmazonMusicURL(rawUrl: string): string {
@@ -722,10 +740,13 @@ export async function SearchSpotifyByType(): Promise<backend.SearchResult[]> {
 }
 
 export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
-  if (request?.item_id) {
-    updateQueueItem(String(request.item_id), {
-      status: "failed",
-      error_message: "La descarga real de canciones todavia requiere conectar el backend Go/Wails completo.",
+  const itemID = String(request?.item_id || "");
+  const startedAt = Math.floor(Date.now() / 1000);
+
+  if (itemID) {
+    updateQueueItem(itemID, {
+      status: "downloading",
+      error_message: "",
       progress: 0,
       speed: 0,
     });
@@ -733,14 +754,74 @@ export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
 
   setProgressState({
     ...getProgressState(),
-    is_downloading: false,
+    is_downloading: true,
     speed_mbps: 0,
+    session_start_time: getProgressState().session_start_time || startedAt,
   });
 
-  return {
-    success: false,
-    error: "La descarga real de canciones todavia no esta conectada al backend Go/Wails completo.",
-  };
+  try {
+    const response = await invokeHost<AnyRecord>("downloadTrack", { request });
+    const succeeded = Boolean(response?.success);
+    const downloadedPath = String(response?.file || "");
+    const alreadyExists = Boolean(response?.already_exists);
+    const source = String(request?.service || request?.source || "auto");
+
+    if (itemID) {
+      updateQueueItem(itemID, {
+        status: succeeded ? (alreadyExists ? "skipped" : "completed") : "failed",
+        error_message: succeeded ? "" : String(response?.error || response?.message || "Download failed"),
+        file_path: downloadedPath,
+        progress: succeeded ? 100 : 0,
+        speed: 0,
+      });
+    }
+
+    if (succeeded && downloadedPath) {
+      appendDownloadHistory(new backend.HistoryItem({
+        spotify_id: String(request?.spotify_id || ""),
+        title: String(request?.track_name || ""),
+        artists: String(request?.artist_name || ""),
+        album: String(request?.album_name || ""),
+        duration_str: String(request?.duration || ""),
+        cover_url: String(request?.cover_url || ""),
+        quality: String(request?.audio_quality || request?.quality || ""),
+        format: String(request?.audio_format || "flac").toUpperCase(),
+        path: downloadedPath,
+        source,
+      }));
+    }
+
+    setProgressState({
+      ...getProgressState(),
+      is_downloading: false,
+      speed_mbps: 0,
+    });
+
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (itemID) {
+      updateQueueItem(itemID, {
+        status: "failed",
+        error_message: message,
+        progress: 0,
+        speed: 0,
+      });
+    }
+
+    setProgressState({
+      ...getProgressState(),
+      is_downloading: false,
+      speed_mbps: 0,
+    });
+
+    return {
+      success: false,
+      error: message,
+      item_id: itemID,
+    };
+  }
 }
 
 export async function DownloadLyrics(request: AnyRecord): Promise<AnyRecord> {
@@ -834,36 +915,18 @@ export async function CheckAPIStatus(): Promise<boolean> {
 }
 
 export async function CheckTrackAvailability(spotifyTrackID: string): Promise<string> {
-  const availability = {
-    spotify_id: spotifyTrackID,
-    tidal: false,
-    amazon: false,
-    qobuz: false,
-    tidal_url: "",
-    amazon_url: "",
-    qobuz_url: "",
-  };
-
-  const links = await resolveSpotifyTrackLinks(spotifyTrackID);
-  availability.tidal_url = links.tidal_url;
-  availability.amazon_url = links.amazon_url;
-  availability.tidal = Boolean(links.tidal_url);
-  availability.amazon = Boolean(links.amazon_url);
-
-  if (links.isrc) {
-    availability.qobuz = await checkQobuzAvailability(links.isrc);
-  }
-
+  const availability = await invokeHost<AnyRecord>("checkTrackAvailability", {
+    spotifyTrackId: spotifyTrackID,
+  });
   return JSON.stringify(availability);
 }
 
 export async function GetStreamingURLs(spotifyTrackID: string, region = ""): Promise<string> {
-  const links = await resolveSpotifyTrackLinks(spotifyTrackID, region);
-  return JSON.stringify({
-    tidal_url: links.tidal_url,
-    amazon_url: links.amazon_url,
-    isrc: links.isrc,
+  const links = await invokeHost<AnyRecord>("getStreamingURLs", {
+    spotifyTrackId: spotifyTrackID,
+    region,
   });
+  return JSON.stringify(links);
 }
 
 export async function OpenFolder(path = ""): Promise<void> {
@@ -1243,10 +1306,28 @@ export async function GetConfigPath(): Promise<string> {
 
 export async function SaveSettings(settings: AnyRecord): Promise<void> {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  try {
+    const configPath = await getConfigFilePath();
+    await invokeHost("writeTextFile", {
+      path: configPath,
+      contents: JSON.stringify(settings, null, 2),
+    });
+  } catch {}
 }
 
 export async function LoadSettings(): Promise<AnyRecord> {
-  const settings = { ...getStoredSettings() };
+  let settings = { ...getStoredSettings() };
+
+  try {
+    const configPath = await getConfigFilePath();
+    const exists = await invokeHost<boolean>("fileExists", { path: configPath });
+    if (exists) {
+      const contents = await invokeHost<string>("readTextFile", { path: configPath });
+      const parsed = JSON.parse(contents);
+      settings = { ...GetDefaults(), ...parsed, ...settings };
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }
+  } catch {}
 
   if (!settings.downloadPath) {
     try {
