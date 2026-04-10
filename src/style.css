@@ -12,7 +12,9 @@ body,
 }
 
 body {
-  background: #e9ecef;
+  background:
+    radial-gradient(circle at top, #1d2431 0%, #0f1115 48%, #08090c 100%);
+  color: #ffffff;
 }
 
 * {
@@ -43,6 +45,77 @@ textarea,
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(29, 36, 49, 0.96) 0%, rgba(15, 17, 21, 0.98) 48%, rgba(8, 9, 12, 0.995) 100%);
+}
+
+.boot-overlay-card {
+  width: min(460px, 100%);
+  padding: 28px 26px;
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.boot-overlay-spinner {
+  width: 60px;
+  height: 60px;
+  flex: 0 0 60px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #ffffff;
+  border-right-color: #9df7d5;
+  animation: bootOverlaySpin 0.9s linear infinite;
+}
+
+.boot-overlay-copy h2 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.boot-overlay-copy p {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.boot-overlay-eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.54);
+}
+
+.boot-overlay-fade-enter-active,
+.boot-overlay-fade-leave-active {
+  transition: opacity 0.28s ease;
+}
+
+.boot-overlay-fade-enter-from,
+.boot-overlay-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes bootOverlaySpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dynamic-bg {

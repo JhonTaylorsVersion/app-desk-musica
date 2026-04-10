@@ -22,7 +22,7 @@ use tauri::State;
 
 // === NUEVAS DEPENDENCIAS PARA BIBLIOTECA ===
 use notify::{EventKind, RecursiveMode, Watcher};
-use tauri::{AppHandle, Emitter};
+use tauri::{webview::Color, AppHandle, Emitter};
 use walkdir::WalkDir;
 
 // === NUEVAS DEPENDENCIAS PRO ===
@@ -2356,6 +2356,11 @@ pub fn run() {
         })
         .setup(move |app| {
             // <-- IMPORTANTE: Añadir 'move' aquí
+            if let Some(main_window) = app.get_webview_window("main") {
+                let background = Color(15, 17, 21, 255);
+                let _ = main_window.set_background_color(Some(background));
+            }
+
             let db_path = init_library_cache_db(app.handle())?;
             app.manage(LibraryCacheState { db_path });
 

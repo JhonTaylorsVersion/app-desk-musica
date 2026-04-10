@@ -5,9 +5,143 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>app-desk-musica</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top, #1d2431 0%, #0f1115 48%, #08090c 100%);
+      }
+
+      body {
+        overflow: hidden;
+        color: #fff;
+        font-family:
+          "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+          sans-serif;
+      }
+
+      #app {
+        width: 100%;
+        min-height: 100vh;
+      }
+
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top, #1d2431 0%, #0f1115 48%, #08090c 100%);
+        transition:
+          opacity 0.35s ease,
+          visibility 0.35s ease;
+      }
+
+      body.app-ready #boot-splash {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .boot-card {
+        width: min(420px, 100%);
+        padding: 28px 24px;
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(16, 18, 24, 0.82);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(22px);
+        -webkit-backdrop-filter: blur(22px);
+        text-align: center;
+      }
+
+      .boot-brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 72px;
+        height: 72px;
+        margin-bottom: 18px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #2f89ff 0%, #2bd4a4 100%);
+        color: #fff;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+
+      .boot-title {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .boot-copy {
+        margin: 10px 0 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .boot-progress {
+        margin-top: 22px;
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .boot-progress::before {
+        content: "";
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #ffffff 0%, #87f2cf 100%);
+        animation: boot-progress 1.15s ease-in-out infinite;
+      }
+
+      @keyframes boot-progress {
+        0% {
+          transform: translateX(-120%);
+        }
+        100% {
+          transform: translateX(340%);
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" aria-live="polite">
+      <div class="boot-card">
+        <div class="boot-brand">AM</div>
+        <h1 class="boot-title">App Desk Música</h1>
+        <p class="boot-copy">
+          Preparando biblioteca, audio y tu sesión para entrar sin pantalla en
+          blanco.
+        </p>
+        <div class="boot-progress" aria-hidden="true"></div>
+      </div>
+    </div>
     <div id="app"></div>
+    <script>
+      window.addEventListener(
+        "app-ready",
+        () => {
+          document.body.classList.add("app-ready");
+          const splash = document.getElementById("boot-splash");
+          if (!splash) return;
+          window.setTimeout(() => splash.remove(), 700);
+        },
+        { once: true },
+      );
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -16,6 +16,7 @@ interface TrackListProps {
     failedTracks: Set<string>;
     skippedTracks: Set<string>;
     downloadingTrack: string | null;
+    combinedDownloadingTrack?: string | null;
     isDownloading: boolean;
     currentPage: number;
     itemsPerPage: number;
@@ -36,6 +37,7 @@ interface TrackListProps {
     onToggleTrack: (id: string) => void;
     onToggleSelectAll: (tracks: TrackMetadata[]) => void;
     onDownloadTrack: (id: string, name: string, artists: string, albumName: string, spotifyId?: string, folderName?: string, durationMs?: number, position?: number, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => void;
+    onDownloadTrackWithLyrics?: (track: TrackMetadata, position: number) => void;
     onDownloadLyrics?: (spotifyId: string, name: string, artists: string, albumName: string, folderName?: string, isArtistDiscography?: boolean, position?: number, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
     onCheckAvailability?: (spotifyId: string) => void;
     onDownloadCover?: (coverUrl: string, trackName: string, artistName: string, albumName: string, folderName?: string, isArtistDiscography?: boolean, position?: number, trackId?: string, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
@@ -52,7 +54,7 @@ interface TrackListProps {
     }) => void;
     onTrackClick?: (track: TrackMetadata) => void;
 }
-export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
+export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, combinedDownloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadTrackWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
     const { playPreview, loadingPreview, playingTrack } = usePreview();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
@@ -285,6 +287,19 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                     </TooltipTrigger>
                     <TooltipContent>
                       {downloadingTrack === track.spotify_id ? (<p>Downloading...</p>) : skippedTracks.has(track.spotify_id) ? (<p>Already exists</p>) : downloadedTracks.has(track.spotify_id) ? (<p>Downloaded</p>) : failedTracks.has(track.spotify_id) ? (<p>Failed</p>) : (<p>Download Track</p>)}
+                    </TooltipContent>
+                  </Tooltip>)}
+                  {track.spotify_id && onDownloadTrackWithLyrics && (<Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={() => onDownloadTrackWithLyrics(track, startIndex + index + 1)} size="icon" variant="secondary" disabled={isDownloading || combinedDownloadingTrack === track.spotify_id}>
+                        {combinedDownloadingTrack === track.spotify_id ? (<Spinner />) : (<div className="relative h-4 w-4">
+                            <Download className="h-3 w-3 absolute left-0 top-1"/>
+                            <FileText className="h-3 w-3 absolute right-0 top-0"/>
+                          </div>)}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Download Song + Lyrics</p>
                     </TooltipContent>
                   </Tooltip>)}
                   {track.spotify_id && (<Tooltip>

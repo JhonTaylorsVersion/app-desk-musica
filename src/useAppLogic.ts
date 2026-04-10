@@ -400,6 +400,12 @@ export function useAppLogic() {
   
   const outputDeviceInfo = ref<OutputDeviceInfo | null>(null);
   const desktopDeviceName = ref("Mi PC");
+  const isAppBooting = ref(false);
+
+  const waitForNextPaint = () =>
+    new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
 
   
   const LEGACY_GLOBAL_SEARCH_RECENTS_KEY =
@@ -7135,6 +7141,9 @@ export function useAppLogic() {
   
   onMounted(async () => {
     installSpotiFlacHost();
+    await nextTick();
+    await waitForNextPaint();
+    try {
 
     unlistenFsChanges = await listen("library-updated", () => {
       console.log("Detectado cambio en la carpeta, actualizando canciones...");
@@ -7202,6 +7211,10 @@ export function useAppLogic() {
     window.addEventListener("click", onGlobalWindowClick);
     window.addEventListener("beforeunload", onBeforeWindowUnload);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    } finally {
+      isAppBooting.value = false;
+      window.dispatchEvent(new Event("app-ready"));
+    }
   });
 
   
@@ -7255,6 +7268,7 @@ export function useAppLogic() {
   });
 
   return {
+    isAppBooting,
     outputDeviceInfo,
     LEGACY_GLOBAL_SEARCH_RECENTS_KEY,
     LEGACY_GLOBAL_SEARCH_RECENTS_MIGRATED_KEY,

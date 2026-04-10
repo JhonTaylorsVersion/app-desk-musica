@@ -16,6 +16,7 @@ interface TrackInfoProps {
     isDownloaded: boolean;
     isFailed: boolean;
     isSkipped: boolean;
+    combinedDownloadingTrack?: string | null;
     downloadingLyricsTrack?: string | null;
     downloadedLyrics?: boolean;
     failedLyrics?: boolean;
@@ -27,13 +28,14 @@ interface TrackInfoProps {
     failedCover?: boolean;
     skippedCover?: boolean;
     onDownload: (id: string, name: string, artists: string, albumName?: string, spotifyId?: string, playlistName?: string, durationMs?: number, position?: number, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => void;
+    onDownloadWithLyrics?: () => void;
     onDownloadLyrics?: (spotifyId: string, name: string, artists: string, albumName?: string, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
     onCheckAvailability?: (spotifyId: string) => void;
     onDownloadCover?: (coverUrl: string, trackName: string, artistName: string, albumName?: string, playlistName?: string, position?: number, trackId?: string, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
     onOpenFolder: () => void;
     onBack?: () => void;
 }
-export function TrackInfo({ track, isDownloading, downloadingTrack, isDownloaded, isFailed, isSkipped, downloadingLyricsTrack, downloadedLyrics, failedLyrics, skippedLyrics, checkingAvailability, availability, downloadingCover, downloadedCover, failedCover, skippedCover, onDownload, onDownloadLyrics, onCheckAvailability, onDownloadCover, onOpenFolder, onBack, }: TrackInfoProps) {
+export function TrackInfo({ track, isDownloading, downloadingTrack, combinedDownloadingTrack, isDownloaded, isFailed, isSkipped, downloadingLyricsTrack, downloadedLyrics, failedLyrics, skippedLyrics, checkingAvailability, availability, downloadingCover, downloadedCover, failedCover, skippedCover, onDownload, onDownloadWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onOpenFolder, onBack, }: TrackInfoProps) {
     const { playPreview, loadingPreview, playingTrack } = usePreview();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
@@ -102,6 +104,13 @@ export function TrackInfo({ track, isDownloading, downloadingTrack, isDownloaded
                 Download
               </>)}
             </Button>
+            {track.spotify_id && onDownloadWithLyrics && (<Button onClick={onDownloadWithLyrics} variant="secondary" disabled={isDownloading || combinedDownloadingTrack === track.spotify_id}>
+                {combinedDownloadingTrack === track.spotify_id ? (<Spinner />) : (<>
+                    <Download className="h-4 w-4"/>
+                    <FileText className="h-4 w-4"/>
+                    Song + Lyrics
+                </>)}
+              </Button>)}
             {track.spotify_id && (<Tooltip>
               <TooltipTrigger asChild>
                 <Button onClick={() => playPreview(track.spotify_id!, track.name)} variant="outline" size="icon" disabled={loadingPreview === track.spotify_id}>

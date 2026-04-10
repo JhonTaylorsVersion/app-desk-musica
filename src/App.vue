@@ -3510,4 +3510,20 @@ export default defineComponent({
       </div>
     </div>
   </transition>
+
+  <transition name="boot-overlay-fade">
+    <div v-if="isAppBooting" class="boot-overlay" aria-live="polite">
+      <div class="boot-overlay-card glass-panel">
+        <div class="boot-overlay-spinner" aria-hidden="true"></div>
+        <div class="boot-overlay-copy">
+          <p class="boot-overlay-eyebrow">Iniciando</p>
+          <h2>Preparando tu música</h2>
+          <p>
+            Cargando biblioteca, recuperando sesión y conectando la salida de
+            audio.
+          </p>
+        </div>
+      </div>
+    </div>
+  </transition>
 </template>
