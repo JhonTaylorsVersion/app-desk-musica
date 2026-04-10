@@ -794,6 +794,14 @@ textarea,
   grid-template-columns: 88px minmax(0, 1fr) 360px;
 }
 
+.main-layout.spotiflac-layout {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.main-layout.spotiflac-layout.sidebar-collapsed {
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
 .left-library-sidebar {
   --collapsed-sidebar-control-size: 48px;
   --collapsed-sidebar-item-size: 48px;
@@ -822,7 +830,10 @@ textarea,
 .collapsed-sidebar-actions {
   width: 100%;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 10px;
   flex: 0 0 auto;
 }
 
@@ -927,6 +938,33 @@ textarea,
   transform: translateY(-1px);
 }
 
+.collapsed-spotiflac-btn {
+  width: min(100%, var(--collapsed-sidebar-item-size));
+  height: var(--collapsed-sidebar-item-size);
+  border: none;
+  border-radius: 18px;
+  background: rgba(29, 185, 84, 0.16);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  transition:
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.collapsed-spotiflac-btn:hover,
+.collapsed-spotiflac-btn.active {
+  background: rgba(29, 185, 84, 0.32);
+  transform: translateY(-1px);
+}
+
 .playlist-create-input {
   height: 40px;
 }
@@ -961,6 +999,15 @@ textarea,
 .library-pill.active {
   background: rgba(255, 255, 255, 0.18);
   color: #ffffff;
+}
+
+.spotiflac-pill {
+  background: rgba(29, 185, 84, 0.16);
+}
+
+.spotiflac-pill:hover,
+.spotiflac-pill.active {
+  background: rgba(29, 185, 84, 0.3);
 }
 
 .left-library-tools {
@@ -2480,6 +2527,121 @@ input[type="range"]:hover::-webkit-slider-thumb {
   padding-right: 4px;
 }
 
+.spotiflac-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spotiflac-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(29, 185, 84, 0.18), transparent 46%),
+    rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.spotiflac-kicker {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: rgba(29, 185, 84, 0.95);
+  margin-bottom: 8px;
+}
+
+.spotiflac-title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.spotiflac-copy {
+  max-width: 680px;
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.55;
+}
+
+.spotiflac-refresh-btn {
+  flex: 0 0 auto;
+}
+
+.spotiflac-embed-shell {
+  position: relative;
+  flex: 1;
+  min-height: 460px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.spotiflac-embed {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #050607;
+}
+
+.spotiflac-offline-state {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 36px;
+  text-align: center;
+}
+
+.spotiflac-offline-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(29, 185, 84, 0.18);
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 20px;
+}
+
+.spotiflac-offline-title {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.spotiflac-offline-copy,
+.spotiflac-offline-steps {
+  max-width: 620px;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.55;
+}
+
+.spotiflac-offline-steps {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.spotiflac-offline-steps span {
+  color: #ffffff;
+  font-weight: 800;
+}
+
 /* SCROLLBARS LIMPIOS */
 .tracks-list::-webkit-scrollbar,
 .queue-list::-webkit-scrollbar,
@@ -3263,6 +3425,19 @@ input[type="range"]:hover::-webkit-slider-thumb {
 .sbp-device-meta {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.56);
+}
+
+.connect-device-btn {
+  margin-top: 7px;
+  align-self: flex-start;
+  border: 1px solid rgba(30, 215, 96, 0.45);
+  background: rgba(30, 215, 96, 0.16);
+  color: #eafff1;
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .sync-fab {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">App Desk Musica Mobile</string>
+    <string name="title_activity_main">App Desk Musica Mobile</string>
+    <string name="package_name">com.appdeskmusica.mobile</string>
+    <string name="custom_url_scheme">com.appdeskmusica.mobile</string>
+</resources>

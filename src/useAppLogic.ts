@@ -14,8 +14,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export function useAppLogic() {
-  
-  
   type CoverArt = {
     data_url?: string | null;
     mime_type?: string | null;
@@ -241,7 +239,28 @@ export function useAppLogic() {
     queueSearch: string;
     isQueuePanelOpen: boolean;
     isRoutesManagerOpen: boolean;
+    deviceName?: string | null;
+    outputDeviceName?: string | null;
     currentViewSnapshot: ViewSnapshot;
+  };
+
+  type ConnectCommandRecord = {
+    id: number;
+    command: string;
+    payload: Record<string, unknown> | null;
+    createdAt: number;
+  };
+
+  type DeviceSessionRecord = {
+    device: "desktop" | "mobile";
+    session: AppSessionSnapshot;
+    updatedAt: number;
+  };
+
+  type ConnectStateRecord = {
+    activeDevice?: "desktop" | "mobile" | null;
+    desktop?: DeviceSessionRecord | null;
+    mobile?: DeviceSessionRecord | null;
   };
 
   
@@ -253,9 +272,109 @@ export function useAppLogic() {
     sample_format: string;
   };
 
+  type SpotiFlacHostInfo = {
+    defaultDownloadPath: string;
+    configPath: string;
+  };
+
+  type SpotiFlacHostInvoke =
+    | "getHostInfo"
+    | "selectFolder"
+    | "openFolder"
+    | "openConfigFolder"
+    | "writeTextFile"
+    | "writeBinaryFile"
+    | "fileExists";
+
+  let detachSpotiFlacHost: (() => void) | null = null;
+
+  const installSpotiFlacHost = () => {
+    const rootWindow = window as Window & {
+      __spotiflacHost?: {
+        invoke: (
+          method: SpotiFlacHostInvoke,
+          payload?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+
+    const previousHost = rootWindow.__spotiflacHost;
+
+    rootWindow.__spotiflacHost = {
+      invoke: async (
+        method: SpotiFlacHostInvoke,
+        payload: Record<string, unknown> = {},
+      ) => {
+        switch (method) {
+          case "getHostInfo":
+            return await invoke<SpotiFlacHostInfo>("spotiflac_get_host_info");
+          case "selectFolder": {
+            const selected = await open({
+              directory: true,
+              multiple: false,
+              defaultPath:
+                typeof payload.defaultPath === "string"
+                  ? payload.defaultPath
+                  : undefined,
+            });
+
+            if (Array.isArray(selected)) {
+              return selected[0] ?? null;
+            }
+
+            return selected ?? null;
+          }
+          case "openFolder": {
+            const path =
+              typeof payload.path === "string" ? payload.path.trim() : "";
+            if (!path) return null;
+            await invoke("spotiflac_open_folder", { path });
+            return null;
+          }
+          case "openConfigFolder": {
+            const info = await invoke<SpotiFlacHostInfo>(
+              "spotiflac_get_host_info",
+            );
+            await invoke("spotiflac_open_folder", { path: info.configPath });
+            return info.configPath;
+          }
+          case "writeTextFile": {
+            await invoke("spotiflac_write_text_file", {
+              path: payload.path,
+              contents: payload.contents,
+            });
+            return null;
+          }
+          case "writeBinaryFile": {
+            await invoke("spotiflac_write_binary_file", {
+              path: payload.path,
+              base64Data: payload.base64Data,
+            });
+            return null;
+          }
+          case "fileExists":
+            return await invoke<boolean>("spotiflac_file_exists", {
+              path: payload.path,
+            });
+          default:
+            throw new Error(`Metodo de SpotiFLAC no soportado: ${method}`);
+        }
+      },
+    };
+
+    detachSpotiFlacHost = () => {
+      if (previousHost) {
+        rootWindow.__spotiflacHost = previousHost;
+      } else {
+        delete rootWindow.__spotiflacHost;
+      }
+    };
+  };
+
   
   
   const outputDeviceInfo = ref<OutputDeviceInfo | null>(null);
+  const desktopDeviceName = ref("Mi PC");
 
   
   const LEGACY_GLOBAL_SEARCH_RECENTS_KEY =
@@ -389,6 +508,14 @@ export function useAppLogic() {
       );
     } catch (error) {
       console.error("No se pudo obtener info de salida del hardware:", error);
+    }
+  };
+
+  const fetchComputerName = async () => {
+    try {
+      desktopDeviceName.value = await invoke<string>("get_computer_name");
+    } catch (error) {
+      console.warn("No se pudo obtener el nombre de la PC:", error);
     }
   };
 
@@ -1202,6 +1329,10 @@ export function useAppLogic() {
   
   let sessionProgressInterval: number | null = null;
 
+  let connectCommandPollInterval: number | null = null;
+
+  const connectState = ref<ConnectStateRecord | null>(null);
+
   
   const emptyPlaylistSearch = ref("");
 
@@ -1597,7 +1728,13 @@ export function useAppLogic() {
   
   
   // ====== NAVEGACIÓN ARTISTA / ÁLBUM ======
-  type ViewMode = "library" | "artist" | "album" | "playlist" | "search";
+  type ViewMode =
+    | "library"
+    | "artist"
+    | "album"
+    | "playlist"
+    | "search"
+    | "spotiflac";
 
   
   type ViewSnapshot = {
@@ -1613,6 +1750,10 @@ export function useAppLogic() {
   
   
   const currentViewMode = ref<ViewMode>("library");
+  const spotiFlacUrl = "/spotiflac/index.html";
+  const isSpotiFlacChecking = ref(false);
+  const isSpotiFlacReady = ref(true);
+  const spotiFlacStatusMessage = ref("SpotiFLAC esta listo.");
 
   
   const activeArtistView = ref<string | null>(null);
@@ -1750,6 +1891,38 @@ export function useAppLogic() {
       search: "",
       globalQuery: "",
     });
+  };
+
+  const openSpotiFlacView = () => {
+    navigateToView({
+      mode: "spotiflac",
+      artist: null,
+      album: null,
+      albumArtist: null,
+      playlistId: null,
+      search: "",
+      globalQuery: "",
+    });
+  };
+
+  const checkSpotiFlacPanel = async () => {
+    isSpotiFlacChecking.value = true;
+    isSpotiFlacReady.value = true;
+    spotiFlacStatusMessage.value = "SpotiFLAC esta listo.";
+
+    window.setTimeout(() => {
+      isSpotiFlacChecking.value = false;
+    }, 250);
+  };
+
+  const reloadSpotiFlacFrame = () => {
+    const frame = document.querySelector<HTMLIFrameElement>(".spotiflac-embed");
+    if (frame) {
+      frame.contentWindow?.location.reload();
+      return;
+    }
+
+    void checkSpotiFlacPanel();
   };
 
   
@@ -3432,6 +3605,10 @@ export function useAppLogic() {
   const currentViewTitle = computed(() => {
     if (isSearchViewActive.value) {
       return `Resultados para "${committedGlobalSearch.value.trim()}"`;
+    }
+
+    if (currentViewMode.value === "spotiflac") {
+      return "SpotiFLAC";
     }
   
     if (currentViewMode.value === "artist") {
@@ -6296,6 +6473,8 @@ export function useAppLogic() {
     queueSearch: queueSearch.value,
     isQueuePanelOpen: isQueuePanelOpen.value,
     isRoutesManagerOpen: isRoutesManagerOpen.value,
+    deviceName: desktopDeviceName.value,
+    outputDeviceName: outputDeviceInfo.value?.device_name ?? "Este PC",
     currentViewSnapshot: getCurrentViewSnapshot(),
   });
 
@@ -6340,6 +6519,239 @@ export function useAppLogic() {
         void persistAppSessionNow();
       }, 4000);
     }
+  };
+
+  const getPayloadNumber = (
+    payload: Record<string, unknown> | null,
+    key: string,
+  ) => {
+    const value = payload?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+
+  const getPayloadString = (
+    payload: Record<string, unknown> | null,
+    key: string,
+  ) => {
+    const value = payload?.[key];
+    return typeof value === "string" ? value : null;
+  };
+
+  const setVolumeFromConnect = async (nextVolume: number) => {
+    const safeVolume = Math.min(Math.max(nextVolume, 0), 100);
+    volume.value = safeVolume;
+
+    if (safeVolume > 0) {
+      lastVolumeBeforeMute.value = safeVolume;
+      isMuted.value = false;
+    } else {
+      isMuted.value = true;
+    }
+
+    await invoke("set_audio_volume", { volume: safeVolume });
+  };
+
+  const applyConnectCommand = async (record: ConnectCommandRecord) => {
+    const payload = record.payload;
+
+    switch (record.command) {
+      case "play_path": {
+        const path = getPayloadString(payload, "path");
+        if (!path) return;
+
+        const track = playlist.value.find((item) => item.path === path);
+        if (!track) return;
+
+        const startAt = getPayloadNumber(payload, "startAt") ?? 0;
+        const autoplay = payload?.autoplay !== false;
+        const realIndex = playlist.value.findIndex((item) => item.path === path);
+
+        if (realIndex >= 0 && queue.value.length === 0) {
+          await loadTrack({
+            source: "library",
+            index: realIndex,
+            autoplay,
+            startAt,
+          });
+          return;
+        }
+
+        replaceQueueWithTrack(track, createPlaybackContext("library", "Biblioteca"));
+        await loadTrack({
+          source: "queue",
+          index: 0,
+          autoplay,
+          startAt,
+        });
+        return;
+      }
+      case "toggle_playback":
+        await togglePlay();
+        return;
+      case "pause":
+        if (isPlaying.value) await togglePlay();
+        return;
+      case "resume":
+        if (!isPlaying.value) await togglePlay();
+        return;
+      case "next":
+        await playNextTrack();
+        return;
+      case "previous":
+        await playPreviousTrack();
+        return;
+      case "seek_to": {
+        const seconds = getPayloadNumber(payload, "seconds");
+        if (seconds != null) await seekTo(seconds);
+        return;
+      }
+      case "set_volume": {
+        const nextVolume = getPayloadNumber(payload, "volume");
+        if (nextVolume != null) await setVolumeFromConnect(nextVolume);
+        return;
+      }
+      case "set_shuffle": {
+        const enabled = payload?.enabled;
+        if (typeof enabled === "boolean" && enabled !== isShuffleEnabled.value) {
+          toggleShuffle();
+        }
+        return;
+      }
+      case "set_loop": {
+        const mode = getPayloadString(payload, "mode");
+        if (mode === "off" || mode === "all" || mode === "one") {
+          loopMode.value = mode;
+        }
+        return;
+      }
+    }
+  };
+
+  const pollConnectCommands = async () => {
+    try {
+      const commands = await invoke<ConnectCommandRecord[]>(
+        "consume_connect_commands",
+      );
+
+      for (const command of commands) {
+        await applyConnectCommand(command);
+      }
+
+      await refreshConnectState();
+    } catch (error) {
+      console.warn("No se pudieron leer comandos Desktop Connect:", error);
+    }
+  };
+
+  const startConnectCommandPolling = () => {
+    if (connectCommandPollInterval != null) return;
+    connectCommandPollInterval = window.setInterval(() => {
+      void pollConnectCommands();
+    }, 1000);
+    void pollConnectCommands();
+  };
+
+  const stopConnectCommandPolling = () => {
+    if (connectCommandPollInterval == null) return;
+    window.clearInterval(connectCommandPollInterval);
+    connectCommandPollInterval = null;
+  };
+
+  const refreshConnectState = async () => {
+    try {
+      connectState.value = await invoke<ConnectStateRecord>(
+        "get_desktop_connect_state",
+      );
+    } catch (error) {
+      console.warn("No se pudo cargar Desktop Connect:", error);
+    }
+  };
+
+  const activeConnectDevice = computed(
+    () => connectState.value?.activeDevice ?? "desktop",
+  );
+
+  const isMobileConnectActive = computed(
+    () => activeConnectDevice.value === "mobile",
+  );
+
+  const mobileConnectSession = computed(
+    () => connectState.value?.mobile?.session ?? null,
+  );
+
+  const mobileConnectTrack = computed(() => {
+    const path = mobileConnectSession.value?.currentTrackPath;
+    if (!path) return null;
+    return playlist.value.find((track) => track.path === path) ?? null;
+  });
+
+  const mobileConnectTitle = computed(() => {
+    const track = mobileConnectTrack.value;
+    if (!track) return "Movil";
+    return getTrackDisplayTitle(track);
+  });
+
+  const connectPlaybackDeviceLabel = computed(() =>
+    isMobileConnectActive.value
+      ? "Telefono"
+      : outputDeviceInfo.value?.device_name ?? desktopDeviceName.value,
+  );
+
+  const listenOnDesktop = async () => {
+    const session = isMobileConnectActive.value
+      ? mobileConnectSession.value
+      : buildAppSessionSnapshot();
+    const path = session?.currentTrackPath;
+
+    await invoke("set_desktop_connect_active_device", { device: "desktop" });
+
+    if (!path) {
+      await refreshConnectState();
+      return;
+    }
+
+    const track = playlist.value.find((item) => item.path === path);
+    if (!track) {
+      await refreshConnectState();
+      return;
+    }
+
+    const realIndex = playlist.value.findIndex((item) => item.path === path);
+    const startAt = Number.isFinite(session.currentTime)
+      ? session.currentTime
+      : 0;
+
+    if (realIndex >= 0) {
+      await loadTrack({
+        source: "library",
+        index: realIndex,
+        autoplay: session.wasPlaying,
+        startAt,
+      });
+    } else {
+      replaceQueueWithTrack(track, createPlaybackContext("library", "Biblioteca"));
+      await loadTrack({
+        source: "queue",
+        index: 0,
+        autoplay: session.wasPlaying,
+        startAt,
+      });
+    }
+
+    await persistAppSessionNow();
+    await refreshConnectState();
+  };
+
+  const listenOnMobile = async () => {
+    await persistAppSessionNow();
+    if (isPlaying.value) {
+      await invoke("pause_audio");
+      isPlaying.value = false;
+      stopProgress();
+      pauseCanvas();
+    }
+    await invoke("set_desktop_connect_active_device", { device: "mobile" });
+    await refreshConnectState();
   };
 
   
@@ -6651,6 +7063,10 @@ export function useAppLogic() {
   
   
   watch(currentViewMode, async (newMode, oldMode) => {
+    if (newMode === "spotiflac") {
+      void checkSpotiFlacPanel();
+    }
+
     await nextTick();
     if (newMode === "album" && oldMode !== "album") {
       const container = albumScrollContainerRef.value;
@@ -6693,6 +7109,8 @@ export function useAppLogic() {
   
   
   onMounted(async () => {
+    installSpotiFlacHost();
+
     unlistenFsChanges = await listen("library-updated", () => {
       console.log("Detectado cambio en la carpeta, actualizando canciones...");
       void syncLibrary();
@@ -6706,6 +7124,7 @@ export function useAppLogic() {
     });
     // =======================
   
+    await fetchComputerName();
     await fetchOutputDeviceInfo();
     await loadPlaylists();
     const savedAppSession = await loadAppSession();
@@ -6751,6 +7170,8 @@ export function useAppLogic() {
   
     await restoreAppSession(savedAppSession);
     hasPendingAppSessionRestore = false;
+    await refreshConnectState();
+    startConnectCommandPolling();
   
     window.addEventListener("keydown", onGlobalKeydown);
     window.addEventListener("click", onGlobalWindowClick);
@@ -6773,6 +7194,7 @@ export function useAppLogic() {
     }
     window.cancelAnimationFrame(globalSearchLoadingFrame);
     clearSessionPersistTimeout();
+    stopConnectCommandPolling();
     if (sessionProgressInterval != null) {
       window.clearInterval(sessionProgressInterval);
       sessionProgressInterval = null;
@@ -6800,6 +7222,11 @@ export function useAppLogic() {
       unlistenDeviceChanged = null;
     }
     // =======================
+
+    if (detachSpotiFlacHost) {
+      detachSpotiFlacHost();
+      detachSpotiFlacHost = null;
+    }
   });
 
   return {
@@ -6913,6 +7340,16 @@ export function useAppLogic() {
     isGlobalSearchLoading,
     committedGlobalSearch,
     recentGlobalSearches,
+    connectState,
+    activeConnectDevice,
+    isMobileConnectActive,
+    mobileConnectSession,
+    mobileConnectTrack,
+    mobileConnectTitle,
+    connectPlaybackDeviceLabel,
+    refreshConnectState,
+    listenOnDesktop,
+    listenOnMobile,
     globalSearchLoadingFrame,
     isRestoringAppSession,
     hasPendingAppSessionRestore,
@@ -6967,6 +7404,10 @@ export function useAppLogic() {
     isQueuePanelOpen,
     isRoutesManagerOpen,
     currentViewMode,
+    spotiFlacUrl,
+    isSpotiFlacChecking,
+    isSpotiFlacReady,
+    spotiFlacStatusMessage,
     activeArtistView,
     activeAlbumView,
     activeAlbumArtistView,
@@ -6981,6 +7422,8 @@ export function useAppLogic() {
     goBackView,
     goForwardView,
     goHomeView,
+    openSpotiFlacView,
+    reloadSpotiFlacFrame,
     canGoBackView,
     canGoForwardView,
     getLibraryPlaybackContext,

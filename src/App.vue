@@ -869,7 +869,10 @@ export default defineComponent({
         <div
           v-if="!isLyricsMode"
           class="main-layout"
-          :class="{ 'sidebar-collapsed': isLibrarySidebarCollapsed }"
+          :class="{
+            'sidebar-collapsed': isLibrarySidebarCollapsed,
+            'spotiflac-layout': currentViewMode === 'spotiflac',
+          }"
         >
           <aside
             class="left-library-sidebar glass-panel-inner"
@@ -946,6 +949,16 @@ export default defineComponent({
               class="collapsed-sidebar-actions"
             >
               <button
+                class="collapsed-spotiflac-btn"
+                :class="{ active: currentViewMode === 'spotiflac' }"
+                type="button"
+                @click="openSpotiFlacView"
+                title="SpotiFLAC"
+                aria-label="Abrir SpotiFLAC"
+              >
+                SF
+              </button>
+              <button
                 class="collapsed-create-btn"
                 type="button"
                 @click="showPlaylistCreator"
@@ -989,6 +1002,14 @@ export default defineComponent({
             </div>
 
             <div v-if="!isLibrarySidebarCollapsed" class="library-filter-pills">
+              <button
+                class="library-pill spotiflac-pill"
+                :class="{ active: currentViewMode === 'spotiflac' }"
+                type="button"
+                @click="openSpotiFlacView"
+              >
+                SpotiFLAC
+              </button>
               <button
                 class="library-pill"
                 :class="{ active: sidebarLibraryFilter === 'playlists' }"
@@ -1146,7 +1167,61 @@ export default defineComponent({
           </aside>
 
           <div class="library-panel glass-panel-inner">
-            <template v-if="isSearchViewActive">
+            <template v-if="currentViewMode === 'spotiflac'">
+              <div class="spotiflac-view">
+                <div class="spotiflac-hero">
+                  <div>
+                    <div class="spotiflac-kicker">Herramientas de descarga</div>
+                    <h2 class="spotiflac-title">SpotiFLAC</h2>
+                    <p class="spotiflac-copy">
+                      Abre el panel de SpotiFLAC dentro de esta app para buscar,
+                      analizar y preparar descargas sin salir del reproductor.
+                    </p>
+                  </div>
+                  <button
+                    class="small-action-btn spotiflac-refresh-btn"
+                    type="button"
+                    @click="reloadSpotiFlacFrame"
+                  >
+                    Recargar
+                  </button>
+                </div>
+
+                <div class="spotiflac-embed-shell">
+                  <iframe
+                    v-if="isSpotiFlacReady"
+                    ref="spotiflacFrame"
+                    class="spotiflac-embed"
+                    :src="spotiFlacUrl"
+                    title="SpotiFLAC"
+                  ></iframe>
+                  <div v-else class="spotiflac-offline-state">
+                    <div class="spotiflac-offline-icon">SF</div>
+                    <div class="spotiflac-offline-title">
+                      SpotiFLAC aun no esta listo
+                    </div>
+                    <div class="spotiflac-offline-copy">
+                      {{ spotiFlacStatusMessage }}
+                    </div>
+                    <div class="spotiflac-offline-steps">
+                      La interfaz ya vive dentro de esta app en
+                      <span>public/spotiflac</span>. Si no carga, recompila el
+                      modulo embebido de SpotiFLAC.
+                    </div>
+                    <button
+                      class="small-action-btn"
+                      type="button"
+                      :disabled="isSpotiFlacChecking"
+                      @click="reloadSpotiFlacFrame"
+                    >
+                      {{ isSpotiFlacChecking ? "Comprobando..." : "Comprobar otra vez" }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="isSearchViewActive">
               <div class="search-results-view">
                 <div class="search-results-hero">
                   <div class="search-results-heading">
@@ -2348,7 +2423,7 @@ export default defineComponent({
             </template>
           </div>
 
-          <div class="right-sidebar">
+          <div v-if="currentViewMode !== 'spotiflac'" class="right-sidebar">
             <div
               v-if="isQueuePanelOpen"
               class="queue-panel glass-panel-inner"
@@ -3113,13 +3188,35 @@ export default defineComponent({
             </div>
 
             <div class="sbp-device-name">
-              {{ outputDeviceInfo.device_name }}
+              {{ connectPlaybackDeviceLabel }}
             </div>
 
             <div class="sbp-device-meta">
-              {{ (outputDeviceInfo.sample_rate / 1000).toFixed(1) }} kHz /
-              {{ outputDeviceInfo.sample_format }}
+              <template v-if="isMobileConnectActive">
+                {{ mobileConnectTitle }}
+              </template>
+              <template v-else>
+                {{ (outputDeviceInfo.sample_rate / 1000).toFixed(1) }} kHz /
+                {{ outputDeviceInfo.sample_format }}
+              </template>
             </div>
+
+            <button
+              v-if="isMobileConnectActive"
+              class="connect-device-btn"
+              type="button"
+              @click="listenOnDesktop"
+            >
+              Escuchar en este PC
+            </button>
+            <button
+              v-else
+              class="connect-device-btn"
+              type="button"
+              @click="listenOnMobile"
+            >
+              Escuchar en telefono
+            </button>
           </div>
         </div>
       </div>

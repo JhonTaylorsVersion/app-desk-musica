@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 // Asegúrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
 use std::fs;
+use std::process::Command;
 use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -200,7 +201,36 @@ struct AppSessionSnapshot {
     queue_search: String,
     is_queue_panel_open: bool,
     is_routes_manager_open: bool,
+    #[serde(default)]
+    device_name: Option<String>,
+    #[serde(default)]
+    output_device_name: Option<String>,
     current_view_snapshot: ViewSnapshot,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ConnectCommandRecord {
+    id: i64,
+    command: String,
+    payload: serde_json::Value,
+    created_at: i64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DeviceSessionRecord {
+    device: String,
+    session: serde_json::Value,
+    updated_at: i64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ConnectStateRecord {
+    active_device: Option<String>,
+    desktop: Option<DeviceSessionRecord>,
+    mobile: Option<DeviceSessionRecord>,
 }
 
 // ==========================================
@@ -304,6 +334,30 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
         CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_track_path
         ON playlist_tracks(playlist_id, track_path);
+
+        CREATE TABLE IF NOT EXISTS connect_commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            command TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            handled_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_connect_commands_status_created
+        ON connect_commands(status, created_at, id);
+
+        CREATE TABLE IF NOT EXISTS connect_devices (
+            device TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS connect_active (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            device TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        );
         "#,
     )
     .map_err(|e| format!("No se pudo crear tabla cache: {}", e))?;
@@ -775,6 +829,8 @@ fn set_app_session(
 
     let payload = serde_json::to_string(&session)
         .map_err(|e| format!("No se pudo serializar la sesion: {}", e))?;
+    let session_value = serde_json::to_value(&session)
+        .map_err(|e| format!("No se pudo serializar la sesion: {}", e))?;
 
     conn.execute(
         r#"
@@ -788,7 +844,170 @@ fn set_app_session(
     )
     .map_err(|e| e.to_string())?;
 
+    upsert_connect_device_session(&conn, "desktop", &session_value, session.was_playing)?;
+
     Ok(())
+}
+
+fn upsert_connect_device_session(
+    conn: &Connection,
+    device: &str,
+    session: &serde_json::Value,
+    make_active: bool,
+) -> Result<(), String> {
+    let payload = serde_json::to_string(session)
+        .map_err(|e| format!("No se pudo serializar la sesion connect: {}", e))?;
+
+    conn.execute(
+        r#"
+        INSERT INTO connect_devices (device, payload, updated_at)
+        VALUES (?1, ?2, strftime('%s','now'))
+        ON CONFLICT(device) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        "#,
+        params![device, payload],
+    )
+    .map_err(|e| e.to_string())?;
+
+    if make_active {
+        set_active_connect_device_in_conn(conn, device)?;
+    }
+
+    Ok(())
+}
+
+fn set_active_connect_device_in_conn(conn: &Connection, device: &str) -> Result<(), String> {
+    conn.execute(
+        r#"
+        INSERT INTO connect_active (id, device, updated_at)
+        VALUES (1, ?1, strftime('%s','now'))
+        ON CONFLICT(id) DO UPDATE SET
+            device = excluded.device,
+            updated_at = excluded.updated_at
+        "#,
+        params![device],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn get_connect_device_session(
+    conn: &Connection,
+    device: &str,
+) -> Result<Option<DeviceSessionRecord>, String> {
+    let row: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT payload, updated_at FROM connect_devices WHERE device = ?1",
+            params![device],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+
+    let Some((payload, updated_at)) = row else {
+        return Ok(None);
+    };
+
+    let session = serde_json::from_str(&payload)
+        .map_err(|e| format!("No se pudo parsear la sesion connect: {}", e))?;
+
+    Ok(Some(DeviceSessionRecord {
+        device: device.to_string(),
+        session,
+        updated_at,
+    }))
+}
+
+#[tauri::command]
+fn get_desktop_connect_state(
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<ConnectStateRecord, String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let active_device = conn
+        .query_row("SELECT device FROM connect_active WHERE id = 1", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .ok();
+
+    Ok(ConnectStateRecord {
+        active_device,
+        desktop: get_connect_device_session(&conn, "desktop")?,
+        mobile: get_connect_device_session(&conn, "mobile")?,
+    })
+}
+
+#[tauri::command]
+fn set_desktop_connect_active_device(
+    device: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    if device != "desktop" && device != "mobile" {
+        return Err("Dispositivo no soportado".to_string());
+    }
+
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+    set_active_connect_device_in_conn(&conn, &device)
+}
+
+#[tauri::command]
+fn consume_connect_commands(
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<Vec<ConnectCommandRecord>, String> {
+    let mut conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let commands = {
+        let mut stmt = tx
+            .prepare(
+                r#"
+                SELECT id, command, payload, created_at
+                FROM connect_commands
+                WHERE status = 'pending'
+                ORDER BY created_at ASC, id ASC
+                LIMIT 20
+                "#,
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let payload_json: String = row.get(2)?;
+                let payload = serde_json::from_str(&payload_json).unwrap_or(serde_json::Value::Null);
+                Ok(ConnectCommandRecord {
+                    id: row.get(0)?,
+                    command: row.get(1)?,
+                    payload,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row.map_err(|e| e.to_string())?);
+        }
+        items
+    };
+
+    for command in &commands {
+        tx.execute(
+            r#"
+            UPDATE connect_commands
+            SET status = 'handled', handled_at = strftime('%s','now')
+            WHERE id = ?1
+            "#,
+            params![command.id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(commands)
 }
 
 fn load_playlist_track_paths(conn: &Connection, playlist_id: i64) -> Result<Vec<String>, String> {
@@ -1125,6 +1344,120 @@ fn get_output_device_info() -> Result<OutputDeviceInfo, String> {
         channels: config.channels(),
         sample_format: format_str.to_string(),
     })
+}
+
+#[tauri::command]
+fn get_computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Mi PC".to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpotiFlacHostInfo {
+    default_download_path: String,
+    config_path: String,
+}
+
+fn default_music_directory() -> String {
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        let music_dir = PathBuf::from(&user_profile).join("Music");
+        if music_dir.exists() {
+            return music_dir.to_string_lossy().to_string();
+        }
+
+        return user_profile;
+    }
+
+    ".".to_string()
+}
+
+#[tauri::command]
+fn spotiflac_get_host_info(app_handle: AppHandle) -> Result<SpotiFlacHostInfo, String> {
+    let config_path = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("spotiflac");
+
+    fs::create_dir_all(&config_path).map_err(|e| e.to_string())?;
+
+    Ok(SpotiFlacHostInfo {
+        default_download_path: default_music_directory(),
+        config_path: config_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+fn spotiflac_open_folder(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Ruta vacia".to_string());
+    }
+
+    let target = PathBuf::from(path);
+    let existing = if target.exists() {
+        target
+    } else {
+        target
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "La ruta no existe".to_string())?
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(existing)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(existing)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(existing)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn spotiflac_write_text_file(path: String, contents: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::write(target, contents).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn spotiflac_write_binary_file(path: String, base64_data: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let bytes = general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| e.to_string())?;
+    fs::write(target, bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn spotiflac_file_exists(path: String) -> bool {
+    Path::new(&path).exists()
 }
 
 #[tauri::command]
@@ -1936,6 +2269,12 @@ pub fn run() {
             watch_directories,
             get_library_metadata_batch,
             get_output_device_info,
+            get_computer_name,
+            spotiflac_get_host_info,
+            spotiflac_open_folder,
+            spotiflac_write_text_file,
+            spotiflac_write_binary_file,
+            spotiflac_file_exists,
             get_music_directories,
             save_music_directories,
             set_music_directories,
@@ -1949,6 +2288,9 @@ pub fn run() {
             set_recent_global_searches,
             get_app_session,
             set_app_session,
+            get_desktop_connect_state,
+            set_desktop_connect_active_device,
+            consume_connect_commands,
         ])
         .run(tauri::generate_context!())
         .expect("Error al iniciar la aplicación Tauri");
