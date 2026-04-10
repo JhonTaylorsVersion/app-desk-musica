@@ -8,6 +8,8 @@ const SETTINGS_KEY = "spotiflac-settings";
 const SPOTFETCH_API_URL = "https://sp.afkarxyz.qzz.io/api";
 const FETCH_HISTORY_KEY = "spotiflac-fetch-history";
 const DOWNLOAD_HISTORY_KEY = "spotiflac-download-history";
+const DOWNLOAD_QUEUE_KEY = "spotiflac-download-queue";
+const DOWNLOAD_PROGRESS_KEY = "spotiflac-download-progress";
 
 type SpotiFlacHostInfo = {
   defaultDownloadPath: string;
@@ -234,6 +236,183 @@ async function saveRemoteBinary(url: string, destinationPath: string): Promise<v
 
 async function getHostInfo(): Promise<SpotiFlacHostInfo> {
   return invokeHost<SpotiFlacHostInfo>("getHostInfo");
+}
+
+type DownloadQueueItem = {
+  id: string;
+  spotify_id: string;
+  track_name: string;
+  artist_name: string;
+  album_name: string;
+  file_path?: string;
+  error_message?: string;
+  status: "queued" | "downloading" | "completed" | "failed" | "skipped";
+  progress: number;
+  speed: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type DownloadProgressState = {
+  is_downloading: boolean;
+  mb_downloaded: number;
+  speed_mbps: number;
+  session_start_time: number;
+};
+
+function getQueueItems(): DownloadQueueItem[] {
+  return readStorageArray<DownloadQueueItem>(DOWNLOAD_QUEUE_KEY);
+}
+
+function setQueueItems(items: DownloadQueueItem[]): void {
+  writeStorageArray(DOWNLOAD_QUEUE_KEY, items);
+}
+
+function getProgressState(): DownloadProgressState {
+  try {
+    const raw = localStorage.getItem(DOWNLOAD_PROGRESS_KEY);
+    if (!raw) {
+      return {
+        is_downloading: false,
+        mb_downloaded: 0,
+        speed_mbps: 0,
+        session_start_time: 0,
+      };
+    }
+    return JSON.parse(raw) as DownloadProgressState;
+  } catch {
+    return {
+      is_downloading: false,
+      mb_downloaded: 0,
+      speed_mbps: 0,
+      session_start_time: 0,
+    };
+  }
+}
+
+function setProgressState(progress: DownloadProgressState): void {
+  localStorage.setItem(DOWNLOAD_PROGRESS_KEY, JSON.stringify(progress));
+}
+
+function updateQueueItem(id: string, patch: Partial<DownloadQueueItem>): void {
+  const items = getQueueItems().map((item) =>
+    item.id === id ? { ...item, ...patch, updated_at: Math.floor(Date.now() / 1000) } : item,
+  );
+  setQueueItems(items);
+}
+
+function normalizeAmazonMusicURL(rawUrl: string): string {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  return value.replace(/\?.*$/, "");
+}
+
+function normalizeDeezerTrackURL(rawUrl: string): string {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  return value.replace(/\/?$/, "");
+}
+
+async function fetchSongLinkLinksByURL(rawUrl: string, region = ""): Promise<any> {
+  const apiUrl = new URL("https://api.song.link/v1-alpha.1/links");
+  apiUrl.searchParams.set("url", rawUrl);
+  if (region) {
+    apiUrl.searchParams.set("userCountry", region);
+  }
+
+  const response = await fetch(apiUrl.toString(), {
+    headers: {
+      accept: "application/json",
+      "user-agent": "Mozilla/5.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`song.link returned HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function getDeezerISRC(deezerUrl: string): Promise<string> {
+  const match = deezerUrl.match(/track\/(\d+)/i);
+  if (!match) {
+    throw new Error("Invalid Deezer URL");
+  }
+
+  const response = await fetch(`https://api.deezer.com/track/${match[1]}`);
+  if (!response.ok) {
+    throw new Error(`Deezer API returned HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const isrc = String(payload?.isrc || "").trim().toUpperCase();
+  if (!isrc) {
+    throw new Error("ISRC not found in Deezer response");
+  }
+
+  return isrc;
+}
+
+async function lookupSpotifyISRC(spotifyTrackID: string): Promise<string> {
+  const response = await fetch(`https://open.spotify.com/embed/track/${spotifyTrackID}`);
+  if (!response.ok) {
+    throw new Error(`Spotify embed returned HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+  const match = html.match(/\b([A-Z]{2}[A-Z0-9]{3}\d{7})\b/);
+  if (!match) {
+    throw new Error("ISRC not found");
+  }
+
+  return match[1].toUpperCase();
+}
+
+async function checkQobuzAvailability(isrc: string): Promise<boolean> {
+  const response = await fetch(
+    `https://www.qobuz.com/api.json/0.2/track/search?query=${encodeURIComponent(isrc)}&limit=1&app_id=798273057`,
+  );
+  if (!response.ok) {
+    return false;
+  }
+
+  const payload = await response.json();
+  return Number(payload?.tracks?.total || 0) > 0;
+}
+
+async function resolveSpotifyTrackLinks(spotifyTrackID: string, region = ""): Promise<{
+  tidal_url: string;
+  amazon_url: string;
+  deezer_url: string;
+  isrc: string;
+}> {
+  const rawUrl = `https://open.spotify.com/track/${spotifyTrackID}`;
+  const payload = await fetchSongLinkLinksByURL(rawUrl, region);
+  const linksByPlatform = payload?.linksByPlatform || {};
+  let deezerUrl = String(linksByPlatform?.deezer?.url || "").trim();
+  const tidalUrl = String(linksByPlatform?.tidal?.url || "").trim();
+  const amazonUrl = String(linksByPlatform?.amazonMusic?.url || linksByPlatform?.amazon?.url || "").trim();
+
+  let isrc = "";
+  try {
+    isrc = await lookupSpotifyISRC(spotifyTrackID);
+  } catch {}
+
+  if (deezerUrl && !isrc) {
+    try {
+      isrc = await getDeezerISRC(deezerUrl);
+    } catch {}
+  }
+
+  deezerUrl = normalizeDeezerTrackURL(deezerUrl);
+
+  return {
+    tidal_url: tidalUrl,
+    amazon_url: normalizeAmazonMusicURL(amazonUrl),
+    deezer_url: deezerUrl,
+    isrc,
+  };
 }
 
 function parseSpotifyUrl(url: string): { type: string; id: string } | null {
@@ -542,8 +721,26 @@ export async function SearchSpotifyByType(): Promise<backend.SearchResult[]> {
   return [];
 }
 
-export async function DownloadTrack(): Promise<AnyRecord> {
-  return okResponse({ skipped: true, message: "Descarga pendiente de migrar a Tauri." });
+export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
+  if (request?.item_id) {
+    updateQueueItem(String(request.item_id), {
+      status: "failed",
+      error_message: "La descarga real de canciones todavia requiere conectar el backend Go/Wails completo.",
+      progress: 0,
+      speed: 0,
+    });
+  }
+
+  setProgressState({
+    ...getProgressState(),
+    is_downloading: false,
+    speed_mbps: 0,
+  });
+
+  return {
+    success: false,
+    error: "La descarga real de canciones todavia no esta conectada al backend Go/Wails completo.",
+  };
 }
 
 export async function DownloadLyrics(request: AnyRecord): Promise<AnyRecord> {
@@ -636,12 +833,37 @@ export async function CheckAPIStatus(): Promise<boolean> {
   return true;
 }
 
-export async function CheckTrackAvailability(): Promise<string> {
-  return JSON.stringify({ available: false, message: "Pendiente de migrar." });
+export async function CheckTrackAvailability(spotifyTrackID: string): Promise<string> {
+  const availability = {
+    spotify_id: spotifyTrackID,
+    tidal: false,
+    amazon: false,
+    qobuz: false,
+    tidal_url: "",
+    amazon_url: "",
+    qobuz_url: "",
+  };
+
+  const links = await resolveSpotifyTrackLinks(spotifyTrackID);
+  availability.tidal_url = links.tidal_url;
+  availability.amazon_url = links.amazon_url;
+  availability.tidal = Boolean(links.tidal_url);
+  availability.amazon = Boolean(links.amazon_url);
+
+  if (links.isrc) {
+    availability.qobuz = await checkQobuzAvailability(links.isrc);
+  }
+
+  return JSON.stringify(availability);
 }
 
-export async function GetStreamingURLs(): Promise<string> {
-  return JSON.stringify([]);
+export async function GetStreamingURLs(spotifyTrackID: string, region = ""): Promise<string> {
+  const links = await resolveSpotifyTrackLinks(spotifyTrackID, region);
+  return JSON.stringify({
+    tidal_url: links.tidal_url,
+    amazon_url: links.amazon_url,
+    isrc: links.isrc,
+  });
 }
 
 export async function OpenFolder(path = ""): Promise<void> {
@@ -700,27 +922,118 @@ export function GetDefaults(): AnyRecord {
 }
 
 export async function GetDownloadProgress(): Promise<backend.ProgressInfo> {
-  return { is_downloading: false, mb_downloaded: 0, speed_mbps: 0 };
+  return getProgressState();
 }
 
 export async function GetDownloadQueue(): Promise<backend.DownloadQueueInfo> {
-  return emptyQueue();
+  const queue = getQueueItems();
+  const progress = getProgressState();
+  return new backend.DownloadQueueInfo({
+    queue,
+    queued_count: queue.filter((item) => item.status === "queued").length,
+    completed_count: queue.filter((item) => item.status === "completed").length,
+    failed_count: queue.filter((item) => item.status === "failed").length,
+    skipped_count: queue.filter((item) => item.status === "skipped").length,
+    total_downloaded: progress.mb_downloaded || 0,
+    current_speed: progress.speed_mbps || 0,
+    session_start_time: progress.session_start_time || 0,
+    is_downloading: progress.is_downloading,
+  });
 }
 
-export async function ClearCompletedDownloads(): Promise<void> {}
-
-export async function ClearAllDownloads(): Promise<void> {}
-
-export async function AddToDownloadQueue(): Promise<string> {
-  return crypto.randomUUID();
+export async function ClearCompletedDownloads(): Promise<void> {
+  const queue = getQueueItems().filter((item) => !["completed", "failed", "skipped"].includes(item.status));
+  setQueueItems(queue);
 }
 
-export async function MarkDownloadItemFailed(): Promise<void> {}
+export async function ClearAllDownloads(): Promise<void> {
+  setQueueItems([]);
+  setProgressState({
+    is_downloading: false,
+    mb_downloaded: 0,
+    speed_mbps: 0,
+    session_start_time: 0,
+  });
+}
 
-export async function CancelAllQueuedItems(): Promise<void> {}
+export async function AddToDownloadQueue(spotifyID = "", trackName = "", artistName = "", albumName = ""): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+  const queue = getQueueItems();
+  queue.unshift({
+    id,
+    spotify_id: spotifyID,
+    track_name: trackName,
+    artist_name: artistName,
+    album_name: albumName,
+    status: "queued",
+    progress: 0,
+    speed: 0,
+    created_at: now,
+    updated_at: now,
+  });
+  setQueueItems(queue);
+
+  const progress = getProgressState();
+  if (!progress.session_start_time) {
+    setProgressState({
+      ...progress,
+      session_start_time: now,
+    });
+  }
+
+  return id;
+}
+
+export async function MarkDownloadItemFailed(itemID: string, errorMsg = "Download failed"): Promise<void> {
+  updateQueueItem(itemID, {
+    status: "failed",
+    error_message: errorMsg,
+    progress: 0,
+    speed: 0,
+  });
+}
+
+export async function CancelAllQueuedItems(): Promise<void> {
+  const queue = getQueueItems().map((item) =>
+    item.status === "queued" || item.status === "downloading"
+      ? { ...item, status: "failed", error_message: item.error_message || "Cancelled", progress: 0, speed: 0 }
+      : item,
+  );
+  setQueueItems(queue);
+  setProgressState({
+    ...getProgressState(),
+    is_downloading: false,
+    speed_mbps: 0,
+  });
+}
 
 export async function ExportFailedDownloads(): Promise<string> {
-  return "";
+  const failedItems = getQueueItems().filter((item) => item.status === "failed");
+  if (failedItems.length === 0) {
+    return "No failed downloads to export.";
+  }
+
+  const lines = [
+    `Failed Downloads Report - ${new Date().toISOString()}`,
+    "--------------------------------------------------",
+    "",
+    ...failedItems.flatMap((item, index) => [
+      `${index + 1}. ${item.track_name} - ${item.artist_name}${item.album_name ? ` (${item.album_name})` : ""}`,
+      `   Error: ${item.error_message || "Unknown error"}`,
+      item.spotify_id ? `   URL: https://open.spotify.com/track/${item.spotify_id}` : "",
+      "",
+    ]),
+  ].filter(Boolean);
+
+  const hostInfo = await getHostInfo();
+  const outputPath = `${hostInfo.configPath}\\SpotiFLAC_Failed_${Date.now()}.txt`;
+  await invokeHost("writeTextFile", {
+    path: outputPath,
+    contents: lines.join("\n"),
+  });
+
+  return `Successfully exported failed downloads to ${outputPath}`;
 }
 
 export async function GetDownloadHistory(): Promise<backend.HistoryItem[]> {
@@ -868,14 +1181,59 @@ export async function ReadImageAsBase64(): Promise<string> {
   return "";
 }
 
-export async function CheckFilesExistence(): Promise<AnyRecord[]> {
-  return [];
+export async function CheckFilesExistence(_outputDir = "", _rootDir = "", tracks: AnyRecord[] = []): Promise<AnyRecord[]> {
+  const results: AnyRecord[] = [];
+
+  for (const track of tracks) {
+    const filePath = `${String(_outputDir).replace(/[\\/]+$/, "")}\\${replaceTemplate(
+      track.filename_format || "{title} - {artist}",
+      {
+        title: track.track_name,
+        artist: track.artist_name,
+        album: track.album_name,
+        album_artist: track.album_artist || track.artist_name,
+        track: track.track_number ? String(track.track_number).padStart(2, "0") : String(track.position || "").padStart(2, "0"),
+        disc: track.disc_number ? String(track.disc_number).padStart(2, "0") : "",
+        year: typeof track.release_date === "string" ? track.release_date.slice(0, 4) : "",
+        date: track.release_date || "",
+      },
+    )}.${String(track.audio_format || "flac").toLowerCase()}`;
+
+    const exists = await invokeHost<boolean>("fileExists", { path: filePath });
+    results.push({
+      spotify_id: track.spotify_id,
+      exists,
+      file_path: exists ? filePath : "",
+      track_name: track.track_name,
+      artist_name: track.artist_name,
+    });
+  }
+
+  return results;
 }
 
-export async function SkipDownloadItem(): Promise<void> {}
+export async function SkipDownloadItem(itemID: string, filePath = ""): Promise<void> {
+  updateQueueItem(itemID, {
+    status: "skipped",
+    file_path: filePath,
+    progress: 0,
+    speed: 0,
+  });
+}
 
-export async function GetPreviewURL(): Promise<string> {
-  return "";
+export async function GetPreviewURL(trackID: string): Promise<string> {
+  const response = await fetch(`https://open.spotify.com/embed/track/${trackID}`);
+  if (!response.ok) {
+    throw new Error(`Spotify embed returned HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+  const match = html.match(/https:\/\/p\.scdn\.co\/mp3-preview\/[a-zA-Z0-9]+/);
+  if (!match) {
+    throw new Error("Preview URL not found");
+  }
+
+  return match[0];
 }
 
 export async function GetConfigPath(): Promise<string> {
