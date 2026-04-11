@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Download, CheckCircle2, XCircle, Clock, FileCheck, Trash2, HardDrive, Zap, Timer, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
@@ -22,10 +22,15 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
         failed_count: 0,
         skipped_count: 0,
     }));
+    const requestInFlightRef = useRef(false);
     useEffect(() => {
         if (!isOpen)
             return;
         const fetchQueue = async () => {
+            if (requestInFlightRef.current) {
+                return;
+            }
+            requestInFlightRef.current = true;
             try {
                 const info = await GetDownloadQueue();
                 setQueueInfo(info);
@@ -33,9 +38,12 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
             catch (error) {
                 console.error("Failed to get download queue:", error);
             }
+            finally {
+                requestInFlightRef.current = false;
+            }
         };
         fetchQueue();
-        const interval = setInterval(fetchQueue, 500);
+        const interval = setInterval(fetchQueue, 1000);
         return () => clearInterval(interval);
     }, [isOpen]);
     const handleClearHistory = async () => {

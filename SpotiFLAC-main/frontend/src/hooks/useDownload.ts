@@ -39,11 +39,14 @@ export function useDownload(region: string) {
     const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(new Set());
     const [failedTracks, setFailedTracks] = useState<Set<string>>(new Set());
     const [skippedTracks, setSkippedTracks] = useState<Set<string>>(new Set());
+    const [queuedTracks, setQueuedTracks] = useState<Set<string>>(new Set());
     const [currentDownloadInfo, setCurrentDownloadInfo] = useState<{
         name: string;
         artists: string;
     } | null>(null);
     const shouldStopDownloadRef = useRef(false);
+    const singleTrackQueueRef = useRef<Array<[string, string | undefined, string | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, number | undefined, number | undefined, string | undefined, string | undefined]>>([]);
+    const singleTrackProcessingRef = useRef(false);
     const downloadWithAutoFallback = async (id: string, settings: any, trackName?: string, artistName?: string, albumName?: string, playlistName?: string, position?: number, spotifyId?: string, durationMs?: number, releaseYear?: string, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => {
         const service = settings.downloader;
         const query = trackName && artistName ? `${trackName} ${artistName} ` : undefined;
@@ -636,45 +639,74 @@ export function useDownload(region: string) {
         }
         return singleServiceResponse;
     };
+    const processSingleTrackQueue = async () => {
+        if (singleTrackProcessingRef.current) {
+            return;
+        }
+        singleTrackProcessingRef.current = true;
+        try {
+            while (singleTrackQueueRef.current.length > 0) {
+                const [id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher] = singleTrackQueueRef.current.shift()!;
+                const settings = getSettings();
+                const displayArtist = settings.useFirstArtistOnly && artistName ? getFirstArtist(artistName) : artistName;
+                logger.info(`starting download: ${trackName} - ${displayArtist}`);
+                setQueuedTracks((prev) => {
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                });
+                setDownloadingTrack(id);
+                try {
+                    const releaseYear = releaseDate?.substring(0, 4);
+                    const response = await downloadWithAutoFallback(id, settings, trackName, artistName, albumName, playlistName, position, spotifyId, durationMs, releaseYear, albumArtist || "", releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher);
+                    if (response.success) {
+                        if (response.already_exists) {
+                            toast.info(response.message);
+                            setSkippedTracks((prev) => new Set(prev).add(id));
+                        }
+                        else {
+                            toast.success(response.message);
+                        }
+                        setDownloadedTracks((prev) => new Set(prev).add(id));
+                        setFailedTracks((prev) => {
+                            const newSet = new Set(prev);
+                            newSet.delete(id);
+                            return newSet;
+                        });
+                    }
+                    else {
+                        toast.error(response.error || "Download failed");
+                        setFailedTracks((prev) => new Set(prev).add(id));
+                    }
+                }
+                catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Download failed");
+                    setFailedTracks((prev) => new Set(prev).add(id));
+                }
+                finally {
+                    setDownloadingTrack(null);
+                }
+            }
+        }
+        finally {
+            singleTrackProcessingRef.current = false;
+        }
+    };
     const handleDownloadTrack = async (id: string, trackName?: string, artistName?: string, albumName?: string, spotifyId?: string, playlistName?: string, durationMs?: number, position?: number, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => {
         if (!id) {
             toast.error("No ID found for this track");
             return;
         }
-        const settings = getSettings();
-        const displayArtist = settings.useFirstArtistOnly && artistName ? getFirstArtist(artistName) : artistName;
-        logger.info(`starting download: ${trackName} - ${displayArtist}`);
-        setDownloadingTrack(id);
-        try {
-            const releaseYear = releaseDate?.substring(0, 4);
-            const response = await downloadWithAutoFallback(id, settings, trackName, artistName, albumName, playlistName, position, spotifyId, durationMs, releaseYear, albumArtist || "", releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher);
-            if (response.success) {
-                if (response.already_exists) {
-                    toast.info(response.message);
-                    setSkippedTracks((prev) => new Set(prev).add(id));
-                }
-                else {
-                    toast.success(response.message);
-                }
-                setDownloadedTracks((prev) => new Set(prev).add(id));
-                setFailedTracks((prev) => {
-                    const newSet = new Set(prev);
-                    newSet.delete(id);
-                    return newSet;
-                });
-            }
-            else {
-                toast.error(response.error || "Download failed");
-                setFailedTracks((prev) => new Set(prev).add(id));
-            }
+        if (downloadingTrack === id ||
+            queuedTracks.has(id) ||
+            singleTrackQueueRef.current.some((entry) => entry[0] === id)) {
+            return;
         }
-        catch (err) {
-            toast.error(err instanceof Error ? err.message : "Download failed");
-            setFailedTracks((prev) => new Set(prev).add(id));
-        }
-        finally {
-            setDownloadingTrack(null);
-        }
+        singleTrackQueueRef.current.push([id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher]);
+        setQueuedTracks((prev) => new Set(prev).add(id));
+        queueMicrotask(() => {
+            void processSingleTrackQueue();
+        });
     };
     const handleDownloadSelected = async (selectedTracks: string[], allTracks: TrackMetadata[], folderName?: string, isAlbum?: boolean) => {
         if (selectedTracks.length === 0) {
@@ -1032,6 +1064,7 @@ export function useDownload(region: string) {
         downloadedTracks,
         failedTracks,
         skippedTracks,
+        queuedTracks,
         currentDownloadInfo,
         handleDownloadTrack,
         handleDownloadSelected,

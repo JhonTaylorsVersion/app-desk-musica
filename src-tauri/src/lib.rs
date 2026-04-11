@@ -21,9 +21,11 @@ use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tauri::State;
 
 // === NUEVAS DEPENDENCIAS PARA BIBLIOTECA ===
+use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use tauri::{webview::Color, AppHandle, Emitter};
 use walkdir::WalkDir;
@@ -89,6 +91,13 @@ pub struct PlaylistTrack {
 struct LibraryWatcherState {
     watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
 }
+
+struct SpotiFlacDownloadState {
+    lock: tauri::async_runtime::Mutex<()>,
+}
+
+static SPOTIFLAC_BRIDGE_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+static SPOTIFLAC_DOWNLOADS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Serialize, Clone)]
 struct AudioMetadata {
@@ -1476,8 +1485,19 @@ fn spotiflac_file_exists(path: String) -> bool {
 }
 
 #[tauri::command]
-fn spotiflac_download_track(request: serde_json::Value) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge("download-track", request)
+async fn spotiflac_download_track(
+    request: serde_json::Value,
+    download_state: State<'_, SpotiFlacDownloadState>,
+) -> Result<serde_json::Value, String> {
+    let queued_at = Instant::now();
+    let _download_guard = download_state.lock.lock().await;
+    eprintln!(
+        "[spotiflac][download-gate] acquired wait_ms={}",
+        queued_at.elapsed().as_millis()
+    );
+    tauri::async_runtime::spawn_blocking(move || run_spotiflac_bridge("download-track", request))
+        .await
+        .map_err(|error| format!("Fallo ejecutando descarga de SpotiFLAC: {}", error))?
 }
 
 fn debug_spotiflac_written_tags(file_path: &str) {
@@ -1848,6 +1868,8 @@ fn normalize_spotiflac_written_tags_once(
 }
 
 fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Result<serde_json::Value, String> {
+    let trace_id = SPOTIFLAC_BRIDGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+    let started_at = Instant::now();
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or_else(|| "No se pudo resolver el workspace root".to_string())?
@@ -1866,8 +1888,22 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
     }
 
     let request_json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+    let is_download_track = command_name == "download-track";
+    let inflight_downloads = if is_download_track {
+        SPOTIFLAC_DOWNLOADS_IN_FLIGHT.fetch_add(1, Ordering::SeqCst) + 1
+    } else {
+        SPOTIFLAC_DOWNLOADS_IN_FLIGHT.load(Ordering::SeqCst)
+    };
 
-    if command_name == "download-track" {
+    eprintln!(
+        "[spotiflac][bridge:start] trace_id={} command={} inflight_downloads={} request_bytes={}",
+        trace_id,
+        command_name,
+        inflight_downloads,
+        request_json.len()
+    );
+
+    if is_download_track {
         let genres_value = request.get("genres");
         let genres_kind = match genres_value {
             Some(serde_json::Value::Array(_)) => "array",
@@ -1910,6 +1946,13 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
         .spawn()
         .map_err(|e| format!("No se pudo ejecutar el bridge: {}", e))?;
 
+    eprintln!(
+        "[spotiflac][bridge:spawned] trace_id={} command={} pid={}",
+        trace_id,
+        command_name,
+        child.id()
+    );
+
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(&request_json)
@@ -1934,7 +1977,16 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).map_err(|e| format!("Respuesta JSON invalida del bridge: {} | stdout: {}", e, stdout))?;
 
-    if command_name == "download-track" {
+    eprintln!(
+        "[spotiflac][bridge:end] trace_id={} command={} success={} duration_ms={} stderr={}",
+        trace_id,
+        command_name,
+        output.status.success(),
+        started_at.elapsed().as_millis(),
+        if stderr.is_empty() { "<empty>" } else { &stderr }
+    );
+
+    if is_download_track {
         eprintln!(
             "[spotiflac][response] success={} stderr={} body={}",
             output.status.success(),
@@ -1965,6 +2017,17 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
                 debug_spotiflac_written_tags(file_path);
             }
         }
+    }
+
+    if is_download_track {
+        let remaining = SPOTIFLAC_DOWNLOADS_IN_FLIGHT
+            .fetch_sub(1, Ordering::SeqCst)
+            .saturating_sub(1);
+        eprintln!(
+            "[spotiflac][bridge:settled] trace_id={} inflight_downloads={}",
+            trace_id,
+            remaining
+        );
     }
 
     if output.status.success() {
@@ -2374,19 +2437,59 @@ fn scan_directories(directories: Vec<String>) -> Vec<PlaylistTrack> {
     tracks
 }
 
+fn is_library_relevant_path(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" | "lrc" | "m3u8"
+    )
+}
+
+fn is_library_refresh_event(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::Create(_) | EventKind::Remove(_))
+        || matches!(kind, EventKind::Modify(ModifyKind::Name(_)))
+}
+
 #[tauri::command]
 fn watch_directories(
     directories: Vec<String>,
     app_handle: AppHandle,
     watcher_state: State<'_, LibraryWatcherState>,
 ) -> Result<(), String> {
+    let (refresh_tx, refresh_rx) = std::sync::mpsc::channel::<()>();
+    let refresh_handle = app_handle.clone();
+
+    thread::spawn(move || {
+        loop {
+            if refresh_rx.recv().is_err() {
+                break;
+            }
+
+            loop {
+                match refresh_rx.recv_timeout(Duration::from_millis(1500)) {
+                    Ok(_) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = refresh_handle.emit("library-updated", ());
+                        break;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+        }
+    });
+
     // 1. Creamos un nuevo watcher que reaccionará a cambios en el sistema operativo
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         match res {
             Ok(event) => {
-                // Si se crea o se borra un archivo, le avisamos a Vue
-                if matches!(event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
-                    let _ = app_handle.emit("library-updated", ());
+                let should_refresh = is_library_refresh_event(&event.kind)
+                    && event.paths.iter().any(|path| is_library_relevant_path(path));
+
+                if should_refresh {
+                    let _ = refresh_tx.send(());
                 }
             }
             Err(e) => eprintln!("Error en el watcher: {:?}", e),
@@ -2817,6 +2920,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(player_state)
+        .manage(SpotiFlacDownloadState {
+            lock: tauri::async_runtime::Mutex::new(()),
+        })
         .manage(LibraryWatcherState {
             watcher: std::sync::Mutex::new(None),
         })

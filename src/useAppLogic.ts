@@ -293,6 +293,53 @@ export function useAppLogic() {
     | "searchSpotifyByType";
 
   let detachSpotiFlacHost: (() => void) | null = null;
+  let spotiFlacDownloadSequence = 0;
+  let spotiFlacDownloadsInFlight = 0;
+  let spotiFlacDownloadQueueTail: Promise<void> = Promise.resolve();
+  let performanceObserver: PerformanceObserver | null = null;
+  let performanceLagInterval: number | null = null;
+
+  const summarizeSpotiFlacDownloadRequest = (payload: Record<string, unknown>) => {
+    const request =
+      payload && typeof payload.request === "object"
+        ? (payload.request as Record<string, unknown>)
+        : payload;
+
+    return {
+      service:
+        typeof request.service === "string" ? request.service : "unknown",
+      spotifyId:
+        typeof request.spotify_id === "string"
+          ? request.spotify_id
+          : typeof request.spotifyId === "string"
+            ? request.spotifyId
+            : null,
+      track:
+        typeof request.track_name === "string"
+          ? request.track_name
+          : typeof request.trackName === "string"
+            ? request.trackName
+            : null,
+      artist:
+        typeof request.artist_name === "string"
+          ? request.artist_name
+          : typeof request.artistName === "string"
+            ? request.artistName
+            : null,
+      outputDir:
+        typeof request.output_dir === "string"
+          ? request.output_dir
+          : typeof request.outputDir === "string"
+            ? request.outputDir
+            : null,
+      itemId:
+        typeof request.item_id === "string"
+          ? request.item_id
+          : typeof request.itemId === "string"
+            ? request.itemId
+            : null,
+    };
+  };
 
   const installSpotiFlacHost = () => {
     const rootWindow = window as Window & {
@@ -367,12 +414,65 @@ export function useAppLogic() {
               path: payload.path,
             });
           case "downloadTrack":
-            return await invoke("spotiflac_download_track", {
-              request:
+            {
+              const request =
                 payload && typeof payload.request === "object"
                   ? payload.request
-                  : payload,
-            });
+                  : payload;
+              const traceId = ++spotiFlacDownloadSequence;
+              const startedAt = performance.now();
+              const queueDepthBeforeStart = spotiFlacDownloadsInFlight;
+              spotiFlacDownloadsInFlight += 1;
+              console.log("[SpotiFLAC][download:queued]", {
+                traceId,
+                pending: spotiFlacDownloadsInFlight,
+                queueDepthBeforeStart,
+                ...summarizeSpotiFlacDownloadRequest(payload),
+              });
+
+              const previousQueueTail = spotiFlacDownloadQueueTail;
+              let releaseQueue!: () => void;
+              spotiFlacDownloadQueueTail = new Promise<void>((resolve) => {
+                releaseQueue = resolve;
+              });
+
+              try {
+                await previousQueueTail;
+                console.log("[SpotiFLAC][download:start]", {
+                  traceId,
+                  pending: spotiFlacDownloadsInFlight,
+                  ...summarizeSpotiFlacDownloadRequest(payload),
+                });
+                const response = await invoke("spotiflac_download_track", {
+                  request,
+                });
+                console.log("[SpotiFLAC][download:end]", {
+                  traceId,
+                  pending: spotiFlacDownloadsInFlight,
+                  durationMs: Math.round(performance.now() - startedAt),
+                  response,
+                });
+                return response;
+              } catch (error) {
+                console.error("[SpotiFLAC][download:error]", {
+                  traceId,
+                  pending: spotiFlacDownloadsInFlight,
+                  durationMs: Math.round(performance.now() - startedAt),
+                  error,
+                });
+                throw error;
+              } finally {
+                releaseQueue();
+                spotiFlacDownloadsInFlight = Math.max(
+                  0,
+                  spotiFlacDownloadsInFlight - 1,
+                );
+                console.log("[SpotiFLAC][download:settled]", {
+                  traceId,
+                  pending: spotiFlacDownloadsInFlight,
+                });
+              }
+            }
           case "getStreamingURLs":
             return await invoke("spotiflac_get_streaming_urls", {
               spotifyTrackId: payload.spotifyTrackId,
@@ -411,6 +511,42 @@ export function useAppLogic() {
         delete rootWindow.__spotiflacHost;
       }
     };
+  };
+
+  const installPerformanceDiagnostics = () => {
+    if (typeof PerformanceObserver !== "undefined") {
+      try {
+        performanceObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.duration >= 120) {
+              console.warn("[Perf][longtask]", {
+                name: entry.name,
+                startTime: Math.round(entry.startTime),
+                durationMs: Math.round(entry.duration),
+              });
+            }
+          }
+        });
+        performanceObserver.observe({ entryTypes: ["longtask"] });
+      } catch (error) {
+        console.warn("[Perf][longtask:unsupported]", error);
+      }
+    }
+
+    let expectedAt = performance.now() + 500;
+    performanceLagInterval = window.setInterval(() => {
+      const now = performance.now();
+      const lagMs = now - expectedAt;
+      if (lagMs >= 180) {
+        console.warn("[Perf][event-loop-lag]", {
+          lagMs: Math.round(lagMs),
+          view: currentViewMode.value,
+          pendingDownloads: spotiFlacDownloadsInFlight,
+          libraryTracks: playlist.value.length,
+        });
+      }
+      expectedAt = now + 500;
+    }, 500);
   };
 
   
@@ -4800,7 +4936,50 @@ export function useAppLogic() {
 
   
   
-  const syncLibrary = async () => {
+  let librarySyncInFlight = false;
+  let librarySyncQueued = false;
+  let librarySyncTimer: ReturnType<typeof window.setTimeout> | null = null;
+  let libraryMetadataInFlight = false;
+  const pendingLibraryMetadataPaths = new Set<string>();
+
+  const createLibraryMetadataFromRow = (
+    row: LibraryTrackMetadataLiteRow,
+  ): LibraryTrackMetadata => {
+    let coverUrl = null;
+    if (row.cover_path) {
+      coverUrl = convertFileSrc(row.cover_path);
+    }
+
+    return {
+      title: row.title || "Sin título",
+      artist: row.artist || "Artista desconocido",
+      album: row.album || "—",
+      album_artist: row.album_artist || row.artist || "Artista desconocido",
+      year: row.year || null,
+      duration_seconds: Number(row.duration_seconds || 0),
+      duration_formatted:
+        row.duration_formatted || formatTime(Number(row.duration_seconds || 0)),
+      cover_art: coverUrl ? { data_url: coverUrl } : null,
+      track_number: row.track_number ?? null,
+    };
+  };
+
+  const createFallbackLibraryMetadata = (
+    track: PlaylistTrack,
+  ): LibraryTrackMetadata => ({
+    title: track.fileName || "Sin título",
+    artist: "Artista desconocido",
+    album: "—",
+    duration_seconds: 0,
+    duration_formatted: "—",
+    cover_art: null,
+  });
+
+  void createLibraryMetadataFromRow;
+  void createFallbackLibraryMetadata;
+
+  const runLibrarySync = async () => {
+    const syncStartedAt = performance.now();
     if (musicDirectories.value.length === 0) {
       playlist.value = [];
       queue.value = [];
@@ -4811,8 +4990,12 @@ export function useAppLogic() {
       await clearCurrentTrackState();
       return;
     }
-  
+
     try {
+      console.log("[Library][sync:start]", {
+        directories: musicDirectories.value.length,
+        currentPlaylistSize: playlist.value.length,
+      });
       const tracks: PlaylistTrack[] = await invoke("scan_directories", {
         directories: musicDirectories.value,
       });
@@ -4845,7 +5028,7 @@ export function useAppLogic() {
         await clearCurrentTrackState();
       }
   
-      void preloadLibraryMetadata(tracks);
+      await preloadLibraryMetadata(tracks);
   
       const normalizedRecents = normalizeRecentGlobalSearches(
         recentGlobalSearches.value,
@@ -4876,9 +5059,52 @@ export function useAppLogic() {
           startAt: 0,
         });
       }
+      console.log("[Library][sync:end]", {
+        tracks: tracks.length,
+        durationMs: Math.round(performance.now() - syncStartedAt),
+      });
     } catch (error) {
       console.error("Error al sincronizar la biblioteca:", error);
+      console.error("[Library][sync:error]", {
+        durationMs: Math.round(performance.now() - syncStartedAt),
+        error,
+      });
     }
+  };
+
+  const syncLibrary = async () => {
+    if (librarySyncInFlight) {
+      librarySyncQueued = true;
+      return;
+    }
+
+    librarySyncInFlight = true;
+
+    try {
+      do {
+        librarySyncQueued = false;
+        await runLibrarySync();
+      } while (librarySyncQueued);
+    } finally {
+      librarySyncInFlight = false;
+    }
+  };
+
+  const scheduleLibrarySync = (delay = 700) => {
+    if (librarySyncTimer != null) {
+      window.clearTimeout(librarySyncTimer);
+      console.log("[Library][sync:coalesce]", {
+        delay,
+      });
+    }
+
+    librarySyncTimer = window.setTimeout(() => {
+      librarySyncTimer = null;
+      console.log("[Library][sync:scheduled]", {
+        delay,
+      });
+      void syncLibrary();
+    }, delay);
   };
 
   
@@ -5510,23 +5736,49 @@ export function useAppLogic() {
   
   const preloadLibraryMetadata = async (tracks: PlaylistTrack[]) => {
     if (!tracks.length) {
+      pendingLibraryMetadataPaths.clear();
       libraryMetadataMap.value = {};
       return;
     }
-  
+
+    const trackMap = new Map(tracks.map((track) => [track.path, track]));
+    void trackMap;
+    for (const track of tracks) {
+      if (!libraryMetadataMap.value[track.path]) {
+        pendingLibraryMetadataPaths.add(track.path);
+      }
+    }
+
+    if (libraryMetadataInFlight || pendingLibraryMetadataPaths.size === 0) {
+      return;
+    }
+
+    libraryMetadataInFlight = true;
     loadingLibraryMetadata.value = true;
-  
+
+    let metadataStartedAt = 0;
     try {
-      const rows = await invoke<LibraryTrackMetadataLiteRow[]>(
-        "get_library_metadata_batch",
-        {
-          paths: tracks.map((track) => track.path),
-        },
-      );
-  
-      const nextMap: Record<string, LibraryTrackMetadata> = {};
-  
-      for (const row of rows) {
+      while (pendingLibraryMetadataPaths.size > 0) {
+        metadataStartedAt = performance.now();
+        const pathsToLoad = Array.from(pendingLibraryMetadataPaths);
+        pendingLibraryMetadataPaths.clear();
+
+        console.log("[Library][metadata:start]", {
+          tracks: tracks.length,
+          requested: pathsToLoad.length,
+        });
+        const rows = await invoke<LibraryTrackMetadataLiteRow[]>(
+          "get_library_metadata_batch",
+          {
+            paths: pathsToLoad,
+          },
+        );
+
+        const nextMap: Record<string, LibraryTrackMetadata> = {
+          ...libraryMetadataMap.value,
+        };
+
+        for (const row of rows) {
         // --- MAGIA AQUÍ: Convertimos la ruta local del disco duro a una URL web de Tauri ---
         let coverUrl = null;
         if (row.cover_path) {
@@ -5550,12 +5802,23 @@ export function useAppLogic() {
   
           track_number: row.track_number ?? null,
         };
+        }
+
+        libraryMetadataMap.value = nextMap;
+        console.log("[Library][metadata:end]", {
+          tracks: tracks.length,
+          rows: rows.length,
+          durationMs: Math.round(performance.now() - metadataStartedAt),
+        });
       }
-  
-      libraryMetadataMap.value = nextMap;
     } catch (error) {
       console.error("Error cargando metadata de biblioteca desde SQLite:", error);
-  
+      console.error("[Library][metadata:error]", {
+        tracks: tracks.length,
+        durationMs: Math.round(performance.now() - metadataStartedAt),
+        error,
+      });
+
       const fallbackMap: Record<string, LibraryTrackMetadata> = {};
   
       for (const track of tracks) {
@@ -5571,6 +5834,7 @@ export function useAppLogic() {
   
       libraryMetadataMap.value = fallbackMap;
     } finally {
+      libraryMetadataInFlight = false;
       loadingLibraryMetadata.value = false;
     }
   };
@@ -7174,14 +7438,14 @@ export function useAppLogic() {
   
   onMounted(async () => {
     installSpotiFlacHost();
+    installPerformanceDiagnostics();
     updateSpotiFlacConnectivityStatus();
     await nextTick();
     await waitForNextPaint();
     try {
 
     unlistenFsChanges = await listen("library-updated", () => {
-      console.log("Detectado cambio en la carpeta, actualizando canciones...");
-      void syncLibrary();
+      scheduleLibrarySync();
     });
   
     // ======== NUEVO ========
@@ -7266,6 +7530,10 @@ export function useAppLogic() {
       window.clearTimeout(playlistAddToastTimeoutId);
       playlistAddToastTimeoutId = null;
     }
+    if (librarySyncTimer != null) {
+      window.clearTimeout(librarySyncTimer);
+      librarySyncTimer = null;
+    }
     window.cancelAnimationFrame(globalSearchLoadingFrame);
     clearSessionPersistTimeout();
     stopConnectCommandPolling();
@@ -7302,6 +7570,14 @@ export function useAppLogic() {
     if (detachSpotiFlacHost) {
       detachSpotiFlacHost();
       detachSpotiFlacHost = null;
+    }
+    if (performanceObserver) {
+      performanceObserver.disconnect();
+      performanceObserver = null;
+    }
+    if (performanceLagInterval != null) {
+      window.clearInterval(performanceLagInterval);
+      performanceLagInterval = null;
     }
   });
 

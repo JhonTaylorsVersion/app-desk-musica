@@ -24,7 +24,7 @@ export function DebugLoggerPage() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [copied, setCopied] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const queueInfo = useDownloadQueueData();
+    const queueInfo = useDownloadQueueData({ intervalMs: 1500 });
     const hasDownloadActivity = queueInfo.queue.length > 0 ||
         queueInfo.queued_count > 0 ||
         queueInfo.completed_count > 0 ||
