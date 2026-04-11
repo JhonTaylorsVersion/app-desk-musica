@@ -21,4 +21,8 @@ export default defineConfig({
         port: 5175,
         strictPort: true,
     },
+    build: {
+        outDir: path.resolve(__dirname, "../../public/spotiflac"),
+        emptyOutDir: true,
+    },
 });
