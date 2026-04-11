@@ -1046,6 +1046,30 @@ textarea,
   transform: translateY(-1px);
 }
 
+.collapsed-spotiflac-btn.offline {
+  background: rgba(255, 110, 82, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 110, 82, 0.28);
+}
+
+.collapsed-spotiflac-btn.offline:hover,
+.collapsed-spotiflac-btn.offline.active {
+  background: rgba(255, 110, 82, 0.28);
+}
+
+.spotiflac-button-badge {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #ff6e52;
+  color: #fff7f3;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 24px rgba(255, 110, 82, 0.24);
+}
+
 .playlist-create-input {
   height: 40px;
 }
@@ -1089,6 +1113,28 @@ textarea,
 .spotiflac-pill:hover,
 .spotiflac-pill.active {
   background: rgba(29, 185, 84, 0.3);
+}
+
+.spotiflac-pill.offline {
+  background: rgba(255, 110, 82, 0.14);
+  color: #fff2ed;
+}
+
+.spotiflac-pill.offline:hover,
+.spotiflac-pill.offline.active {
+  background: rgba(255, 110, 82, 0.24);
+}
+
+.spotiflac-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 110, 82, 0.22);
+  color: #ffd2c7;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .left-library-tools {
@@ -2652,6 +2698,18 @@ input[type="range"]:hover::-webkit-slider-thumb {
   font-size: 30px;
   line-height: 1.1;
   color: #ffffff;
+}
+
+.spotiflac-connection-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 110, 82, 0.16);
+  border: 1px solid rgba(255, 110, 82, 0.28);
+  color: #ffd2c7;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .spotiflac-copy {

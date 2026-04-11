@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
 	"net/url"
 	"strings"
 	"time"
@@ -52,6 +54,277 @@ type MusicBrainzRecordingResponse struct {
 			Name  string `json:"name"`
 		} `json:"tags"`
 	} `json:"recordings"`
+}
+
+type normalizedMusicBrainzTag struct {
+	Name  string
+	Count int
+	Score int
+}
+
+var excludedMusicBrainzGenreTerms = []string{
+	"billboard",
+	"hot 100",
+	"chart",
+	"charts",
+	"ranking",
+	"rankings",
+	"award",
+	"awards",
+	"grammy",
+	"mama",
+	"melon",
+	"itunes",
+	"spotify",
+	"apple music",
+	"viral",
+	"top 10",
+	"top 20",
+	"top 40",
+	"top 50",
+	"top 100",
+	"number one",
+	"no. 1",
+	"ost",
+	"original soundtrack",
+	"soundtrack",
+	"single of the year",
+	"weeks",
+	"week",
+	"wochen",
+	"monat",
+	"monate",
+	"month",
+	"months",
+	"dias",
+	"dias",
+	"days",
+	"semanas",
+	"weeks on chart",
+	"chart run",
+	"debut",
+	"peak position",
+	"number 1",
+	"nr. 1",
+	"no 1",
+	"certification",
+	"certifications",
+	"sales",
+	"streams",
+	"streaming",
+	"radio",
+	"idol",
+	"idols",
+	"girl group",
+	"boy group",
+	"female vocalists",
+	"male vocalists",
+	"korean",
+	"japanese",
+	"china",
+	"chinese",
+	"thai",
+	"viral 50",
+	"top songs",
+}
+
+var musicBrainzGenreChartPattern = regexp.MustCompile(`\b\d+\+?\s*(week|weeks|wochen|monat|monate|month|months|day|days|dias|semana|semanas)\b`)
+
+var broadMusicBrainzGenreTerms = []string{
+	"asian music",
+	"world music",
+	"international music",
+	"pop music",
+	"music",
+}
+
+var strongMusicBrainzGenreTerms = []string{
+	"k-pop",
+	"j-pop",
+	"c-pop",
+	"edm",
+	"electronic dance music",
+	"hard techno",
+	"techno",
+	"hardstyle",
+	"trance",
+	"house",
+	"dance",
+	"dance-pop",
+	"dance pop",
+	"synth-pop",
+	"synth pop",
+	"electropop",
+	"electro pop",
+	"industrial",
+	"dubstep",
+	"drum and bass",
+	"dnb",
+	"trap",
+	"hip hop",
+	"hip-hop",
+	"rap",
+	"r&b",
+	"rhythm and blues",
+	"alt-pop",
+	"alt pop",
+	"alternative pop",
+	"indie pop",
+	"electronic",
+	"pop",
+	"rock",
+	"metal",
+	"jazz",
+	"soul",
+	"funk",
+	"disco",
+	"latin",
+	"reggaeton",
+	"afrobeats",
+	"ambient",
+	"phonk",
+}
+
+var allowedDigitGenreTerms = []string{
+	"2-step",
+	"2 step",
+	"8-bit",
+	"8 bit",
+}
+
+func isLikelyGenreTag(tagName string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(tagName))
+	if normalized == "" {
+		return false
+	}
+
+	if musicBrainzGenreChartPattern.MatchString(normalized) {
+		return false
+	}
+
+	for _, term := range excludedMusicBrainzGenreTerms {
+		if strings.Contains(normalized, term) {
+			return false
+		}
+	}
+
+	if strings.ContainsAny(normalized, "0123456789") {
+		for _, allowedTerm := range allowedDigitGenreTerms {
+			if strings.Contains(normalized, allowedTerm) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return true
+}
+
+func scoreMusicBrainzGenreTag(tagName string, count int) (int, bool) {
+	normalized := strings.TrimSpace(strings.ToLower(tagName))
+	if !isLikelyGenreTag(normalized) {
+		return 0, false
+	}
+
+	score := count * 100
+
+	for _, term := range strongMusicBrainzGenreTerms {
+		if strings.Contains(normalized, term) {
+			score += 400
+		}
+	}
+
+	for _, term := range broadMusicBrainzGenreTerms {
+		if normalized == term {
+			score -= 550
+			break
+		}
+		if strings.Contains(normalized, term) {
+			score -= 300
+		}
+	}
+
+	if strings.Contains(normalized, " music") || strings.HasSuffix(normalized, "music") {
+		score -= 220
+	}
+
+	if strings.Contains(normalized, "asian") && !strings.Contains(normalized, "k-pop") && !strings.Contains(normalized, "j-pop") && !strings.Contains(normalized, "c-pop") {
+		score -= 250
+	}
+
+	if strings.Contains(normalized, "pop") && !strings.Contains(normalized, "k-pop") && !strings.Contains(normalized, "j-pop") && !strings.Contains(normalized, "c-pop") && !strings.Contains(normalized, "synth-pop") && !strings.Contains(normalized, "dance-pop") {
+		score += 80
+	}
+
+	if strings.Contains(normalized, "genre") {
+		score -= 400
+	}
+
+	if score <= 0 {
+		return 0, false
+	}
+
+	return score, true
+}
+
+func collectPrimaryMusicBrainzGenres(tags []struct {
+	Count int    `json:"count"`
+	Name  string `json:"name"`
+}, limit int) []string {
+	if limit <= 0 {
+		limit = 1
+	}
+
+	caser := cases.Title(language.English)
+	byName := make(map[string]normalizedMusicBrainzTag)
+
+	for _, tag := range tags {
+		score, ok := scoreMusicBrainzGenreTag(tag.Name, tag.Count)
+		if !ok {
+			continue
+		}
+
+		normalizedName := strings.TrimSpace(strings.ToLower(tag.Name))
+		if normalizedName == "" {
+			continue
+		}
+
+		candidate := normalizedMusicBrainzTag{
+			Name:  caser.String(normalizedName),
+			Count: tag.Count,
+			Score: score,
+		}
+
+		if existing, exists := byName[normalizedName]; !exists || candidate.Score > existing.Score || (candidate.Score == existing.Score && candidate.Count > existing.Count) {
+			byName[normalizedName] = candidate
+		}
+	}
+
+	normalizedTags := make([]normalizedMusicBrainzTag, 0, len(byName))
+	for _, tag := range byName {
+		normalizedTags = append(normalizedTags, tag)
+	}
+
+	sort.SliceStable(normalizedTags, func(i, j int) bool {
+		if normalizedTags[i].Score == normalizedTags[j].Score {
+			if normalizedTags[i].Count == normalizedTags[j].Count {
+				return normalizedTags[i].Name < normalizedTags[j].Name
+			}
+			return normalizedTags[i].Count > normalizedTags[j].Count
+		}
+		return normalizedTags[i].Score > normalizedTags[j].Score
+	})
+
+	if len(normalizedTags) > limit {
+		normalizedTags = normalizedTags[:limit]
+	}
+
+	result := make([]string, 0, len(normalizedTags))
+	for _, tag := range normalizedTags {
+		result = append(result, tag.Name)
+	}
+
+	return result
 }
 
 func FetchMusicBrainzMetadata(isrc, title, artist, album string, useSingleGenre bool, embedGenre bool) (Metadata, error) {
@@ -117,37 +390,14 @@ func FetchMusicBrainzMetadata(isrc, title, artist, album string, useSingleGenre 
 	}
 
 	recording := mbResp.Recordings[0]
-
-	var genres []string
-	caser := cases.Title(language.English)
-
+	genreLimit := 3
 	if useSingleGenre {
+		genreLimit = 1
+	}
 
-		maxCount := -1
-		var bestTag string
-
-		for _, tag := range recording.Tags {
-			if tag.Count > maxCount {
-				maxCount = tag.Count
-				bestTag = tag.Name
-			}
-		}
-
-		if bestTag != "" {
-			meta.Genre = caser.String(bestTag)
-		}
-	} else {
-		for _, tag := range recording.Tags {
-
-			genres = append(genres, caser.String(tag.Name))
-		}
-		if len(genres) > 0 {
-
-			if len(genres) > 5 {
-				genres = genres[:5]
-			}
-			meta.Genre = strings.Join(genres, GetSeparator())
-		}
+	genres := collectPrimaryMusicBrainzGenres(recording.Tags, genreLimit)
+	if len(genres) > 0 {
+		meta.Genre = strings.Join(genres, GetSeparator())
 	}
 
 	return meta, nil

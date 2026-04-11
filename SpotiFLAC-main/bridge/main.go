@@ -68,6 +68,18 @@ type TrackAvailabilityRequest struct {
 	SpotifyTrackID string `json:"spotify_track_id"`
 }
 
+type SpotifyMetadataRequest struct {
+	URL       string  `json:"url"`
+	Batch     bool    `json:"batch,omitempty"`
+	Delay     float64 `json:"delay,omitempty"`
+	Timeout   float64 `json:"timeout,omitempty"`
+	Separator string  `json:"separator,omitempty"`
+}
+
+type DeezerGenreRequest struct {
+	ISRC string `json:"isrc"`
+}
+
 func cleanupInvalidDownloadArtifacts(paths ...string) {
 	seen := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
@@ -484,6 +496,83 @@ func main() {
 		if err != nil {
 			os.Exit(1)
 		}
+	case "get-spotify-metadata":
+		var req SpotifyMetadataRequest
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   fmt.Sprintf("invalid request: %v", err),
+			})
+			os.Exit(1)
+		}
+
+		if strings.TrimSpace(req.URL) == "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   "url is required",
+			})
+			os.Exit(1)
+		}
+
+		originalStdout := os.Stdout
+		os.Stdout = os.Stderr
+		timeout := 15 * time.Second
+		if req.Timeout > 0 {
+			timeout = time.Duration(req.Timeout * float64(time.Second))
+		}
+		delay := time.Duration(req.Delay * float64(time.Second))
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		result, err := backend.GetFilteredSpotifyData(ctx, strings.TrimSpace(req.URL), req.Batch, delay, req.Separator, nil)
+		cancel()
+		os.Stdout = originalStdout
+
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
+
+		_ = json.NewEncoder(os.Stdout).Encode(result)
+	case "get-deezer-genres":
+		var req DeezerGenreRequest
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   fmt.Sprintf("invalid request: %v", err),
+			})
+			os.Exit(1)
+		}
+
+		if strings.TrimSpace(req.ISRC) == "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   "isrc is required",
+			})
+			os.Exit(1)
+		}
+
+		genres, err := backend.FetchDeezerGenresByISRC(req.ISRC)
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
+
+		genre := ""
+		if len(genres) > 0 {
+			genre = genres[0]
+		}
+
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"success": true,
+			"genres":  genres,
+			"genre":   genre,
+			"isrc":    strings.ToUpper(strings.TrimSpace(req.ISRC)),
+		})
 	case "search-spotify":
 		var req struct {
 			Query string `json:"query"`

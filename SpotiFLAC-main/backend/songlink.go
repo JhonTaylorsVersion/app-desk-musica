@@ -55,6 +55,118 @@ func NewSongLinkClient() *SongLinkClient {
 	}
 }
 
+func FetchDeezerGenresByISRC(isrc string) ([]string, error) {
+	cleanISRC := strings.ToUpper(strings.TrimSpace(isrc))
+	if cleanISRC == "" {
+		return nil, fmt.Errorf("ISRC is required")
+	}
+
+	trackURL := fmt.Sprintf("https://api.deezer.com/track/isrc:%s", cleanISRC)
+	trackReq, err := http.NewRequest(http.MethodGet, trackURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	trackReq.Header.Set("User-Agent", songLinkUserAgent)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	trackResp, err := client.Do(trackReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Deezer track API: %w", err)
+	}
+	defer trackResp.Body.Close()
+
+	if trackResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Deezer track API returned status %d", trackResp.StatusCode)
+	}
+
+	var trackPayload struct {
+		Album struct {
+			ID int `json:"id"`
+		} `json:"album"`
+	}
+	if err := json.NewDecoder(trackResp.Body).Decode(&trackPayload); err != nil {
+		return nil, fmt.Errorf("failed to decode Deezer track response: %w", err)
+	}
+
+	if trackPayload.Album.ID == 0 {
+		return nil, fmt.Errorf("album id not found in Deezer track response for ISRC %s", cleanISRC)
+	}
+
+	albumURL := fmt.Sprintf("https://api.deezer.com/album/%d", trackPayload.Album.ID)
+	albumReq, err := http.NewRequest(http.MethodGet, albumURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	albumReq.Header.Set("User-Agent", songLinkUserAgent)
+
+	albumResp, err := client.Do(albumReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Deezer album API: %w", err)
+	}
+	defer albumResp.Body.Close()
+
+	if albumResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Deezer album API returned status %d", albumResp.StatusCode)
+	}
+
+	var albumPayload struct {
+		GenreID int `json:"genre_id"`
+		Genres  struct {
+			Data []struct {
+				Name string `json:"name"`
+			} `json:"data"`
+		} `json:"genres"`
+	}
+	if err := json.NewDecoder(albumResp.Body).Decode(&albumPayload); err != nil {
+		return nil, fmt.Errorf("failed to decode Deezer album response: %w", err)
+	}
+
+	genres := make([]string, 0, len(albumPayload.Genres.Data))
+	for _, genre := range albumPayload.Genres.Data {
+		name := strings.TrimSpace(genre.Name)
+		if name != "" {
+			genres = append(genres, name)
+		}
+	}
+
+	if len(genres) > 0 {
+		return genres, nil
+	}
+
+	if albumPayload.GenreID > 0 {
+		genreURL := fmt.Sprintf("https://api.deezer.com/genre/%d", albumPayload.GenreID)
+		genreReq, err := http.NewRequest(http.MethodGet, genreURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		genreReq.Header.Set("User-Agent", songLinkUserAgent)
+
+		genreResp, err := client.Do(genreReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to call Deezer genre API: %w", err)
+		}
+		defer genreResp.Body.Close()
+
+		if genreResp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("Deezer genre API returned status %d", genreResp.StatusCode)
+		}
+
+		var genrePayload struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(genreResp.Body).Decode(&genrePayload); err != nil {
+			return nil, fmt.Errorf("failed to decode Deezer genre response: %w", err)
+		}
+
+		name := strings.TrimSpace(genrePayload.Name)
+		if name != "" {
+			return []string{name}, nil
+		}
+	}
+
+	return []string{}, nil
+}
+
 func (s *SongLinkClient) GetAllURLsFromSpotify(spotifyTrackID string, region string) (*SongLinkURLs, error) {
 	links, err := s.resolveSpotifyTrackLinks(spotifyTrackID, region)
 	if err != nil && (links == nil || (links.TidalURL == "" && links.AmazonURL == "")) {

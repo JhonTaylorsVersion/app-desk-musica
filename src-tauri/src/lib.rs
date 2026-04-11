@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
+use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::prelude::Accessor;
@@ -13,6 +14,8 @@ use std::process::Command;
 use std::process::Stdio;
 use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
@@ -1477,6 +1480,373 @@ fn spotiflac_download_track(request: serde_json::Value) -> Result<serde_json::Va
     run_spotiflac_bridge("download-track", request)
 }
 
+fn debug_spotiflac_written_tags(file_path: &str) {
+    match read_from_path(file_path) {
+        Ok(tagged_file) => {
+            let Some(tag) = tagged_file.primary_tag() else {
+                eprintln!("[spotiflac][tags] file={} primary_tag=missing", file_path);
+                return;
+            };
+
+            let year = tag
+                .get_string(ItemKey::Year)
+                .or_else(|| tag.get_string(ItemKey::ReleaseDate))
+                .map(|value| value.to_string());
+            let title = tag.title().map(|value| value.to_string());
+            let artist = tag.artist().map(|value| value.to_string());
+            let album = tag.album().map(|value| value.to_string());
+            let genre = tag.genre().map(|value| value.to_string());
+            let item_keys: Vec<String> = tag
+                .items()
+                .map(|item| format!("{:?}={:?}", item.key(), item.value()))
+                .collect();
+
+            eprintln!(
+                "[spotiflac][tags] file={} title={:?} artist={:?} album={:?} year={:?} genre={:?} items={}",
+                file_path,
+                title,
+                artist,
+                album,
+                year,
+                genre,
+                item_keys.join(" | ")
+            );
+        }
+        Err(error) => {
+            eprintln!(
+                "[spotiflac][tags] file={} read_error={}",
+                file_path, error
+            );
+        }
+    }
+}
+
+fn normalize_spotiflac_written_tags(
+    file_path: &str,
+    request_release_date: Option<&str>,
+    request_spotify_id: Option<&str>,
+    request_embed_genre: bool,
+    request_use_single_genre: bool,
+) -> Result<(), String> {
+    let mut last_error: Option<String> = None;
+
+    for attempt in 0..12 {
+        match normalize_spotiflac_written_tags_once(
+            file_path,
+            request_release_date,
+            request_spotify_id,
+            request_embed_genre,
+            request_use_single_genre,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let lower = error.to_lowercase();
+                let is_locked = lower.contains("being used by another process")
+                    || lower.contains("acceso al archivo")
+                    || lower.contains("os error 32");
+
+                last_error = Some(error.clone());
+
+                if !is_locked || attempt == 11 {
+                    return Err(error);
+                }
+
+                thread::sleep(Duration::from_millis(250));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "No se pudo normalizar metadata".to_string()))
+}
+
+fn normalize_spotiflac_text_for_match(value: &str) -> String {
+    value
+        .chars()
+        .filter_map(|ch| {
+            if ch.is_alphanumeric() || ch.is_whitespace() {
+                Some(ch.to_ascii_lowercase())
+            } else {
+                None
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn split_spotiflac_artist_candidates(value: &str) -> Vec<String> {
+    let normalized = value
+        .replace(" feat. ", ",")
+        .replace(" ft. ", ",")
+        .replace(" featuring ", ",")
+        .replace(" & ", ",")
+        .replace(";", ",");
+
+    normalized
+        .split(',')
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_string())
+        .collect()
+}
+
+fn fetch_spotiflac_deezer_genres(isrc: &str) -> Result<Vec<String>, String> {
+    let clean_isrc = isrc.trim();
+    if clean_isrc.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let response = run_spotiflac_bridge(
+        "get-deezer-genres",
+        serde_json::json!({
+            "isrc": clean_isrc,
+        }),
+    )?;
+
+    let genres = response
+        .get("genres")
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if !genres.is_empty() {
+        eprintln!(
+            "[spotiflac][genre] source=deezer isrc={} genres={}",
+            clean_isrc,
+            genres.join(" | ")
+        );
+    }
+
+    Ok(genres)
+}
+
+fn fetch_spotiflac_artist_genres(artist_name: &str) -> Result<Vec<String>, String> {
+    let search_query = artist_name.trim();
+    if search_query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let search_response = run_spotiflac_bridge(
+        "search-spotify-by-type",
+        serde_json::json!({
+            "query": search_query,
+            "search_type": "artist",
+            "limit": 5,
+            "offset": 0,
+        }),
+    )?;
+
+    let Some(artists) = search_response.get("artists").and_then(|value| value.as_array()) else {
+        return Ok(Vec::new());
+    };
+
+    let wanted = normalize_spotiflac_text_for_match(search_query);
+    let selected_artist = artists
+        .iter()
+        .find(|artist| {
+            artist
+                .get("name")
+                .and_then(|value| value.as_str())
+                .map(|name| normalize_spotiflac_text_for_match(name) == wanted)
+                .unwrap_or(false)
+        })
+        .or_else(|| artists.first());
+
+    let Some(artist_url) = selected_artist
+        .and_then(|artist| artist.get("external_urls"))
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(Vec::new());
+    };
+
+    let artist_response = run_spotiflac_bridge(
+        "get-spotify-metadata",
+        serde_json::json!({
+            "url": artist_url,
+            "batch": false,
+            "delay": 0.0,
+            "timeout": 15.0,
+            "separator": ", ",
+        }),
+    )?;
+
+    let genres_value = artist_response
+        .get("artist_info")
+        .and_then(|value| value.get("genres"))
+        .or_else(|| {
+            artist_response
+                .get("artist")
+                .and_then(|value| value.get("genres"))
+        });
+
+    let genres = genres_value
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(genres)
+}
+
+fn fetch_spotiflac_fallback_genres(
+    isrc: Option<&str>,
+    primary_artist_name: Option<&str>,
+) -> Result<Vec<String>, String> {
+    if let Some(isrc) = isrc {
+        let deezer_genres = fetch_spotiflac_deezer_genres(isrc)?;
+        if !deezer_genres.is_empty() {
+            return Ok(deezer_genres);
+        }
+    }
+
+    let Some(primary_artist_name) = primary_artist_name else {
+        return Ok(Vec::new());
+    };
+
+    for candidate in split_spotiflac_artist_candidates(primary_artist_name) {
+        let genres = fetch_spotiflac_artist_genres(&candidate)?;
+        if !genres.is_empty() {
+            eprintln!(
+                "[spotiflac][genre] artist={} genres={}",
+                candidate,
+                genres.join(" | ")
+            );
+            return Ok(genres);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn normalize_spotiflac_tag_fields(
+    tag: &mut Tag,
+    request_release_date: Option<&str>,
+    fallback_genres: &[String],
+    use_single_genre: bool,
+) -> bool {
+    let existing_recording_date = tag
+        .get_string(ItemKey::RecordingDate)
+        .map(|value| value.to_string());
+    let existing_release_date = tag
+        .get_string(ItemKey::ReleaseDate)
+        .map(|value| value.to_string());
+    let fallback_release_date = request_release_date
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.to_string())
+        .or(existing_release_date.clone())
+        .or(existing_recording_date.clone());
+
+    let mut changed = false;
+
+    if tag.get_string(ItemKey::ReleaseDate).is_none() {
+        if let Some(release_date) = fallback_release_date.as_ref() {
+            tag.insert_text(ItemKey::ReleaseDate, release_date.clone());
+            changed = true;
+        }
+    }
+
+    if tag.get_string(ItemKey::Year).is_none() {
+        if let Some(year) = fallback_release_date
+            .as_deref()
+            .and_then(|value| value.get(0..4))
+            .filter(|value| value.chars().all(|ch| ch.is_ascii_digit()))
+        {
+            tag.insert_text(ItemKey::Year, year.to_string());
+            changed = true;
+        }
+    }
+
+    if tag.get_string(ItemKey::Genre).is_none() && !fallback_genres.is_empty() {
+        let genre_value = if use_single_genre {
+            fallback_genres.first().cloned()
+        } else {
+            Some(fallback_genres.join("; "))
+        };
+
+        if let Some(genre_value) = genre_value.filter(|value| !value.trim().is_empty()) {
+            tag.insert_text(ItemKey::Genre, genre_value);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+fn normalize_spotiflac_written_tags_once(
+    file_path: &str,
+    request_release_date: Option<&str>,
+    _request_spotify_id: Option<&str>,
+    request_embed_genre: bool,
+    request_use_single_genre: bool,
+) -> Result<(), String> {
+    let mut tagged_file = read_from_path(file_path).map_err(|e| e.to_string())?;
+    let primary_artist_name = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .and_then(|tag| {
+            tag.get_string(ItemKey::AlbumArtist)
+                .map(|value| value.to_string())
+                .or_else(|| tag.artist().map(|value| value.to_string()))
+        });
+    let isrc = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .and_then(|tag| tag.get_string(ItemKey::Isrc))
+        .map(|value| value.to_string());
+    let should_fetch_genres = request_embed_genre
+        && tagged_file
+            .primary_tag()
+            .or_else(|| tagged_file.first_tag())
+            .and_then(|tag| tag.get_string(ItemKey::Genre))
+            .is_none();
+    let fallback_genres = if should_fetch_genres {
+        fetch_spotiflac_fallback_genres(isrc.as_deref(), primary_artist_name.as_deref())?
+    } else {
+        Vec::new()
+    };
+    let changed = if let Some(tag) = tagged_file.primary_tag_mut() {
+        normalize_spotiflac_tag_fields(
+            tag,
+            request_release_date,
+            &fallback_genres,
+            request_use_single_genre,
+        )
+    } else if let Some(tag) = tagged_file.first_tag_mut() {
+        normalize_spotiflac_tag_fields(
+            tag,
+            request_release_date,
+            &fallback_genres,
+            request_use_single_genre,
+        )
+    } else {
+        return Ok(());
+    };
+
+    if changed {
+        tagged_file
+            .save_to_path(file_path, WriteOptions::default())
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Result<serde_json::Value, String> {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -1496,6 +1866,31 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
     }
 
     let request_json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+
+    if command_name == "download-track" {
+        let genres_value = request.get("genres");
+        let genres_kind = match genres_value {
+            Some(serde_json::Value::Array(_)) => "array",
+            Some(serde_json::Value::String(_)) => "string",
+            Some(serde_json::Value::Null) => "null",
+            Some(_) => "other",
+            None => "missing",
+        };
+        eprintln!(
+            "[spotiflac][request] service={:?} spotify_id={:?} track={:?} release_date={:?} publisher={:?} embed_genre={:?} use_single_genre={:?} genres_kind={} genres={}",
+            request.get("service"),
+            request.get("spotify_id"),
+            request.get("track_name"),
+            request.get("release_date"),
+            request.get("publisher"),
+            request.get("embed_genre"),
+            request.get("use_single_genre"),
+            genres_kind,
+            genres_value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string())
+        );
+    }
 
     let mut child = Command::new(&bridge_path)
         .arg(command_name)
@@ -1538,6 +1933,39 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
 
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).map_err(|e| format!("Respuesta JSON invalida del bridge: {} | stdout: {}", e, stdout))?;
+
+    if command_name == "download-track" {
+        eprintln!(
+            "[spotiflac][response] success={} stderr={} body={}",
+            output.status.success(),
+            if stderr.is_empty() { "<empty>" } else { &stderr },
+            parsed
+        );
+
+        if output.status.success() {
+            if let Some(file_path) = parsed.get("file").and_then(|value| value.as_str()) {
+                if let Err(error) = normalize_spotiflac_written_tags(
+                    file_path,
+                    request.get("release_date").and_then(|value| value.as_str()),
+                    request.get("spotify_id").and_then(|value| value.as_str()),
+                    request
+                        .get("embed_genre")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false),
+                    request
+                        .get("use_single_genre")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false),
+                ) {
+                    eprintln!(
+                        "[spotiflac][normalize] file={} error={}",
+                        file_path, error
+                    );
+                }
+                debug_spotiflac_written_tags(file_path);
+            }
+        }
+    }
 
     if output.status.success() {
         Ok(parsed)
@@ -1827,10 +2255,15 @@ fn leer_metadata(path: String) -> Result<AudioMetadata, String> {
             tag.get_string(ItemKey::DiscTotal).map(|s| s.to_string())
         })),
         year: non_empty(first_text(&tags, |tag| {
-            tag.get_string(ItemKey::Year).map(|s| s.to_string())
+            tag.get_string(ItemKey::Year)
+                .or_else(|| tag.get_string(ItemKey::ReleaseDate))
+                .or_else(|| tag.get_string(ItemKey::RecordingDate))
+                .map(|s| s.to_string())
         })),
         release_date: non_empty(first_text(&tags, |tag| {
-            tag.get_string(ItemKey::ReleaseDate).map(|s| s.to_string())
+            tag.get_string(ItemKey::ReleaseDate)
+                .or_else(|| tag.get_string(ItemKey::RecordingDate))
+                .map(|s| s.to_string())
         })),
         duration_seconds: Some(duration_seconds),
         duration_formatted: Some(format_duration(duration_seconds)),

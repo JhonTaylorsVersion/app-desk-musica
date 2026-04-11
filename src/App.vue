@@ -950,13 +950,23 @@ export default defineComponent({
             >
               <button
                 class="collapsed-spotiflac-btn"
-                :class="{ active: currentViewMode === 'spotiflac' }"
+                :class="{
+                  active: currentViewMode === 'spotiflac',
+                  offline: isSpotiFlacOffline,
+                }"
                 type="button"
                 @click="openSpotiFlacView"
-                title="SpotiFLAC"
+                :title="
+                  isSpotiFlacOffline
+                    ? 'Necesitas internet para usar SpotiFLAC'
+                    : 'SpotiFLAC'
+                "
                 aria-label="Abrir SpotiFLAC"
               >
                 SF
+                <span v-if="isSpotiFlacOffline" class="spotiflac-button-badge"
+                  >Sin red</span
+                >
               </button>
               <button
                 class="collapsed-create-btn"
@@ -1004,11 +1014,17 @@ export default defineComponent({
             <div v-if="!isLibrarySidebarCollapsed" class="library-filter-pills">
               <button
                 class="library-pill spotiflac-pill"
-                :class="{ active: currentViewMode === 'spotiflac' }"
+                :class="{
+                  active: currentViewMode === 'spotiflac',
+                  offline: isSpotiFlacOffline,
+                }"
                 type="button"
                 @click="openSpotiFlacView"
               >
                 SpotiFLAC
+                <span v-if="isSpotiFlacOffline" class="spotiflac-pill-badge"
+                  >Necesita internet</span
+                >
               </button>
               <button
                 class="library-pill"
@@ -1173,6 +1189,12 @@ export default defineComponent({
                   <div class="spotiflac-hero-left">
                     <h2 class="spotiflac-title">SpotiFLAC</h2>
                     <div class="spotiflac-kicker">Herramientas de descarga</div>
+                    <div
+                      v-if="isSpotiFlacOffline"
+                      class="spotiflac-connection-badge"
+                    >
+                      Sin internet. Necesitas conexion para usar esta funcion.
+                    </div>
                   </div>
 
                   <button
@@ -1195,15 +1217,25 @@ export default defineComponent({
                   <div v-else class="spotiflac-offline-state">
                     <div class="spotiflac-offline-icon">SF</div>
                     <div class="spotiflac-offline-title">
-                      SpotiFLAC aun no esta listo
+                      {{
+                        isSpotiFlacOffline
+                          ? "Sin conexion a internet"
+                          : "SpotiFLAC aun no esta listo"
+                      }}
                     </div>
                     <div class="spotiflac-offline-copy">
                       {{ spotiFlacStatusMessage }}
                     </div>
                     <div class="spotiflac-offline-steps">
+                      <template v-if="isSpotiFlacOffline">
+                        Conectate a internet y vuelve a intentarlo para usar
+                        SpotiFLAC dentro de la app.
+                      </template>
+                      <template v-else>
                       La interfaz ya vive dentro de esta app en
                       <span>public/spotiflac</span>. Si no carga, recompila el
                       modulo embebido de SpotiFLAC.
+                      </template>
                     </div>
                     <button
                       class="small-action-btn"

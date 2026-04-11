@@ -1802,6 +1802,7 @@ export function useAppLogic() {
   const isSpotiFlacChecking = ref(false);
   const isSpotiFlacReady = ref(true);
   const spotiFlacStatusMessage = ref("SpotiFLAC esta listo.");
+  const isSpotiFlacOffline = ref(false);
 
   
   const activeArtistView = ref<string | null>(null);
@@ -1941,7 +1942,23 @@ export function useAppLogic() {
     });
   };
 
+  const updateSpotiFlacConnectivityStatus = () => {
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+    isSpotiFlacOffline.value = isOffline;
+
+    if (isOffline) {
+      isSpotiFlacReady.value = false;
+      spotiFlacStatusMessage.value =
+        "Necesitas internet para usar esta funcion de SpotiFLAC.";
+      return;
+    }
+
+    isSpotiFlacReady.value = true;
+    spotiFlacStatusMessage.value = "SpotiFLAC esta listo.";
+  };
+
   const openSpotiFlacView = () => {
+    updateSpotiFlacConnectivityStatus();
     navigateToView({
       mode: "spotiflac",
       artist: null,
@@ -1955,8 +1972,7 @@ export function useAppLogic() {
 
   const checkSpotiFlacPanel = async () => {
     isSpotiFlacChecking.value = true;
-    isSpotiFlacReady.value = true;
-    spotiFlacStatusMessage.value = "SpotiFLAC esta listo.";
+    updateSpotiFlacConnectivityStatus();
 
     window.setTimeout(() => {
       isSpotiFlacChecking.value = false;
@@ -7158,6 +7174,7 @@ export function useAppLogic() {
   
   onMounted(async () => {
     installSpotiFlacHost();
+    updateSpotiFlacConnectivityStatus();
     await nextTick();
     await waitForNextPaint();
     try {
@@ -7227,6 +7244,8 @@ export function useAppLogic() {
     window.addEventListener("keydown", onGlobalKeydown);
     window.addEventListener("click", onGlobalWindowClick);
     window.addEventListener("beforeunload", onBeforeWindowUnload);
+    window.addEventListener("online", updateSpotiFlacConnectivityStatus);
+    window.addEventListener("offline", updateSpotiFlacConnectivityStatus);
     document.addEventListener("visibilitychange", onVisibilityChange);
     } finally {
       isAppBooting.value = false;
@@ -7258,6 +7277,8 @@ export function useAppLogic() {
     window.removeEventListener("keydown", onGlobalKeydown);
     window.removeEventListener("click", onGlobalWindowClick);
     window.removeEventListener("beforeunload", onBeforeWindowUnload);
+    window.removeEventListener("online", updateSpotiFlacConnectivityStatus);
+    window.removeEventListener("offline", updateSpotiFlacConnectivityStatus);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("wheel", preventScroll);
     window.removeEventListener("touchmove", preventScroll);
@@ -7463,6 +7484,7 @@ export function useAppLogic() {
     spotiFlacUrl,
     isSpotiFlacChecking,
     isSpotiFlacReady,
+    isSpotiFlacOffline,
     spotiFlacStatusMessage,
     activeArtistView,
     activeAlbumView,
