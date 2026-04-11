@@ -94,6 +94,11 @@ interface PlaylistInfoProps {
 export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, queuedTracks, downloadingTrack, combinedDownloadingTrack, isDownloading, bulkDownloadType, downloadProgress, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadTrackWithLyrics, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadAllWithLyrics, onDownloadSelected, onDownloadSelectedWithLyrics, onStopDownload, onOpenFolder, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, }: PlaylistInfoProps) {
     const settings = getSettings();
     const [downloadingPlaylistCover, setDownloadingPlaylistCover] = useState(false);
+    const playlistName = playlistInfo?.owner?.name || "Unknown Playlist";
+    const playlistDisplayName = playlistInfo?.owner?.display_name || playlistName;
+    const playlistOwnerImage = playlistInfo?.owner?.images || "";
+    const totalTracks = playlistInfo?.tracks?.total ?? trackList.length;
+    const totalFollowers = playlistInfo?.followers?.total ?? 0;
     const handleDownloadPlaylistCover = async () => {
         if (!playlistInfo.cover)
             return;
@@ -101,7 +106,6 @@ export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, sel
         try {
             const os = settings.operatingSystem;
             let outputDir = settings.downloadPath;
-            const playlistName = playlistInfo.owner.name;
             const placeholder = "__SLASH_PLACEHOLDER__";
             const templateData: TemplateData = {
                 artist: "",
@@ -162,7 +166,7 @@ export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, sel
         <CardContent className="px-6">
           <div className="flex gap-6 items-start">
             {playlistInfo.cover && (<div className="relative group shrink-0 w-48 h-48">
-                <img src={playlistInfo.cover} alt={playlistInfo.owner.name} className="w-48 h-48 rounded-md shadow-lg object-cover"/>
+                <img src={playlistInfo.cover} alt={playlistName} className="w-48 h-48 rounded-md shadow-lg object-cover"/>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -177,19 +181,19 @@ export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, sel
             <div className="flex-1 space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium">Playlist</p>
-                <h2 className="text-4xl font-bold">{playlistInfo.owner.name}</h2>
+                <h2 className="text-4xl font-bold">{playlistName}</h2>
                 {playlistInfo.description && (<p className="text-sm text-muted-foreground">{playlistInfo.description}</p>)}
                 <div className="flex items-center gap-2 text-sm">
                   <div className="flex items-center gap-2">
-                    {playlistInfo.owner.images && (<img src={playlistInfo.owner.images} alt={playlistInfo.owner.display_name} className="w-5 h-5 rounded-full object-cover"/>)}
-                    <span className="font-medium">{playlistInfo.owner.display_name}</span>
+                    {playlistOwnerImage && (<img src={playlistOwnerImage} alt={playlistDisplayName} className="w-5 h-5 rounded-full object-cover"/>)}
+                    <span className="font-medium">{playlistDisplayName}</span>
                   </div>
                   <span>•</span>
                   <span>
-                    {playlistInfo.tracks.total.toLocaleString()} {playlistInfo.tracks.total === 1 ? "track" : "tracks"}
+                    {totalTracks.toLocaleString()} {totalTracks === 1 ? "track" : "tracks"}
                   </span>
                   <span>•</span>
-                  <span>{playlistInfo.followers.total.toLocaleString()} {playlistInfo.followers.total === 1 ? "follower" : "followers"}</span>
+                  <span>{totalFollowers.toLocaleString()} {totalFollowers === 1 ? "follower" : "followers"}</span>
                 </div>
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -253,7 +257,7 @@ export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, sel
       </Card>
       <div className="space-y-4">
         <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
-        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} selectedTracks={selectedTracks} downloadedTracks={downloadedTracks} failedTracks={failedTracks} skippedTracks={skippedTracks} queuedTracks={queuedTracks} downloadingTrack={downloadingTrack} combinedDownloadingTrack={combinedDownloadingTrack} isDownloading={isDownloading} currentPage={currentPage} itemsPerPage={itemsPerPage} showCheckboxes={true} hideAlbumColumn={false} folderName={playlistInfo.owner.name} downloadedLyrics={downloadedLyrics} failedLyrics={failedLyrics} skippedLyrics={skippedLyrics} downloadingLyricsTrack={downloadingLyricsTrack} checkingAvailabilityTrack={checkingAvailabilityTrack} availabilityMap={availabilityMap} downloadedCovers={downloadedCovers} failedCovers={failedCovers} skippedCovers={skippedCovers} downloadingCoverTrack={downloadingCoverTrack} onToggleTrack={onToggleTrack} onToggleSelectAll={onToggleSelectAll} onDownloadTrack={onDownloadTrack} onDownloadTrackWithLyrics={onDownloadTrackWithLyrics} onDownloadLyrics={onDownloadLyrics} onDownloadCover={onDownloadCover} onCheckAvailability={onCheckAvailability} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
+        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} selectedTracks={selectedTracks} downloadedTracks={downloadedTracks} failedTracks={failedTracks} skippedTracks={skippedTracks} queuedTracks={queuedTracks} downloadingTrack={downloadingTrack} combinedDownloadingTrack={combinedDownloadingTrack} isDownloading={isDownloading} currentPage={currentPage} itemsPerPage={itemsPerPage} showCheckboxes={true} hideAlbumColumn={false} folderName={playlistName} downloadedLyrics={downloadedLyrics} failedLyrics={failedLyrics} skippedLyrics={skippedLyrics} downloadingLyricsTrack={downloadingLyricsTrack} checkingAvailabilityTrack={checkingAvailabilityTrack} availabilityMap={availabilityMap} downloadedCovers={downloadedCovers} failedCovers={failedCovers} skippedCovers={skippedCovers} downloadingCoverTrack={downloadingCoverTrack} onToggleTrack={onToggleTrack} onToggleSelectAll={onToggleSelectAll} onDownloadTrack={onDownloadTrack} onDownloadTrackWithLyrics={onDownloadTrackWithLyrics} onDownloadLyrics={onDownloadLyrics} onDownloadCover={onDownloadCover} onCheckAvailability={onCheckAvailability} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
       </div>
     </div>);
 }

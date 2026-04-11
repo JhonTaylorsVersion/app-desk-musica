@@ -626,7 +626,11 @@ function App() {
             </div>
 
 
-            <DownloadProgressToast onClick={downloadQueue.openQueue}/>
+            <DownloadProgressToast onClick={downloadQueue.openQueue} forceVisible={download.isDownloading ||
+                download.downloadingTrack !== null ||
+                download.queuedTracks.size > 0 ||
+                combinedDownloadingTrack !== null ||
+                combinedBulkDownloadType !== null}/>
 
 
             <DownloadQueue isOpen={downloadQueue.isOpen} onClose={downloadQueue.closeQueue}/>

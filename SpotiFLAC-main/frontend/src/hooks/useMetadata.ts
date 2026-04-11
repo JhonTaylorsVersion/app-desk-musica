@@ -6,6 +6,63 @@ import { logger } from "@/lib/logger";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
 import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
 import type { SpotifyMetadataResponse } from "@/types/api";
+function normalizeMetadataResponse(data: SpotifyMetadataResponse): SpotifyMetadataResponse {
+    if ("playlist_info" in data) {
+        const trackList = Array.isArray(data.track_list) ? data.track_list : [];
+        return {
+            ...data,
+            playlist_info: {
+                ...data.playlist_info,
+                name: data.playlist_info?.name || data.playlist_info?.owner?.name || "",
+                tracks: {
+                    total: data.playlist_info?.tracks?.total ?? trackList.length,
+                },
+                followers: {
+                    total: data.playlist_info?.followers?.total ?? 0,
+                },
+                owner: {
+                    display_name: data.playlist_info?.owner?.display_name || data.playlist_info?.owner?.name || "",
+                    name: data.playlist_info?.owner?.name || data.playlist_info?.name || "",
+                    images: data.playlist_info?.owner?.images || "",
+                },
+                cover: data.playlist_info?.cover || "",
+                description: data.playlist_info?.description || "",
+            },
+            track_list: trackList,
+        };
+    }
+    if ("artist_info" in data) {
+        return {
+            ...data,
+            artist_info: {
+                ...data.artist_info,
+                name: data.artist_info?.name || "",
+                followers: data.artist_info?.followers ?? 0,
+                genres: Array.isArray(data.artist_info?.genres) ? data.artist_info.genres : [],
+                images: data.artist_info?.images || "",
+                total_albums: data.artist_info?.total_albums ?? data.album_list?.length ?? 0,
+            },
+            album_list: Array.isArray(data.album_list) ? data.album_list : [],
+            track_list: Array.isArray(data.track_list) ? data.track_list : [],
+        };
+    }
+    if ("album_info" in data) {
+        const trackList = Array.isArray(data.track_list) ? data.track_list : [];
+        return {
+            ...data,
+            album_info: {
+                ...data.album_info,
+                total_tracks: data.album_info?.total_tracks ?? trackList.length,
+                name: data.album_info?.name || "",
+                release_date: data.album_info?.release_date || "",
+                artists: data.album_info?.artists || "",
+                images: data.album_info?.images || "",
+            },
+            track_list: trackList,
+        };
+    }
+    return data;
+}
 export function useMetadata() {
     const [loading, setLoading] = useState(false);
     const [metadata, setMetadata] = useState<SpotifyMetadataResponse | null>(null);
@@ -50,10 +107,10 @@ export function useMetadata() {
                 }
             }
             else {
-                const baseInfo = data;
+                const baseInfo = normalizeMetadataResponse(data);
                 const name = "artist_info" in baseInfo ? baseInfo.artist_info.name :
                     "album_info" in baseInfo ? baseInfo.album_info.name :
-                        "playlist_info" in baseInfo ? (baseInfo.playlist_info.name || baseInfo.playlist_info.owner.name) : "";
+                        "playlist_info" in baseInfo ? (baseInfo.playlist_info.name || baseInfo.playlist_info.owner?.name || "") : "";
                 if (name) {
                     currentName.current = name;
                     if (loadingToastId.current) {
@@ -77,7 +134,7 @@ export function useMetadata() {
                 if (prev && "track_list" in prev && prev.track_list.length > 0) {
                     return prev;
                 }
-                const baseInfo = data;
+                const baseInfo = normalizeMetadataResponse(data);
                 if (!("track_list" in baseInfo)) {
                     baseInfo.track_list = [];
                 }
@@ -121,11 +178,11 @@ export function useMetadata() {
                 if (data.playlist_info.name) {
                     name = data.playlist_info.name;
                 }
-                else if (data.playlist_info.owner.name) {
+                else if (data.playlist_info.owner?.name) {
                     name = data.playlist_info.owner.name;
                 }
-                info = `${data.playlist_info.tracks.total} tracks`;
-                image = data.playlist_info.cover || "";
+                info = `${data.playlist_info.tracks?.total ?? data.track_list?.length ?? 0} tracks`;
+                image = data.playlist_info.cover || data.playlist_info.owner?.images || "";
             }
             else if ("artist_info" in data) {
                 type = "artist";
@@ -158,11 +215,12 @@ export function useMetadata() {
         try {
             const startTime = Date.now();
             const timeout = urlType === "artist" ? 60 : 300;
-            const data = await fetchSpotifyMetadata(url, true, 1.0, timeout);
+            const rawData = await fetchSpotifyMetadata(url, true, 1.0, timeout);
+            const data = normalizeMetadataResponse(rawData);
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
             if ("playlist_info" in data) {
                 const playlistInfo = data.playlist_info;
-                if (!playlistInfo.owner.name && playlistInfo.tracks.total === 0 && data.track_list.length === 0) {
+                if (!playlistInfo.owner?.name && (playlistInfo.tracks?.total ?? 0) === 0 && data.track_list.length === 0) {
                     logger.warning("playlist appears to be empty or private");
                     toast.error("Playlist not found or may be private");
                     setMetadata(null);
@@ -190,7 +248,7 @@ export function useMetadata() {
             }
             else if ("playlist_info" in data) {
                 logger.success(`fetched playlist: ${data.track_list.length} tracks`);
-                logger.debug(`by ${data.playlist_info.owner.display_name || data.playlist_info.owner.name}`);
+                logger.debug(`by ${data.playlist_info.owner?.display_name || data.playlist_info.owner?.name || "unknown owner"}`);
             }
             else if ("artist_info" in data) {
                 logger.success(`fetched artist: ${data.artist_info.name}`);
@@ -216,7 +274,7 @@ export function useMetadata() {
     };
     const loadFromCache = (cachedData: string) => {
         try {
-            const data = JSON.parse(cachedData);
+            const data = normalizeMetadataResponse(JSON.parse(cachedData));
             setMetadata(data);
             toast.success("Loaded from cache");
         }
@@ -278,7 +336,8 @@ export function useMetadata() {
         setMetadata(null);
         try {
             const startTime = Date.now();
-            const data = await fetchSpotifyMetadata(albumUrl);
+            const rawData = await fetchSpotifyMetadata(albumUrl);
+            const data = normalizeMetadataResponse(rawData);
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
             if ("album_info" in data) {
                 const albumInfo = data.album_info;

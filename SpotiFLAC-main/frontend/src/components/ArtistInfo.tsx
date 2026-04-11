@@ -106,6 +106,7 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
     const [downloadingAllGallery, setDownloadingAllGallery] = useState(false);
     const [activeTab, setActiveTab] = useState<"albums" | "tracks" | "gallery">("albums");
     const [activeAlbumFilter, setActiveAlbumFilter] = useState<string>("all");
+    const artistGenres = Array.isArray(artistInfo.genres) ? artistInfo.genres : [];
     const displayedAlbumCount = artistInfo.total_albums || albumList.length;
     const albumFilterCounts = useMemo(() => {
         const counts = new Map<string, number>();
@@ -375,9 +376,9 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
                       <span>{displayedAlbumCount.toLocaleString()} {displayedAlbumCount === 1 ? "album" : "albums"}</span>
                       <span>•</span>
                       <span>{trackList.length.toLocaleString()} {trackList.length === 1 ? "track" : "tracks"}</span>
-                      {artistInfo.genres.length > 0 && (<>
+                      {artistGenres.length > 0 && (<>
                           <span>•</span>
-                          <span>{artistInfo.genres.join(", ")}</span>
+                          <span>{artistGenres.join(", ")}</span>
                         </>)}
                     </div>
                   </div>
@@ -428,9 +429,9 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
                   <span>{displayedAlbumCount.toLocaleString()} {displayedAlbumCount === 1 ? "album" : "albums"}</span>
                   <span>•</span>
                   <span>{trackList.length.toLocaleString()} {trackList.length === 1 ? "track" : "tracks"}</span>
-                  {artistInfo.genres.length > 0 && (<>
+                  {artistGenres.length > 0 && (<>
                       <span>•</span>
-                      <span>{artistInfo.genres.join(", ")}</span>
+                      <span>{artistGenres.join(", ")}</span>
                     </>)}
                 </div>
               </div>

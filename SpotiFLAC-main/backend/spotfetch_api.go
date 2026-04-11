@@ -11,6 +11,41 @@ import (
 	"time"
 )
 
+func shouldFallbackFromSpotFetch(spotifyType string, data interface{}) bool {
+	isPlaceholder := func(value string) bool {
+		normalized := strings.TrimSpace(strings.ToLower(value))
+		switch normalized {
+		case "",
+			"cancion de spotify",
+			"metadata pendiente de migrar",
+			"spotiflac":
+			return true
+		default:
+			return false
+		}
+	}
+
+	switch payload := data.(type) {
+	case TrackResponse:
+		return payload.Track.SpotifyID == "" ||
+			isPlaceholder(payload.Track.Name) ||
+			isPlaceholder(payload.Track.Artists) ||
+			isPlaceholder(payload.Track.AlbumName)
+	case *AlbumResponsePayload:
+		return isPlaceholder(payload.AlbumInfo.Name) ||
+			(payload.AlbumInfo.TotalTracks == 0 && len(payload.TrackList) == 0)
+	case PlaylistResponsePayload:
+		return isPlaceholder(payload.PlaylistInfo.Owner.Name) ||
+			isPlaceholder(payload.PlaylistInfo.Owner.DisplayName) ||
+			(payload.PlaylistInfo.Tracks.Total == 0 && len(payload.TrackList) == 0 && spotifyType == "playlist")
+	case *ArtistDiscographyPayload:
+		return isPlaceholder(payload.ArtistInfo.Name) ||
+			(payload.ArtistInfo.TotalAlbums == 0 && len(payload.AlbumList) == 0 && len(payload.TrackList) == 0)
+	default:
+		return true
+	}
+}
+
 func streamTrackListChunks(ctx context.Context, tracks []AlbumTrackMetadata, callback MetadataCallback) error {
 	if callback == nil || len(tracks) == 0 {
 		return nil
@@ -57,7 +92,7 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create API request: %w", err)
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 	}
 
 	client := &http.Client{
@@ -66,17 +101,17 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("SpotFetch API request failed: %w", err)
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("SpotFetch API error: HTTP %d", resp.StatusCode)
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read API response: %w", err)
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 	}
 
 	var data interface{}
@@ -85,16 +120,16 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 	case "track":
 		var trackResp TrackResponse
 		if err := json.Unmarshal(bodyBytes, &trackResp); err != nil {
-			return nil, fmt.Errorf("failed to decode track response: %w", err)
+			return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 		}
 		data = trackResp
 	case "album":
 		var albumResp AlbumResponsePayload
 		if err := json.Unmarshal(bodyBytes, &albumResp); err != nil {
-			return nil, fmt.Errorf("failed to decode album response: %w", err)
+			return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 		}
 		data = &albumResp
-		if callback != nil {
+		if callback != nil && !shouldFallbackFromSpotFetch(spotifyType, data) {
 			callback(&AlbumResponsePayload{
 				AlbumInfo: albumResp.AlbumInfo,
 				TrackList: []AlbumTrackMetadata{},
@@ -106,10 +141,10 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 	case "playlist":
 		var playlistResp PlaylistResponsePayload
 		if err := json.Unmarshal(bodyBytes, &playlistResp); err != nil {
-			return nil, fmt.Errorf("failed to decode playlist response: %w", err)
+			return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 		}
 		data = playlistResp
-		if callback != nil {
+		if callback != nil && !shouldFallbackFromSpotFetch(spotifyType, data) {
 			callback(PlaylistResponsePayload{
 				PlaylistInfo: playlistResp.PlaylistInfo,
 				TrackList:    []AlbumTrackMetadata{},
@@ -121,10 +156,10 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 	case "artist":
 		var artistResp ArtistDiscographyPayload
 		if err := json.Unmarshal(bodyBytes, &artistResp); err != nil {
-			return nil, fmt.Errorf("failed to decode artist response: %w", err)
+			return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 		}
 		data = &artistResp
-		if callback != nil {
+		if callback != nil && !shouldFallbackFromSpotFetch(spotifyType, data) {
 			callback(&ArtistDiscographyPayload{
 				ArtistInfo: artistResp.ArtistInfo,
 				AlbumList:  artistResp.AlbumList,
@@ -135,7 +170,11 @@ func GetSpotifyDataWithAPI(ctx context.Context, spotifyURL string, useAPI bool, 
 			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported Spotify type: %s", spotifyType)
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
+	}
+
+	if shouldFallbackFromSpotFetch(spotifyType, data) {
+		return GetFilteredSpotifyData(ctx, spotifyURL, batch, delay, separator, callback)
 	}
 
 	if callback != nil {

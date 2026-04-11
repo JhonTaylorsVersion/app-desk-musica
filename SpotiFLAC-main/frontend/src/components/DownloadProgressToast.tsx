@@ -4,14 +4,16 @@ import { Download, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 interface DownloadProgressToastProps {
     onClick: () => void;
+    forceVisible?: boolean;
 }
-export function DownloadProgressToast({ onClick }: DownloadProgressToastProps) {
+export function DownloadProgressToast({ onClick, forceVisible = false }: DownloadProgressToastProps) {
     const queueInfo = useDownloadQueueData({ intervalMs: 1000 });
-    const hasActiveDownloads = queueInfo.queue.some(item => item.status === "queued" || item.status === "downloading");
+    const hasActiveQueueItems = queueInfo.queue.some(item => item.status === "queued" || item.status === "downloading");
     const progress = useDownloadProgress({
-        enabled: hasActiveDownloads,
+        enabled: forceVisible || hasActiveQueueItems,
         intervalMs: 750,
     });
+    const hasActiveDownloads = forceVisible || hasActiveQueueItems || queueInfo.is_downloading || progress.is_downloading;
     if (!hasActiveDownloads) {
         return null;
     }
