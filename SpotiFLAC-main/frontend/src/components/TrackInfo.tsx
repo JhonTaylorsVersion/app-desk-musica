@@ -16,6 +16,7 @@ interface TrackInfoProps {
     isDownloaded: boolean;
     isFailed: boolean;
     isSkipped: boolean;
+    isQueued?: boolean;
     combinedDownloadingTrack?: string | null;
     downloadingLyricsTrack?: string | null;
     downloadedLyrics?: boolean;
@@ -35,7 +36,7 @@ interface TrackInfoProps {
     onOpenFolder: () => void;
     onBack?: () => void;
 }
-export function TrackInfo({ track, isDownloading, downloadingTrack, combinedDownloadingTrack, isDownloaded, isFailed, isSkipped, downloadingLyricsTrack, downloadedLyrics, failedLyrics, skippedLyrics, checkingAvailability, availability, downloadingCover, downloadedCover, failedCover, skippedCover, onDownload, onDownloadWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onOpenFolder, onBack, }: TrackInfoProps) {
+export function TrackInfo({ track, isDownloading, downloadingTrack, combinedDownloadingTrack, isDownloaded, isFailed, isSkipped, isQueued, downloadingLyricsTrack, downloadedLyrics, failedLyrics, skippedLyrics, checkingAvailability, availability, downloadingCover, downloadedCover, failedCover, skippedCover, onDownload, onDownloadWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onOpenFolder, onBack, }: TrackInfoProps) {
     const { playPreview, loadingPreview, playingTrack } = usePreview();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
@@ -98,8 +99,8 @@ export function TrackInfo({ track, isDownloading, downloadingTrack, combinedDown
             </div>
           </div>
           {track.spotify_id && (<div className="flex gap-2 flex-wrap">
-            <Button onClick={() => onDownload(track.spotify_id || "", track.name, track.artists, track.album_name, track.spotify_id, undefined, track.duration_ms, track.track_number, track.album_artist, track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher)} disabled={isDownloading || downloadingTrack === track.spotify_id}>
-              {downloadingTrack === track.spotify_id ? (<Spinner />) : (<>
+            <Button onClick={() => onDownload(track.spotify_id || "", track.name, track.artists, track.album_name, track.spotify_id, undefined, track.duration_ms, track.track_number, track.album_artist, track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher)} disabled={isDownloading || downloadingTrack === track.spotify_id || isQueued}>
+              {downloadingTrack === track.spotify_id || isQueued ? (<Spinner />) : (<>
                 <Download className="h-4 w-4"/>
                 Download
               </>)}

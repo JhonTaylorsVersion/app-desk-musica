@@ -15,6 +15,7 @@ interface TrackListProps {
     downloadedTracks: Set<string>;
     failedTracks: Set<string>;
     skippedTracks: Set<string>;
+    queuedTracks?: Set<string>;
     downloadingTrack: string | null;
     combinedDownloadingTrack?: string | null;
     isDownloading: boolean;
@@ -54,7 +55,7 @@ interface TrackListProps {
     }) => void;
     onTrackClick?: (track: TrackMetadata) => void;
 }
-export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, combinedDownloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadTrackWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
+export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, queuedTracks, downloadingTrack, combinedDownloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadTrackWithLyrics, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
     const { playPreview, loadingPreview, playingTrack } = usePreview();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
@@ -281,12 +282,12 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                 <div className="flex items-center justify-center gap-1">
                   {track.spotify_id && (<Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={() => onDownloadTrack(track.spotify_id!, track.name, track.artists, track.album_name, track.spotify_id, folderName, track.duration_ms, startIndex + index + 1, track.album_artist, track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher)} size="icon" disabled={isDownloading || downloadingTrack === track.spotify_id}>
-                        {downloadingTrack === track.spotify_id ? (<Spinner />) : skippedTracks.has(track.spotify_id) ? (<FileCheck className="h-4 w-4"/>) : downloadedTracks.has(track.spotify_id) ? (<CheckCircle className="h-4 w-4"/>) : failedTracks.has(track.spotify_id) ? (<XCircle className="h-4 w-4"/>) : (<Download className="h-4 w-4"/>)}
+                      <Button onClick={() => onDownloadTrack(track.spotify_id!, track.name, track.artists, track.album_name, track.spotify_id, folderName, track.duration_ms, startIndex + index + 1, track.album_artist, track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher)} size="icon" disabled={isDownloading || downloadingTrack === track.spotify_id || queuedTracks?.has(track.spotify_id)}>
+                        {downloadingTrack === track.spotify_id || queuedTracks?.has(track.spotify_id) ? (<Spinner />) : skippedTracks.has(track.spotify_id) ? (<FileCheck className="h-4 w-4"/>) : downloadedTracks.has(track.spotify_id) ? (<CheckCircle className="h-4 w-4"/>) : failedTracks.has(track.spotify_id) ? (<XCircle className="h-4 w-4"/>) : (<Download className="h-4 w-4"/>)}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {downloadingTrack === track.spotify_id ? (<p>Downloading...</p>) : skippedTracks.has(track.spotify_id) ? (<p>Already exists</p>) : downloadedTracks.has(track.spotify_id) ? (<p>Downloaded</p>) : failedTracks.has(track.spotify_id) ? (<p>Failed</p>) : (<p>Download Track</p>)}
+                      {downloadingTrack === track.spotify_id || queuedTracks?.has(track.spotify_id) ? (<p>Downloading...</p>) : skippedTracks.has(track.spotify_id) ? (<p>Already exists</p>) : downloadedTracks.has(track.spotify_id) ? (<p>Downloaded</p>) : failedTracks.has(track.spotify_id) ? (<p>Failed</p>) : (<p>Download Track</p>)}
                     </TooltipContent>
                   </Tooltip>)}
                   {track.spotify_id && onDownloadTrackWithLyrics && (<Tooltip>
