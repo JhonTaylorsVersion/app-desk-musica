@@ -219,7 +219,15 @@ struct AppSessionSnapshot {
     device_name: Option<String>,
     #[serde(default)]
     output_device_name: Option<String>,
-    current_view_snapshot: ViewSnapshot,
+    pub current_view_snapshot: ViewSnapshot,
+    #[serde(default)]
+    pub asset_storage_mode: Option<String>,
+    #[serde(default)]
+    pub custom_canvas_path: Option<String>,
+    #[serde(default)]
+    pub custom_lyrics_path: Option<String>,
+    #[serde(default)]
+    pub custom_covers_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -2270,7 +2278,10 @@ fn extract_cover_art(tags: &[&Tag]) -> Option<CoverArt> {
 }
 
 #[tauri::command]
-fn leer_metadata(path: String) -> Result<AudioMetadata, String> {
+fn leer_metadata(
+    path: String,
+    custom_lyrics_path: Option<String>,
+) -> Result<AudioMetadata, String> {
     let tagged_file = read_from_path(&path).map_err(|e| e.to_string())?;
     let tags = build_tag_list(&tagged_file);
 
@@ -2278,9 +2289,28 @@ fn leer_metadata(path: String) -> Result<AudioMetadata, String> {
     let duration = properties.duration();
     let duration_seconds = duration.as_secs();
 
-    // NUEVO: Intentar leer el archivo .lrc en la misma ruta
-    let lrc_path = std::path::Path::new(&path).with_extension("lrc");
-    let synced_lyrics = std::fs::read_to_string(lrc_path).ok();
+    // NUEVO: Intentar leer el archivo .lrc
+    let mut synced_lyrics = None;
+
+    // 1. Intentar en carpeta personalizada si existe
+    if let Some(custom_dir) = custom_lyrics_path {
+        let file_name = std::path::Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str());
+        
+        if let Some(name) = file_name {
+            let custom_lrc_path = std::path::Path::new(&custom_dir)
+                .join(name)
+                .with_extension("lrc");
+            synced_lyrics = std::fs::read_to_string(custom_lrc_path).ok();
+        }
+    }
+
+    // 2. Fallback a la misma ruta de la cancion si no se encontro en la personalizada
+    if synced_lyrics.is_none() {
+        let lrc_path = std::path::Path::new(&path).with_extension("lrc");
+        synced_lyrics = std::fs::read_to_string(lrc_path).ok();
+    }
 
     let metadata = AudioMetadata {
         title: first_text(&tags, |tag| tag.title().map(|s| s.to_string())),

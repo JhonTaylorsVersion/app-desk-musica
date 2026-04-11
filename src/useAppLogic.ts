@@ -242,6 +242,10 @@ export function useAppLogic() {
     deviceName?: string | null;
     outputDeviceName?: string | null;
     currentViewSnapshot: ViewSnapshot;
+    assetStorageMode?: "unified" | "custom";
+    customCanvasPath?: string | null;
+    customLyricsPath?: string | null;
+    customCoversPath?: string | null;
   };
 
   type ConnectCommandRecord = {
@@ -1908,6 +1912,12 @@ export function useAppLogic() {
 
   
   const isRoutesManagerOpen = ref(false);
+
+  // === NUEVOS AJUSTES DE ACTIVOS ===
+  const assetStorageMode = ref<"unified" | "custom">("unified");
+  const customCanvasPath = ref<string | null>(null);
+  const customLyricsPath = ref<string | null>(null);
+  const customCoversPath = ref<string | null>(null);
 
   
   
@@ -5160,6 +5170,38 @@ export function useAppLogic() {
     }
   };
 
+  const selectCustomCanvasPath = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Seleccionar Carpeta para Canvas",
+    });
+    if (selected) {
+      customCanvasPath.value = selected as string;
+    }
+  };
+
+  const selectCustomLyricsPath = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Seleccionar Carpeta para Letras (.lrc)",
+    });
+    if (selected) {
+      customLyricsPath.value = selected as string;
+    }
+  };
+
+  const selectCustomCoversPath = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Seleccionar Carpeta para Carátulas",
+    });
+    if (selected) {
+      customCoversPath.value = selected as string;
+    }
+  };
   
   
   const clearMusicDirectories = async () => {
@@ -6003,12 +6045,27 @@ export function useAppLogic() {
     );
   
     resetCanvas();
-    const videoPath = `C:\\Users\\jhonj\\Videos\\CANVAS SPOT\\${baseName}.mp4`;
+    
+    // RESOLUCIÓN DE CANVAS (UNIFICADO VS PERSONALIZADO)
+    let videoPath = "";
+    if (assetStorageMode.value === "unified" && track.path) {
+      // En la misma carpeta que la canción
+      const trackDir = track.path.substring(0, track.path.lastIndexOf("\\") + 1);
+      videoPath = `${trackDir}${baseName}.mp4`;
+    } else if (customCanvasPath.value) {
+      // En la carpeta personalizada
+      videoPath = `${customCanvasPath.value}\\${baseName}.mp4`;
+    } else {
+      // Fallback antiguo
+      videoPath = `C:\\Users\\jhonj\\Videos\\CANVAS SPOT\\${baseName}.mp4`;
+    }
+    
     canvasUrl.value = convertFileSrc(videoPath);
   
     try {
       metadata.value = await invoke<AudioMetadata>("leer_metadata", {
         path: track.path,
+        customLyricsPath: assetStorageMode.value === "custom" ? customLyricsPath.value : null,
       });
       metadataTrackPath.value = track.path;
   
@@ -6804,6 +6861,10 @@ export function useAppLogic() {
     deviceName: desktopDeviceName.value,
     outputDeviceName: outputDeviceInfo.value?.device_name ?? "Este PC",
     currentViewSnapshot: getCurrentViewSnapshot(),
+    assetStorageMode: assetStorageMode.value,
+    customCanvasPath: customCanvasPath.value,
+    customLyricsPath: customLyricsPath.value,
+    customCoversPath: customCoversPath.value,
   });
 
   
@@ -7102,6 +7163,11 @@ export function useAppLogic() {
       isQueuePanelOpen.value = Boolean(session.isQueuePanelOpen);
       isRoutesManagerOpen.value = Boolean(session.isRoutesManagerOpen);
       queueSearch.value = session.queueSearch ?? "";
+
+      if (session.assetStorageMode) assetStorageMode.value = session.assetStorageMode;
+      if (session.customCanvasPath) customCanvasPath.value = session.customCanvasPath;
+      if (session.customLyricsPath) customLyricsPath.value = session.customLyricsPath;
+      if (session.customCoversPath) customCoversPath.value = session.customCoversPath;
   
       applyViewSnapshot({
         mode: "library",
@@ -8021,6 +8087,13 @@ export function useAppLogic() {
     toggleShuffle,
     buildSessionQueueTrack,
     buildAppSessionSnapshot,
+    assetStorageMode,
+    customCanvasPath,
+    customLyricsPath,
+    customCoversPath,
+    selectCustomCanvasPath,
+    selectCustomLyricsPath,
+    selectCustomCoversPath,
     clearSessionPersistTimeout,
     persistAppSessionNow,
     schedulePersistAppSession,

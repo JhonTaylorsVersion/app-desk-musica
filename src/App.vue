@@ -862,6 +862,62 @@ export default defineComponent({
               Usa "Anadir ruta" para registrar una o varias carpetas de musica.
             </div>
           </div>
+
+          <!-- SECCIÓN DE GESTIÓN DE ACTIVOS -->
+          <div class="asset-manager-section">
+            <div class="panel-divider"></div>
+            <div class="asset-manager-header">
+              <div class="panel-title">Almacenamiento de Activos</div>
+              <div class="panel-subtitle">Elige dónde buscar letras, canvas y carátulas</div>
+            </div>
+
+            <div class="asset-mode-selector glass-panel-inner">
+              <button 
+                class="mode-toggle-btn" 
+                :class="{ active: assetStorageMode === 'unified' }"
+                type="button"
+                @click="assetStorageMode = 'unified'"
+              >
+                Unificado
+                <span class="mode-desc">Junto a la música</span>
+              </button>
+              <button 
+                class="mode-toggle-btn" 
+                :class="{ active: assetStorageMode === 'custom' }"
+                type="button"
+                @click="assetStorageMode = 'custom'"
+              >
+                Personalizado
+                <span class="mode-desc">Carpetas específicas</span>
+              </button>
+            </div>
+
+            <div v-if="assetStorageMode === 'custom'" class="custom-paths-list">
+              <div class="custom-path-item glass-panel-inner">
+                <div class="path-info">
+                  <div class="path-label">Carpeta de Canvas (.mp4)</div>
+                  <div class="path-value">{{ customCanvasPath || 'Predeterminada' }}</div>
+                </div>
+                <button class="small-action-btn" type="button" @click="selectCustomCanvasPath">Cambiar</button>
+              </div>
+
+              <div class="custom-path-item glass-panel-inner">
+                <div class="path-info">
+                  <div class="path-label">Carpeta de Letras (.lrc)</div>
+                  <div class="path-value">{{ customLyricsPath || 'Predeterminada' }}</div>
+                </div>
+                <button class="small-action-btn" type="button" @click="selectCustomLyricsPath">Cambiar</button>
+              </div>
+
+              <div class="custom-path-item glass-panel-inner">
+                <div class="path-info">
+                  <div class="path-label">Carpeta de Carátulas</div>
+                  <div class="path-value">{{ customCoversPath || 'Predeterminada' }}</div>
+                </div>
+                <button class="small-action-btn" type="button" @click="selectCustomCoversPath">Cambiar</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
