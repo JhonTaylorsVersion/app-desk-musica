@@ -484,6 +484,90 @@ func main() {
 		if err != nil {
 			os.Exit(1)
 		}
+	case "search-spotify":
+		var req struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   fmt.Sprintf("invalid request: %v", err),
+			})
+			os.Exit(1)
+		}
+
+		if req.Query == "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   "search query is required",
+			})
+			os.Exit(1)
+		}
+
+		if req.Limit <= 0 {
+			req.Limit = 50
+		}
+
+		originalStdout := os.Stdout
+		os.Stdout = os.Stderr
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		results, err := backend.SearchSpotify(ctx, req.Query, req.Limit)
+		cancel()
+		os.Stdout = originalStdout
+
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
+
+		_ = json.NewEncoder(os.Stdout).Encode(results)
+	case "search-spotify-by-type":
+		var req struct {
+			Query      string `json:"query"`
+			SearchType string `json:"search_type"`
+			Limit      int    `json:"limit"`
+			Offset     int    `json:"offset"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   fmt.Sprintf("invalid request: %v", err),
+			})
+			os.Exit(1)
+		}
+
+		if req.Query == "" || req.SearchType == "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   "query and search_type are required",
+			})
+			os.Exit(1)
+		}
+
+		if req.Limit <= 0 {
+			req.Limit = 50
+		}
+
+		originalStdout := os.Stdout
+		os.Stdout = os.Stderr
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		results, err := backend.SearchSpotifyByType(ctx, req.Query, req.SearchType, req.Limit, req.Offset)
+		cancel()
+		os.Stdout = originalStdout
+
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
+
+		_ = json.NewEncoder(os.Stdout).Encode(results)
 	default:
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"success": false,

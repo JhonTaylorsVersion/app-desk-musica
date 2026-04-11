@@ -288,7 +288,9 @@ export function useAppLogic() {
     | "fileExists"
     | "downloadTrack"
     | "getStreamingURLs"
-    | "checkTrackAvailability";
+    | "checkTrackAvailability"
+    | "searchSpotify"
+    | "searchSpotifyByType";
 
   let detachSpotiFlacHost: (() => void) | null = null;
 
@@ -380,6 +382,21 @@ export function useAppLogic() {
           case "checkTrackAvailability":
             return await invoke("spotiflac_check_track_availability", {
               spotifyTrackId: payload.spotifyTrackId,
+            });
+          case "searchSpotify":
+            return await invoke("spotiflac_search_spotify", {
+              query: payload.query,
+              limit:
+                typeof payload.limit === "number" ? payload.limit : undefined,
+            });
+          case "searchSpotifyByType":
+            return await invoke("spotiflac_search_spotify_by_type", {
+              query: payload.query,
+              searchType: payload.searchType,
+              limit:
+                typeof payload.limit === "number" ? payload.limit : undefined,
+              offset:
+                typeof payload.offset === "number" ? payload.offset : undefined,
             });
           default:
             throw new Error(`Metodo de SpotiFLAC no soportado: ${method}`);

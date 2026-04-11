@@ -1582,6 +1582,38 @@ fn spotiflac_check_track_availability(
 }
 
 #[tauri::command]
+fn spotiflac_search_spotify(
+    query: String,
+    limit: Option<i32>,
+) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "search-spotify",
+        serde_json::json!({
+            "query": query,
+            "limit": limit.unwrap_or(50),
+        }),
+    )
+}
+
+#[tauri::command]
+fn spotiflac_search_spotify_by_type(
+    query: String,
+    search_type: String,
+    limit: Option<i32>,
+    offset: Option<i32>,
+) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "search-spotify-by-type",
+        serde_json::json!({
+            "query": query,
+            "search_type": search_type,
+            "limit": limit.unwrap_or(50),
+            "offset": offset.unwrap_or(0),
+        }),
+    )
+}
+
+#[tauri::command]
 fn get_library_metadata_batch(
     paths: Vec<String>,
     cache_state: State<'_, LibraryCacheState>,
@@ -2347,6 +2379,7 @@ pub fn run() {
         current_position_secs: Arc::clone(&position_state),
     };
 
+    println!("[Tauri] Initializing application...");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -2405,6 +2438,8 @@ pub fn run() {
             spotiflac_download_track,
             spotiflac_get_streaming_urls,
             spotiflac_check_track_availability,
+            spotiflac_search_spotify,
+            spotiflac_search_spotify_by_type,
             get_music_directories,
             save_music_directories,
             set_music_directories,

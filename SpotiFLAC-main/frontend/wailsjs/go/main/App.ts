@@ -58,7 +58,11 @@ async function invokeHost<T>(method: string, payload?: AnyRecord): Promise<T> {
     throw new Error("SpotiFLAC host bridge is not available");
   }
 
-  return host.invoke(method, payload) as Promise<T>;
+  try {
+    return await host.invoke(method, payload) as T;
+  } catch (err) {
+    throw err;
+  }
 }
 
 function readStorageArray<T>(key: string): T[] {
@@ -726,17 +730,42 @@ export async function GetSpotifyMetadata(req: AnyRecord): Promise<string> {
   }
 }
 
-export async function SearchSpotify(): Promise<backend.SearchResponse> {
-  return new backend.SearchResponse({
-    tracks: [],
-    albums: [],
-    artists: [],
-    playlists: [],
-  });
+export async function SearchSpotify(req: AnyRecord): Promise<backend.SearchResponse> {
+  try {
+    const result = await invokeHost<AnyRecord>("searchSpotify", {
+      query: req?.query ?? "",
+      limit: req?.limit ?? 50,
+    });
+
+    const searchResponse = new backend.SearchResponse();
+    searchResponse.tracks = Array.isArray(result?.tracks) ? result.tracks : [];
+    searchResponse.albums = Array.isArray(result?.albums) ? result.albums : [];
+    searchResponse.artists = Array.isArray(result?.artists) ? result.artists : [];
+    searchResponse.playlists = Array.isArray(result?.playlists) ? result.playlists : [];
+    return searchResponse;
+  } catch (error) {
+    return new backend.SearchResponse({
+      tracks: [],
+      albums: [],
+      artists: [],
+      playlists: [],
+    });
+  }
 }
 
-export async function SearchSpotifyByType(): Promise<backend.SearchResult[]> {
-  return [];
+export async function SearchSpotifyByType(req: AnyRecord): Promise<backend.SearchResult[]> {
+  try {
+    const result = await invokeHost<AnyRecord[]>("searchSpotifyByType", {
+      query: req?.query ?? "",
+      searchType: req?.search_type ?? "",
+      limit: req?.limit ?? 50,
+      offset: req?.offset ?? 0,
+    });
+
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
@@ -1060,7 +1089,7 @@ export async function MarkDownloadItemFailed(itemID: string, errorMsg = "Downloa
 export async function CancelAllQueuedItems(): Promise<void> {
   const queue = getQueueItems().map((item) =>
     item.status === "queued" || item.status === "downloading"
-      ? { ...item, status: "failed", error_message: item.error_message || "Cancelled", progress: 0, speed: 0 }
+      ? { ...item, status: "failed" as const, error_message: item.error_message || "Cancelled", progress: 0, speed: 0 }
       : item,
   );
   setQueueItems(queue);
