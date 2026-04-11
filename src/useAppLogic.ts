@@ -356,6 +356,75 @@ export function useAppLogic() {
     };
 
     const previousHost = rootWindow.__spotiflacHost;
+    const bridgeMessageSource = "spotiflac-host-bridge";
+
+    const handleBridgeInvoke = async (event: MessageEvent) => {
+      const payload =
+        event.data && typeof event.data === "object"
+          ? (event.data as Record<string, unknown>)
+          : null;
+
+      if (!payload || payload.source !== bridgeMessageSource) {
+        return;
+      }
+
+      if (payload.type !== "invoke" || typeof payload.id !== "string") {
+        return;
+      }
+
+      const replyTarget = event.source;
+      if (!replyTarget || typeof (replyTarget as WindowProxy).postMessage !== "function") {
+        return;
+      }
+
+      const method =
+        typeof payload.method === "string"
+          ? (payload.method as SpotiFlacHostInvoke)
+          : null;
+
+      const requestPayload =
+        payload.payload && typeof payload.payload === "object"
+          ? (payload.payload as Record<string, unknown>)
+          : {};
+
+      const postResponse = (response: Record<string, unknown>) => {
+        (replyTarget as WindowProxy).postMessage(
+          {
+            source: bridgeMessageSource,
+            id: payload.id,
+            ...response,
+          },
+          "*",
+        );
+      };
+
+      if (!method) {
+        postResponse({
+          type: "result",
+          ok: false,
+          error: "Metodo de SpotiFLAC no valido",
+        });
+        return;
+      }
+
+      try {
+        const result = await rootWindow.__spotiflacHost?.invoke(
+          method,
+          requestPayload,
+        );
+        postResponse({
+          type: "result",
+          ok: true,
+          result: result ?? null,
+        });
+      } catch (error) {
+        postResponse({
+          type: "result",
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
 
     rootWindow.__spotiflacHost = {
       invoke: async (
@@ -508,7 +577,10 @@ export function useAppLogic() {
       },
     };
 
+    window.addEventListener("message", handleBridgeInvoke);
+
     detachSpotiFlacHost = () => {
+      window.removeEventListener("message", handleBridgeInvoke);
       if (previousHost) {
         rootWindow.__spotiflacHost = previousHost;
       } else {

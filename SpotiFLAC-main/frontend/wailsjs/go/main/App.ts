@@ -20,6 +20,15 @@ type SpotiFlacHost = {
   invoke: (method: string, payload?: AnyRecord) => Promise<any>;
 };
 
+type SpotiFlacBridgeResponse = {
+  source?: string;
+  type?: string;
+  id?: string;
+  ok?: boolean;
+  result?: any;
+  error?: string;
+};
+
 function getStoredSettings(): AnyRecord {
   const raw = localStorage.getItem(SETTINGS_KEY);
   if (!raw) {
@@ -52,14 +61,74 @@ function getHost(): SpotiFlacHost | null {
   return null;
 }
 
-async function invokeHost<T>(method: string, payload?: AnyRecord): Promise<T> {
-  const host = getHost();
-  if (!host) {
+function canUseWindowMessaging(target: unknown): target is Window {
+  return typeof window !== "undefined" && !!target && typeof (target as Window).postMessage === "function";
+}
+
+async function invokeHostViaMessage<T>(method: string, payload?: AnyRecord): Promise<T> {
+  const bridgeTarget =
+    canUseWindowMessaging(window.parent) && window.parent !== window
+      ? window.parent
+      : canUseWindowMessaging(window.opener)
+        ? window.opener
+        : null;
+
+  if (!bridgeTarget) {
     throw new Error("SpotiFLAC host bridge is not available");
   }
 
+  const requestId = `spotiflac-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const bridgeMessageSource = "spotiflac-host-bridge";
+
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage);
+      reject(new Error("SpotiFLAC host bridge timed out"));
+    }, 15000);
+
+    const handleMessage = (event: MessageEvent<SpotiFlacBridgeResponse>) => {
+      const message = event.data;
+      if (!message || message.source !== bridgeMessageSource || message.id !== requestId) {
+        return;
+      }
+
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("message", handleMessage);
+
+      if (message.ok) {
+        resolve(message.result as T);
+        return;
+      }
+
+      reject(new Error(message.error || "SpotiFLAC host bridge request failed"));
+    };
+
+    window.addEventListener("message", handleMessage);
+    bridgeTarget.postMessage(
+      {
+        source: bridgeMessageSource,
+        type: "invoke",
+        id: requestId,
+        method,
+        payload: payload || {},
+      },
+      "*",
+    );
+  });
+}
+
+async function invokeHost<T>(method: string, payload?: AnyRecord): Promise<T> {
+  const host = getHost();
+  if (host) {
+    try {
+      return await host.invoke(method, payload) as T;
+    } catch (err) {
+      throw err;
+    }
+  }
+
   try {
-    return await host.invoke(method, payload) as T;
+    return await invokeHostViaMessage<T>(method, payload);
   } catch (err) {
     throw err;
   }
