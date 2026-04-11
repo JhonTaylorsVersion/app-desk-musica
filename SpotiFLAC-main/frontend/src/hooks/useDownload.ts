@@ -28,9 +28,341 @@ interface FileExistenceResult {
     track_name?: string;
     artist_name?: string;
 }
+interface ExistingTrackMetadata {
+    title?: string | null;
+    artist?: string | null;
+    album?: string | null;
+    album_artist?: string | null;
+    year?: string | null;
+    release_date?: string | null;
+    track_number?: string | null;
+    track_total?: string | null;
+    disc_number?: string | null;
+    disc_total?: string | null;
+    cover_art?: {
+        data_url?: string | null;
+    } | null;
+}
+interface BatchConflictTrack {
+    index: number;
+    name: string;
+    artists: string;
+    album: string;
+    outputPath: string;
+    playlistPosition: number;
+}
+interface BatchConflictAnalysis {
+    conflictGroups: BatchConflictTrack[][];
+    filenameOverrides: Map<number, string>;
+}
 const CheckFilesExistence = (outputDir: string, rootDir: string, tracks: CheckFileExistenceRequest[]): Promise<FileExistenceResult[]> => (window as any)["go"]["main"]["App"]["CheckFilesExistence"](outputDir, rootDir, tracks);
 const SkipDownloadItem = (itemID: string, filePath: string): Promise<void> => (window as any)["go"]["main"]["App"]["SkipDownloadItem"](itemID, filePath);
 const CreateM3U8File = (playlistName: string, outputDir: string, filePaths: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateM3U8File"](playlistName, outputDir, filePaths);
+function sanitizeFilenameLikeBackend(name: string): string {
+    const withSlashesReplaced = (name || "").replaceAll("/", " ");
+    const withoutReservedChars = withSlashesReplaced.replace(/[<>:"\\|?*]/g, " ");
+    const withoutControlChars = Array.from(withoutReservedChars)
+        .filter((char) => {
+        const code = char.charCodeAt(0);
+        if (code === 0x7f) {
+            return false;
+        }
+        if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) {
+            return false;
+        }
+        return true;
+    })
+        .join("")
+        .trim()
+        .replace(/^[.\s]+|[.\s]+$/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/_+/g, "_")
+        .replace(/^[_\s]+|[_\s]+$/g, "");
+    return withoutControlChars || "Unknown";
+}
+function buildExpectedFilenameLikeBackend(trackName: string, artistName: string, albumName: string, albumArtist: string, releaseDate: string, filenameFormat: string, includeTrackNumber: boolean, position: number, discNumber: number): string {
+    const safeTitle = sanitizeFilenameLikeBackend(trackName);
+    const safeArtist = sanitizeFilenameLikeBackend(artistName);
+    const safeAlbum = sanitizeFilenameLikeBackend(albumName);
+    const safeAlbumArtist = sanitizeFilenameLikeBackend(albumArtist);
+    const year = releaseDate?.length >= 4 ? releaseDate.slice(0, 4) : "";
+    let filename = filenameFormat || "{title} - {artist}";
+    if (filename.includes("{")) {
+        filename = filename
+            .replaceAll("{title}", safeTitle)
+            .replaceAll("{artist}", safeArtist)
+            .replaceAll("{album}", safeAlbum)
+            .replaceAll("{album_artist}", safeAlbumArtist)
+            .replaceAll("{year}", year)
+            .replaceAll("{date}", sanitizeFilenameLikeBackend(releaseDate || ""));
+        if (discNumber > 0) {
+            filename = filename.replaceAll("{disc}", String(discNumber));
+        }
+        else {
+            filename = filename.replaceAll("{disc}", "");
+        }
+        if (position > 0) {
+            filename = filename.replaceAll("{track}", String(position).padStart(2, "0"));
+        }
+        else {
+            filename = filename
+                .replace(/\{track\}\.\s*/g, "")
+                .replace(/\{track\}\s*-\s*/g, "")
+                .replace(/\{track\}\s*/g, "");
+        }
+    }
+    else {
+        switch (filename) {
+            case "artist-title":
+                filename = `${safeArtist} - ${safeTitle}`;
+                break;
+            case "title":
+                filename = safeTitle;
+                break;
+            default:
+                filename = `${safeTitle} - ${safeArtist}`;
+                break;
+        }
+        if (includeTrackNumber && position > 0) {
+            filename = `${String(position).padStart(2, "0")}. ${filename}`;
+        }
+    }
+    return `${filename}.flac`;
+}
+function buildInternalDuplicateFilenameTemplate(baseFilenameTemplate: string, uniqueKey: string | number): string {
+    const normalizedKey = String(uniqueKey || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    const safeKey = normalizedKey || "variant";
+    return `${baseFilenameTemplate}__sfdup_${safeKey}`;
+}
+function buildBatchDuplicateFilenameTemplate(baseFilenameTemplate: string, playlistPosition: number): string {
+    return buildInternalDuplicateFilenameTemplate(baseFilenameTemplate, `p${String(playlistPosition).padStart(4, "0")}`);
+}
+function buildSingleTrackDuplicateFilenameTemplate(baseFilenameTemplate: string, spotifyId?: string, fallbackId?: string): string {
+    const uniqueToken = [
+        spotifyId || fallbackId || "track",
+        Date.now().toString(36),
+    ].filter(Boolean).join("_");
+    return buildInternalDuplicateFilenameTemplate(baseFilenameTemplate, uniqueToken);
+}
+function normalizeComparableText(value?: string | null): string {
+    return String(value || "")
+        .normalize("NFKC")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+}
+function normalizeComparableDate(value?: string | null): string {
+    const normalized = normalizeComparableText(value);
+    if (!normalized) {
+        return "";
+    }
+    return normalized.length >= 10 ? normalized.slice(0, 10) : normalized;
+}
+function normalizeComparableNumber(value?: string | number | null): string {
+    const raw = String(value ?? "").trim();
+    if (!raw) {
+        return "";
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : "";
+}
+async function computeSha256HexFromBuffer(buffer: BufferSource): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(digest))
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("");
+}
+async function hashDataUrl(dataUrl?: string | null): Promise<string> {
+    const normalized = String(dataUrl || "").trim();
+    if (!normalized) {
+        return "";
+    }
+    return await computeSha256HexFromBuffer(new TextEncoder().encode(normalized));
+}
+async function hashRemoteCover(coverUrl?: string | null): Promise<string> {
+    const normalized = String(coverUrl || "").trim();
+    if (!normalized) {
+        return "";
+    }
+    try {
+        const response = await fetch(normalized);
+        if (!response.ok) {
+            return "";
+        }
+        return await computeSha256HexFromBuffer(await response.arrayBuffer());
+    }
+    catch {
+        return "";
+    }
+}
+async function detectExistingTrackDifferences(existingFilePath: string, track: {
+    trackName?: string;
+    artistName?: string;
+    albumName?: string;
+    albumArtist?: string;
+    releaseDate?: string;
+    spotifyTrackNumber?: number;
+    spotifyDiscNumber?: number;
+    spotifyTotalTracks?: number;
+    spotifyTotalDiscs?: number;
+    coverUrl?: string;
+}): Promise<string[]> {
+    const { ReadAudioMetadata } = await import("../../wailsjs/go/main/App");
+    const metadata = await ReadAudioMetadata(existingFilePath) as ExistingTrackMetadata;
+    const differences: string[] = [];
+    const checks: Array<[string, string, string]> = [
+        ["titulo", normalizeComparableText(metadata.title), normalizeComparableText(track.trackName)],
+        ["artista", normalizeComparableText(metadata.artist), normalizeComparableText(track.artistName)],
+        ["album", normalizeComparableText(metadata.album), normalizeComparableText(track.albumName)],
+        ["album artist", normalizeComparableText(metadata.album_artist), normalizeComparableText(track.albumArtist)],
+        ["fecha", normalizeComparableDate(metadata.release_date || metadata.year), normalizeComparableDate(track.releaseDate)],
+        ["track", normalizeComparableNumber(metadata.track_number), normalizeComparableNumber(track.spotifyTrackNumber)],
+        ["disc", normalizeComparableNumber(metadata.disc_number), normalizeComparableNumber(track.spotifyDiscNumber)],
+        ["total tracks", normalizeComparableNumber(metadata.track_total), normalizeComparableNumber(track.spotifyTotalTracks)],
+        ["total discs", normalizeComparableNumber(metadata.disc_total), normalizeComparableNumber(track.spotifyTotalDiscs)],
+    ];
+    for (const [label, existingValue, requestedValue] of checks) {
+        if (existingValue && requestedValue && existingValue !== requestedValue) {
+            differences.push(label);
+        }
+    }
+    if (differences.length === 0) {
+        // Si toda la metadata musical coincide, lo tratamos como la misma version.
+        // Comparar bytes de portada produce falsos positivos porque algunas fuentes
+        // re-encodan la imagen aunque sea la misma edicion.
+        return differences;
+    }
+    const [existingCoverHash, requestedCoverHash] = await Promise.all([
+        hashDataUrl(metadata.cover_art?.data_url),
+        hashRemoteCover(track.coverUrl),
+    ]);
+    if (existingCoverHash && requestedCoverHash && existingCoverHash !== requestedCoverHash) {
+        differences.push("cover");
+    }
+    return differences;
+}
+async function findExistingVersionMatches(outputDir: string, expectedFilename: string, track: {
+    trackName?: string;
+    artistName?: string;
+    albumName?: string;
+    albumArtist?: string;
+    releaseDate?: string;
+    spotifyTrackNumber?: number;
+    spotifyDiscNumber?: number;
+    spotifyTotalTracks?: number;
+    spotifyTotalDiscs?: number;
+    coverUrl?: string;
+}): Promise<{ exactMatchPath: string | null; detectedDifferences: string[] }> {
+    const extensionMatch = expectedFilename.match(/\.([^.]+)$/);
+    const extension = extensionMatch?.[1] || "flac";
+    const baseName = expectedFilename.replace(/\.[^.]+$/, "");
+    const { FindDuplicateCandidates } = await import("../../wailsjs/go/main/App");
+    const candidates = await FindDuplicateCandidates(outputDir, baseName, extension);
+    let firstDifferenceSet: string[] = [];
+    for (const candidatePath of candidates) {
+        const differences = await detectExistingTrackDifferences(candidatePath, track);
+        if (differences.length === 0) {
+            return { exactMatchPath: candidatePath, detectedDifferences: [] };
+        }
+        if (firstDifferenceSet.length === 0) {
+            firstDifferenceSet = differences;
+        }
+    }
+    return {
+        exactMatchPath: null,
+        detectedDifferences: firstDifferenceSet,
+    };
+}
+function analyzeBatchFilenameConflicts(tracks: TrackMetadata[], settings: any, folderName: string | undefined, isAlbum: boolean | undefined): BatchConflictAnalysis {
+    const outputGroups = new Map<string, BatchConflictTrack[]>();
+    const useAlbumSubfolder = Boolean(settings.folderTemplate?.includes("{album}") || settings.folderTemplate?.includes("{album_artist}") || settings.folderTemplate?.includes("{playlist}"));
+    const baseFilenameTemplate = settings.filenameTemplate || "{title} - {artist}";
+    tracks.forEach((track, index) => {
+        const placeholder = "__SLASH_PLACEHOLDER__";
+        const displayArtist = settings.useFirstArtistOnly && track.artists ? getFirstArtist(track.artists) : track.artists;
+        const displayAlbumArtist = settings.useFirstArtistOnly && track.album_artist ? getFirstArtist(track.album_artist) : track.album_artist;
+        const hasSubfolder = settings.folderTemplate && settings.folderTemplate.trim() !== "";
+        const playlistPosition = index + 1;
+        const trackNumberForTemplate = (hasSubfolder && (track.track_number || 0) > 0)
+            ? (track.track_number || 0)
+            : playlistPosition;
+        let targetDir = settings.downloadPath;
+        if (settings.createPlaylistFolder && folderName && (!isAlbum || !useAlbumSubfolder)) {
+            targetDir = joinPath(settings.operatingSystem, targetDir, sanitizePath(folderName.replace(/\//g, " "), settings.operatingSystem));
+        }
+        if (settings.folderTemplate) {
+            const folderPath = parseTemplate(settings.folderTemplate, {
+                artist: displayArtist?.replace(/\//g, placeholder),
+                album: track.album_name?.replace(/\//g, placeholder),
+                album_artist: displayAlbumArtist?.replace(/\//g, placeholder) || displayArtist?.replace(/\//g, placeholder),
+                title: track.name?.replace(/\//g, placeholder),
+                track: trackNumberForTemplate,
+                year: track.release_date?.substring(0, 4),
+                date: track.release_date,
+                playlist: folderName?.replace(/\//g, placeholder),
+            });
+            if (folderPath) {
+                const parts = folderPath.split("/").filter((part: string) => part.trim());
+                for (const part of parts) {
+                    targetDir = joinPath(settings.operatingSystem, targetDir, sanitizePath(part.replaceAll(placeholder, " "), settings.operatingSystem));
+                }
+            }
+        }
+        const expectedFilename = buildExpectedFilenameLikeBackend(track.name || "", displayArtist || "", track.album_name || "", displayAlbumArtist || "", track.release_date || "", baseFilenameTemplate, settings.trackNumber || false, trackNumberForTemplate, track.disc_number || 0);
+        const outputPath = joinPath(settings.operatingSystem, targetDir, expectedFilename).toLowerCase();
+        const entry: BatchConflictTrack = {
+            index,
+            name: track.name || "",
+            artists: displayArtist || "",
+            album: track.album_name || "",
+            outputPath,
+            playlistPosition,
+        };
+        const currentGroup = outputGroups.get(outputPath) || [];
+        currentGroup.push(entry);
+        outputGroups.set(outputPath, currentGroup);
+    });
+    const conflictGroups = Array.from(outputGroups.values()).filter((group) => group.length > 1);
+    if (conflictGroups.length === 0) {
+        return { conflictGroups: [], filenameOverrides: new Map() };
+    }
+    const previewLines = conflictGroups.slice(0, 3).flatMap((group, groupIndex) => {
+        const fileName = group[0].outputPath.split(/[/\\]/).pop() || group[0].outputPath;
+        const lines = [`${groupIndex + 1}. ${fileName}`];
+        for (const item of group.slice(0, 3)) {
+            lines.push(`   - ${item.name} | ${item.artists} | ${item.album || "Sin album"}`);
+        }
+        if (group.length > 3) {
+            lines.push(`   - ... y ${group.length - 3} mas`);
+        }
+        return lines;
+    });
+    const shouldPreserveAll = window.confirm([
+        `Se encontraron ${conflictGroups.length} grupo(s) de canciones que terminarian con el mismo nombre de archivo.`,
+        "",
+        ...previewLines,
+        "",
+        "Aceptar: descargar todas con nombres internos unicos, manteniendo el titulo normal en metadata y en la app.",
+        "Cancelar: mantener el comportamiento actual y saltar las repetidas cuando choquen con el mismo archivo.",
+    ].join("\n"));
+    const filenameOverrides = new Map<number, string>();
+    if (shouldPreserveAll) {
+        for (const group of conflictGroups) {
+            for (const item of group) {
+                filenameOverrides.set(item.index, buildBatchDuplicateFilenameTemplate(baseFilenameTemplate, item.playlistPosition));
+            }
+        }
+        toast.info("Se descargaran todas las versiones con nombres internos unicos y metadata original.");
+    }
+    else {
+        toast.info("Se mantendra el comportamiento actual para canciones que generan el mismo archivo.");
+    }
+    return { conflictGroups, filenameOverrides };
+}
 export function useDownload(region: string) {
     const [downloadProgress, setDownloadProgress] = useState<number>(0);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -49,6 +381,8 @@ export function useDownload(region: string) {
     const singleTrackProcessingRef = useRef(false);
     const downloadWithAutoFallback = async (id: string, settings: any, trackName?: string, artistName?: string, albumName?: string, playlistName?: string, position?: number, spotifyId?: string, durationMs?: number, releaseYear?: string, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => {
         const service = settings.downloader;
+        const baseFilenameTemplate = settings.filenameTemplate || "{title} - {artist}";
+        let filenameTemplateForRequest = baseFilenameTemplate;
         const query = trackName && artistName ? `${trackName} ${artistName} ` : undefined;
         const os = settings.operatingSystem;
         let outputDir = settings.downloadPath;
@@ -110,9 +444,11 @@ export function useDownload(region: string) {
             }
         }
         const serviceForCheck = service === "auto" ? "flac" : (service === "tidal" ? "flac" : (service === "qobuz" ? "flac" : "flac"));
-        let fileExists = false;
+        const { AddToDownloadQueue } = await import("../../wailsjs/go/main/App");
+        const itemID = await AddToDownloadQueue(id, trackName || "", displayArtist || "", albumName || "");
         if (trackName && artistName) {
             try {
+                const expectedFilename = buildExpectedFilenameLikeBackend(trackName, displayArtist || "", albumName || "", displayAlbumArtist || "", finalReleaseDate || releaseDate || "", filenameTemplateForRequest, settings.trackNumber || false, trackNumberForTemplate, spotifyDiscNumber || 0);
                 const checkRequest: CheckFileExistenceRequest = {
                     spotify_id: spotifyId || id,
                     track_name: trackName,
@@ -124,29 +460,63 @@ export function useDownload(region: string) {
                     disc_number: spotifyDiscNumber || 0,
                     position: trackNumberForTemplate,
                     use_album_track_number: useAlbumTrackNumber,
-                    filename_format: settings.filenameTemplate || "",
+                    filename_format: filenameTemplateForRequest,
                     include_track_number: settings.trackNumber || false,
                     audio_format: serviceForCheck,
                 };
                 const existenceResults = await CheckFilesExistence(outputDir, settings.downloadPath, [checkRequest]);
                 if (existenceResults.length > 0 && existenceResults[0].exists) {
-                    fileExists = true;
-                    return {
-                        success: true,
-                        message: "File already exists",
-                        file: existenceResults[0].file_path || "",
-                        already_exists: true,
+                    const conflictingPath = existenceResults[0].file_path || "";
+                    const versionReference = {
+                        trackName,
+                        artistName: displayArtist || artistName,
+                        albumName,
+                        albumArtist: displayAlbumArtist,
+                        releaseDate: finalReleaseDate || releaseDate,
+                        spotifyTrackNumber: finalTrackNumber || spotifyTrackNumber,
+                        spotifyDiscNumber,
+                        spotifyTotalTracks,
+                        spotifyTotalDiscs,
+                        coverUrl,
                     };
+                    const { exactMatchPath, detectedDifferences } = await findExistingVersionMatches(outputDir, expectedFilename, versionReference);
+                    if (exactMatchPath) {
+                        await SkipDownloadItem(itemID, exactMatchPath);
+                        return {
+                            success: true,
+                            message: "File already exists",
+                            file: exactMatchPath,
+                            already_exists: true,
+                        };
+                    }
+                    const differences = detectedDifferences;
+                    const shouldDownloadAsVariant = window.confirm([
+                        "Se encontro una version parecida, pero no es exactamente la misma.",
+                        "",
+                        `Cambios detectados: ${differences.length > 0 ? differences.join(", ") : "metadata diferente"}`,
+                        `Titulo: ${trackName || "Sin titulo"}`,
+                        `Artista: ${displayArtist || artistName || "Sin artista"}`,
+                        `Album: ${albumName || "Sin album"}`,
+                        "",
+                        "Aceptar: descargar tambien esta variante con nombre interno unico.",
+                        "Cancelar: omitir esta variante.",
+                    ].join("\n"));
+                    if (!shouldDownloadAsVariant) {
+                        await SkipDownloadItem(itemID, conflictingPath);
+                        return {
+                            success: true,
+                            message: "Se omitio la variante detectada",
+                            file: conflictingPath,
+                            already_exists: true,
+                        };
+                    }
+                    filenameTemplateForRequest = buildSingleTrackDuplicateFilenameTemplate(baseFilenameTemplate, spotifyId, id);
+                    toast.info("Se descargara esta version con un nombre interno unico, manteniendo el titulo original en la app.");
                 }
             }
             catch (err) {
                 console.warn("File existence check failed:", err);
             }
-        }
-        const { AddToDownloadQueue } = await import("../../wailsjs/go/main/App");
-        let itemID: string | undefined;
-        if (!fileExists) {
-            itemID = await AddToDownloadQueue(id, trackName || "", displayArtist || "", albumName || "");
         }
         if (service === "auto") {
             let streamingURLs: any = null;
@@ -181,7 +551,7 @@ export function useDownload(region: string) {
                             release_date: finalReleaseDate || releaseDate,
                             cover_url: coverUrl,
                             output_dir: outputDir,
-                            filename_format: settings.filenameTemplate,
+                            filename_format: filenameTemplateForRequest,
                             track_number: settings.trackNumber,
                             position,
                             use_album_track_number: useAlbumTrackNumber,
@@ -230,7 +600,7 @@ export function useDownload(region: string) {
                             release_date: finalReleaseDate || releaseDate,
                             cover_url: coverUrl,
                             output_dir: outputDir,
-                            filename_format: settings.filenameTemplate,
+                            filename_format: filenameTemplateForRequest,
                             track_number: settings.trackNumber,
                             position,
                             use_album_track_number: useAlbumTrackNumber,
@@ -276,7 +646,7 @@ export function useDownload(region: string) {
                             release_date: finalReleaseDate || releaseDate,
                             cover_url: coverUrl,
                             output_dir: outputDir,
-                            filename_format: settings.filenameTemplate,
+                            filename_format: filenameTemplateForRequest,
                             track_number: settings.trackNumber,
                             position: trackNumberForTemplate,
                             use_album_track_number: useAlbumTrackNumber,
@@ -339,7 +709,7 @@ export function useDownload(region: string) {
             release_date: finalReleaseDate || releaseDate,
             cover_url: coverUrl,
             output_dir: outputDir,
-            filename_format: settings.filenameTemplate,
+            filename_format: filenameTemplateForRequest,
             track_number: settings.trackNumber,
             position: trackNumberForTemplate,
             use_album_track_number: useAlbumTrackNumber,
@@ -727,6 +1097,7 @@ export function useDownload(region: string) {
         const selectedTrackObjects = selectedTracks
             .map((id) => allTracks.find((t) => t.spotify_id === id))
             .filter((t): t is TrackMetadata => t !== undefined);
+        const conflictAnalysis = analyzeBatchFilenameConflicts(selectedTrackObjects, settings, folderName, isAlbum);
         logger.info(`checking existing files in parallel...`);
         const useAlbumTrackNumber = settings.folderTemplate?.includes("{album}") || false;
         const audioFormat = "flac";
@@ -744,7 +1115,7 @@ export function useDownload(region: string) {
                 disc_number: track.disc_number || 0,
                 position: index + 1,
                 use_album_track_number: useAlbumTrackNumber,
-                filename_format: settings.filenameTemplate || "",
+                filename_format: conflictAnalysis.filenameOverrides.get(index) || settings.filenameTemplate || "",
                 include_track_number: settings.trackNumber || false,
                 audio_format: audioFormat,
             };
@@ -801,7 +1172,10 @@ export function useDownload(region: string) {
             setCurrentDownloadInfo({ name: track.name, artists: displayArtist || "" });
             try {
                 const releaseYear = track.release_date?.substring(0, 4);
-                const response = await downloadWithItemID(settings, itemID, track.name, track.artists, track.album_name, folderName, originalIndex + 1, track.spotify_id, track.duration_ms, isAlbum, releaseYear, track.album_artist || "", track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher);
+                const trackSettings = conflictAnalysis.filenameOverrides.has(originalIndex)
+                    ? { ...settings, filenameTemplate: conflictAnalysis.filenameOverrides.get(originalIndex) }
+                    : settings;
+                const response = await downloadWithItemID(trackSettings, itemID, track.name, track.artists, track.album_name, folderName, originalIndex + 1, track.spotify_id, track.duration_ms, isAlbum, releaseYear, track.album_artist || "", track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher);
                 if (response.success) {
                     if (response.already_exists) {
                         skippedCount++;
@@ -890,6 +1264,7 @@ export function useDownload(region: string) {
         }
         logger.info(`starting batch download: ${tracksWithId.length} tracks`);
         const settings = getSettings();
+        const conflictAnalysis = analyzeBatchFilenameConflicts(tracksWithId, settings, folderName, isAlbum);
         setIsDownloading(true);
         setBulkDownloadType("all");
         setDownloadProgress(0);
@@ -916,7 +1291,7 @@ export function useDownload(region: string) {
                 disc_number: track.disc_number || 0,
                 position: index + 1,
                 use_album_track_number: useAlbumTrackNumber,
-                filename_format: settings.filenameTemplate || "",
+                filename_format: conflictAnalysis.filenameOverrides.get(index) || settings.filenameTemplate || "",
                 include_track_number: settings.trackNumber || false,
                 audio_format: audioFormat,
             };
@@ -971,7 +1346,10 @@ export function useDownload(region: string) {
             setCurrentDownloadInfo({ name: track.name || "", artists: displayArtist || "" });
             try {
                 const releaseYear = track.release_date?.substring(0, 4);
-                const response = await downloadWithItemID(settings, itemID, track.name, track.artists, track.album_name, folderName, originalIndex + 1, track.spotify_id, track.duration_ms, isAlbum, releaseYear, track.album_artist || "", track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher);
+                const trackSettings = conflictAnalysis.filenameOverrides.has(originalIndex)
+                    ? { ...settings, filenameTemplate: conflictAnalysis.filenameOverrides.get(originalIndex) }
+                    : settings;
+                const response = await downloadWithItemID(trackSettings, itemID, track.name, track.artists, track.album_name, folderName, originalIndex + 1, track.spotify_id, track.duration_ms, isAlbum, releaseYear, track.album_artist || "", track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher);
                 if (response.success) {
                     if (response.already_exists) {
                         skippedCount++;

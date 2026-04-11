@@ -290,6 +290,9 @@ export function useAppLogic() {
     | "readTextFile"
     | "writeBinaryFile"
     | "fileExists"
+    | "readAudioMetadata"
+    | "getFileSizeMB"
+    | "findDuplicateCandidates"
     | "downloadTrack"
     | "getStreamingURLs"
     | "checkTrackAvailability"
@@ -485,6 +488,24 @@ export function useAppLogic() {
           case "fileExists":
             return await invoke<boolean>("spotiflac_file_exists", {
               path: payload.path,
+            });
+          case "readAudioMetadata":
+            return await invoke("leer_metadata", {
+              path: payload.path,
+              customLyricsPath:
+                typeof payload.customLyricsPath === "string"
+                  ? payload.customLyricsPath
+                  : null,
+            });
+          case "getFileSizeMB":
+            return await invoke<number>("spotiflac_get_file_size_mb", {
+              path: payload.path,
+            });
+          case "findDuplicateCandidates":
+            return await invoke<string[]>("spotiflac_find_duplicate_candidates", {
+              directory: payload.directory,
+              baseName: payload.baseName,
+              extension: payload.extension,
             });
           case "downloadTrack":
             {
@@ -5363,11 +5384,19 @@ export function useAppLogic() {
     const fallbackTitle = currentTrack
       ? getTrackDisplayTitle(currentTrack)
       : null;
+    const fallbackRawFileName = rawFileName.value
+      ? stripInternalSpotiFlacDuplicateSuffix(
+          rawFileName.value.replace(
+            new RegExp(`\\.${fileExtension.value}$`, "i"),
+            "",
+          ),
+        )
+      : "";
   
     return (
       activeMetadata?.title?.trim() ||
       fallbackTitle ||
-      rawFileName.value ||
+      fallbackRawFileName ||
       "Sin título"
     );
   });
@@ -5801,6 +5830,15 @@ export function useAppLogic() {
 
   
   
+  const stripInternalSpotiFlacDuplicateSuffix = (value: string) => {
+    const cleaned = value
+      .replace(/__sfdup_[a-z0-9_-]+$/i, "")
+      .replace(/[\s._-]+$/g, "")
+      .trim();
+
+    return cleaned || value;
+  };
+
   const getTrackDisplayTitle = (track: PlaylistTrack) => {
     const metadataTitle = getLibraryTrackMetadata(track)?.title?.trim();
   
@@ -5813,7 +5851,7 @@ export function useAppLogic() {
       "",
     );
   
-    return nameWithoutExtension || "Sin nombre";
+    return stripInternalSpotiFlacDuplicateSuffix(nameWithoutExtension) || "Sin nombre";
   };
 
   
@@ -6111,9 +6149,11 @@ export function useAppLogic() {
     metadataTrackPath.value = null;
     isStopped.value = false;
   
-    const baseName = track.fileName.replace(
-      new RegExp(`\\.${track.extension}$`, "i"),
-      "",
+    const baseName = stripInternalSpotiFlacDuplicateSuffix(
+      track.fileName.replace(
+        new RegExp(`\\.${track.extension}$`, "i"),
+        "",
+      ),
     );
   
     resetCanvas();
@@ -7576,7 +7616,7 @@ export function useAppLogic() {
   
   onMounted(async () => {
     installSpotiFlacHost();
-    installPerformanceDiagnostics();
+    // installPerformanceDiagnostics();
     updateSpotiFlacConnectivityStatus();
     await nextTick();
     await waitForNextPaint();

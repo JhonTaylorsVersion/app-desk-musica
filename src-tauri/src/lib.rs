@@ -1493,6 +1493,55 @@ fn spotiflac_file_exists(path: String) -> bool {
 }
 
 #[tauri::command]
+fn spotiflac_get_file_size_mb(path: String) -> Result<f64, String> {
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo leer el tamaño de {}: {}", path, error))?;
+    Ok((metadata.len() as f64) / (1024.0 * 1024.0))
+}
+
+#[tauri::command]
+fn spotiflac_find_duplicate_candidates(
+    directory: String,
+    base_name: String,
+    extension: String,
+) -> Result<Vec<String>, String> {
+    let dir_path = Path::new(&directory);
+    if !dir_path.exists() || !dir_path.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let normalized_extension = extension.trim_start_matches('.').to_ascii_lowercase();
+    let exact_name = format!("{}.{}", base_name, normalized_extension);
+    let variant_prefix = format!("{}__sfdup_", base_name).to_ascii_lowercase();
+    let variant_suffix = format!(".{}", normalized_extension);
+    let mut matches = Vec::new();
+
+    for entry in fs::read_dir(dir_path)
+        .map_err(|error| format!("No se pudo leer el directorio {}: {}", directory, error))?
+    {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let file_name = match path.file_name().and_then(|value| value.to_str()) {
+            Some(value) => value,
+            None => continue,
+        };
+
+        let lower_name = file_name.to_ascii_lowercase();
+        if lower_name == exact_name.to_ascii_lowercase()
+            || (lower_name.starts_with(&variant_prefix) && lower_name.ends_with(&variant_suffix))
+        {
+            matches.push(path.to_string_lossy().to_string());
+        }
+    }
+
+    Ok(matches)
+}
+
+#[tauri::command]
 async fn spotiflac_download_track(
     request: serde_json::Value,
     download_state: State<'_, SpotiFlacDownloadState>,
@@ -3004,6 +3053,8 @@ pub fn run() {
             spotiflac_read_text_file,
             spotiflac_write_binary_file,
             spotiflac_file_exists,
+            spotiflac_get_file_size_mb,
+            spotiflac_find_duplicate_candidates,
             spotiflac_download_track,
             spotiflac_get_streaming_urls,
             spotiflac_check_track_availability,

@@ -43,8 +43,15 @@ export function useDownloadQueueData(options?: UseDownloadQueueDataOptions) {
             }
         };
         fetchQueue();
+        const handleStateChanged = () => {
+            void fetchQueue();
+        };
+        window.addEventListener("spotiflac-download-state-changed", handleStateChanged);
         const interval = setInterval(fetchQueue, intervalMs);
-        return () => clearInterval(interval);
+        return () => {
+            window.removeEventListener("spotiflac-download-state-changed", handleStateChanged);
+            clearInterval(interval);
+        };
     }, [enabled, intervalMs]);
     return queueInfo;
 }

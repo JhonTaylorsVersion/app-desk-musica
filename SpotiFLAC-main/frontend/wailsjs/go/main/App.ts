@@ -20,6 +20,25 @@ type SpotiFlacHost = {
   invoke: (method: string, payload?: AnyRecord) => Promise<any>;
 };
 
+type SpotiFlacAudioMetadata = {
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  album_artist?: string | null;
+  year?: string | null;
+  release_date?: string | null;
+  track_number?: string | null;
+  track_total?: string | null;
+  disc_number?: string | null;
+  disc_total?: string | null;
+  cover_art?: {
+    data_url?: string | null;
+    mime_type?: string | null;
+    description?: string | null;
+    picture_type?: string | null;
+  } | null;
+};
+
 type SpotiFlacBridgeResponse = {
   source?: string;
   type?: string;
@@ -338,38 +357,66 @@ type DownloadProgressState = {
   session_start_time: number;
 };
 
+type SpotiFlacRuntimeState = {
+  queue: DownloadQueueItem[];
+  progress: DownloadProgressState;
+};
+
+type SpotiFlacWindowState = Window & {
+  __spotiflacRuntimeState?: SpotiFlacRuntimeState;
+};
+
+function createDefaultProgressState(): DownloadProgressState {
+  return {
+    is_downloading: false,
+    mb_downloaded: 0,
+    speed_mbps: 0,
+    session_start_time: 0,
+  };
+}
+
+function ensureRuntimeState(): SpotiFlacRuntimeState {
+  const runtimeWindow = window as SpotiFlacWindowState;
+  if (!runtimeWindow.__spotiflacRuntimeState) {
+    runtimeWindow.__spotiflacRuntimeState = {
+      queue: readStorageArray<DownloadQueueItem>(DOWNLOAD_QUEUE_KEY),
+      progress: (() => {
+        try {
+          const raw = localStorage.getItem(DOWNLOAD_PROGRESS_KEY);
+          return raw ? JSON.parse(raw) as DownloadProgressState : createDefaultProgressState();
+        } catch {
+          return createDefaultProgressState();
+        }
+      })(),
+    };
+  }
+  return runtimeWindow.__spotiflacRuntimeState;
+}
+
+function emitDownloadStateChanged(): void {
+  window.dispatchEvent(new CustomEvent("spotiflac-download-state-changed"));
+}
+
 function getQueueItems(): DownloadQueueItem[] {
-  return readStorageArray<DownloadQueueItem>(DOWNLOAD_QUEUE_KEY);
+  return [...ensureRuntimeState().queue];
 }
 
 function setQueueItems(items: DownloadQueueItem[]): void {
-  writeStorageArray(DOWNLOAD_QUEUE_KEY, items);
+  const runtimeState = ensureRuntimeState();
+  runtimeState.queue = [...items];
+  writeStorageArray(DOWNLOAD_QUEUE_KEY, runtimeState.queue);
+  emitDownloadStateChanged();
 }
 
 function getProgressState(): DownloadProgressState {
-  try {
-    const raw = localStorage.getItem(DOWNLOAD_PROGRESS_KEY);
-    if (!raw) {
-      return {
-        is_downloading: false,
-        mb_downloaded: 0,
-        speed_mbps: 0,
-        session_start_time: 0,
-      };
-    }
-    return JSON.parse(raw) as DownloadProgressState;
-  } catch {
-    return {
-      is_downloading: false,
-      mb_downloaded: 0,
-      speed_mbps: 0,
-      session_start_time: 0,
-    };
-  }
+  return { ...ensureRuntimeState().progress };
 }
 
 function setProgressState(progress: DownloadProgressState): void {
-  localStorage.setItem(DOWNLOAD_PROGRESS_KEY, JSON.stringify(progress));
+  const runtimeState = ensureRuntimeState();
+  runtimeState.progress = { ...progress };
+  localStorage.setItem(DOWNLOAD_PROGRESS_KEY, JSON.stringify(runtimeState.progress));
+  emitDownloadStateChanged();
 }
 
 function updateQueueItem(id: string, patch: Partial<DownloadQueueItem>): void {
@@ -377,6 +424,19 @@ function updateQueueItem(id: string, patch: Partial<DownloadQueueItem>): void {
     item.id === id ? { ...item, ...patch, updated_at: Math.floor(Date.now() / 1000) } : item,
   );
   setQueueItems(items);
+}
+
+async function getDownloadedFileSizeMB(path: string): Promise<number> {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath) {
+    return 0;
+  }
+  try {
+    const response = await invokeHost<number>("getFileSizeMB" as any, { path: normalizedPath });
+    return Number.isFinite(response) ? Number(response) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function appendDownloadHistory(item: backend.HistoryItem): void {
@@ -842,6 +902,16 @@ export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
   const startedAt = Math.floor(Date.now() / 1000);
 
   if (itemID) {
+    ensureQueueItem(
+      itemID,
+      String(request?.spotify_id || ""),
+      String(request?.track_name || ""),
+      String(request?.artist_name || ""),
+      String(request?.album_name || ""),
+    );
+  }
+
+  if (itemID) {
     updateQueueItem(itemID, {
       status: "downloading",
       error_message: "",
@@ -863,13 +933,17 @@ export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
     const downloadedPath = String(response?.file || "");
     const alreadyExists = Boolean(response?.already_exists);
     const source = String(request?.service || request?.source || "auto");
+    const downloadedSizeMB =
+      succeeded && downloadedPath && !alreadyExists
+        ? await getDownloadedFileSizeMB(downloadedPath)
+        : 0;
 
     if (itemID) {
       updateQueueItem(itemID, {
         status: succeeded ? (alreadyExists ? "skipped" : "completed") : "failed",
         error_message: succeeded ? "" : String(response?.error || response?.message || "Download failed"),
         file_path: downloadedPath,
-        progress: succeeded ? 100 : 0,
+        progress: succeeded ? downloadedSizeMB : 0,
         speed: 0,
       });
     }
@@ -892,6 +966,7 @@ export async function DownloadTrack(request: AnyRecord): Promise<AnyRecord> {
     setProgressState({
       ...getProgressState(),
       is_downloading: false,
+      mb_downloaded: getProgressState().mb_downloaded + downloadedSizeMB,
       speed_mbps: 0,
     });
 
@@ -1146,6 +1221,33 @@ export async function AddToDownloadQueue(spotifyID = "", trackName = "", artistN
   return id;
 }
 
+function ensureQueueItem(itemID: string, spotifyID = "", trackName = "", artistName = "", albumName = ""): void {
+  if (!itemID) {
+    return;
+  }
+
+  const existing = getQueueItems().some((item) => item.id === itemID);
+  if (existing) {
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const queue = getQueueItems();
+  queue.unshift({
+    id: itemID,
+    spotify_id: spotifyID,
+    track_name: trackName,
+    artist_name: artistName,
+    album_name: albumName,
+    status: "queued",
+    progress: 0,
+    speed: 0,
+    created_at: now,
+    updated_at: now,
+  });
+  setQueueItems(queue);
+}
+
 export async function MarkDownloadItemFailed(itemID: string, errorMsg = "Download failed"): Promise<void> {
   updateQueueItem(itemID, {
     status: "failed",
@@ -1309,7 +1411,7 @@ export async function ListAudioFilesInDir(): Promise<backend.FileInfo[]> {
 }
 
 export async function ReadFileMetadata(): Promise<backend.AudioMetadata> {
-  return {};
+  return await invokeHost<SpotiFlacAudioMetadata>("readAudioMetadata", {});
 }
 
 export async function PreviewRenameFiles(): Promise<backend.RenamePreview[]> {
@@ -1322,6 +1424,21 @@ export async function RenameFilesByMetadata(): Promise<backend.RenameResult[]> {
 
 export async function ReadTextFile(): Promise<string> {
   return "";
+}
+
+export async function ReadAudioMetadata(path: string, customLyricsPath?: string): Promise<SpotiFlacAudioMetadata> {
+  return await invokeHost<SpotiFlacAudioMetadata>("readAudioMetadata", {
+    path,
+    customLyricsPath,
+  });
+}
+
+export async function FindDuplicateCandidates(directory: string, baseName: string, extension: string): Promise<string[]> {
+  return await invokeHost<string[]>("findDuplicateCandidates", {
+    directory,
+    baseName,
+    extension,
+  });
 }
 
 export async function ReadFileAsBase64(): Promise<string> {
@@ -1492,6 +1609,8 @@ const appApi = {
   PreviewRenameFiles,
   ReadFileAsBase64,
   ReadFileMetadata,
+  ReadAudioMetadata,
+  FindDuplicateCandidates,
   ReadImageAsBase64,
   ReadTextFile,
   RenameFileTo,

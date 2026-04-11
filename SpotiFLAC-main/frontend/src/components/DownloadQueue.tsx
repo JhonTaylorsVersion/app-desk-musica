@@ -43,8 +43,15 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
             }
         };
         fetchQueue();
+        const handleStateChanged = () => {
+            void fetchQueue();
+        };
+        window.addEventListener("spotiflac-download-state-changed", handleStateChanged);
         const interval = setInterval(fetchQueue, 1000);
-        return () => clearInterval(interval);
+        return () => {
+            window.removeEventListener("spotiflac-download-state-changed", handleStateChanged);
+            clearInterval(interval);
+        };
     }, [isOpen]);
     const handleClearHistory = async () => {
         try {

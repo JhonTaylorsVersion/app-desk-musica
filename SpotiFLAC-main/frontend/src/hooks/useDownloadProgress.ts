@@ -50,7 +50,12 @@ export function useDownloadProgress(options?: UseDownloadProgressOptions) {
         };
         intervalRef.current = window.setInterval(pollProgress, intervalMs);
         pollProgress();
+        const handleStateChanged = () => {
+            void pollProgress();
+        };
+        window.addEventListener("spotiflac-download-state-changed", handleStateChanged);
         return () => {
+            window.removeEventListener("spotiflac-download-state-changed", handleStateChanged);
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
             }
