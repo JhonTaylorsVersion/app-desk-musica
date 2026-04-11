@@ -1170,14 +1170,11 @@ export default defineComponent({
             <template v-if="currentViewMode === 'spotiflac'">
               <div class="spotiflac-view">
                 <div class="spotiflac-hero">
-                  <div>
-                    <div class="spotiflac-kicker">Herramientas de descarga</div>
+                  <div class="spotiflac-hero-left">
                     <h2 class="spotiflac-title">SpotiFLAC</h2>
-                    <p class="spotiflac-copy">
-                      Abre el panel de SpotiFLAC dentro de esta app para buscar,
-                      analizar y preparar descargas sin salir del reproductor.
-                    </p>
+                    <div class="spotiflac-kicker">Herramientas de descarga</div>
                   </div>
+
                   <button
                     class="small-action-btn spotiflac-refresh-btn"
                     type="button"
@@ -1214,7 +1211,11 @@ export default defineComponent({
                       :disabled="isSpotiFlacChecking"
                       @click="reloadSpotiFlacFrame"
                     >
-                      {{ isSpotiFlacChecking ? "Comprobando..." : "Comprobar otra vez" }}
+                      {{
+                        isSpotiFlacChecking
+                          ? "Comprobando..."
+                          : "Comprobar otra vez"
+                      }}
                     </button>
                   </div>
                 </div>

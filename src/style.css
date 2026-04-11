@@ -12,8 +12,12 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(circle at top, #1d2431 0%, #0f1115 48%, #08090c 100%);
+  background: radial-gradient(
+    circle at top,
+    #1d2431 0%,
+    #0f1115 48%,
+    #08090c 100%
+  );
   color: #ffffff;
 }
 
@@ -55,8 +59,12 @@ textarea,
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background:
-    radial-gradient(circle at top, rgba(29, 36, 49, 0.96) 0%, rgba(15, 17, 21, 0.98) 48%, rgba(8, 9, 12, 0.995) 100%);
+  background: radial-gradient(
+    circle at top,
+    rgba(29, 36, 49, 0.96) 0%,
+    rgba(15, 17, 21, 0.98) 48%,
+    rgba(8, 9, 12, 0.995) 100%
+  );
 }
 
 .boot-overlay-card {
@@ -2610,7 +2618,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .spotiflac-hero {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding: 20px;
@@ -2621,13 +2629,22 @@ input[type="range"]:hover::-webkit-slider-thumb {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.spotiflac-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
 .spotiflac-kicker {
   font-size: 12px;
   font-weight: 900;
-  letter-spacing: 0;
   text-transform: uppercase;
   color: rgba(29, 185, 84, 0.95);
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  order: 2;
+  white-space: nowrap;
 }
 
 .spotiflac-title {

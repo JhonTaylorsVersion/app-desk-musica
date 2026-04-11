@@ -1,5 +1,4 @@
-import { X, Minus, Maximize, SlidersHorizontal, Info, Globe } from "lucide-react";
-import { WindowMinimise, WindowToggleMaximise, Quit } from "../../wailsjs/runtime/runtime";
+import { SlidersHorizontal, Info, Globe } from "lucide-react";
 import { Menubar, MenubarContent, MenubarMenu, MenubarItem, MenubarTrigger, MenubarLabel, MenubarSeparator } from "@/components/ui/menubar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getSettings, updateSettings } from "@/lib/settings";
@@ -26,14 +25,8 @@ export function TitleBar() {
         setUseSpotFetchAPI(newValue);
         updateSettings({ useSpotFetchAPI: newValue });
     };
-    const handleMinimize = () => {
-        WindowMinimise();
-    };
     const handleMaximize = () => {
-        WindowToggleMaximise();
-    };
-    const handleClose = () => {
-        Quit();
+        // Double click still allowed for background drag feel, but handlers removed
     };
     return (<>
 
@@ -74,15 +67,6 @@ export function TitleBar() {
                 </MenubarContent>
             </MenubarMenu>
         </Menubar>
-        <button onClick={handleMinimize} className="w-8 h-7 flex items-center justify-center hover:bg-muted transition-colors rounded" style={{ "--wails-draggable": "no-drag" } as React.CSSProperties} aria-label="Minimize">
-          <Minus className="w-3.5 h-3.5"/>
-        </button>
-        <button onClick={handleMaximize} className="w-8 h-7 flex items-center justify-center hover:bg-muted transition-colors rounded" style={{ "--wails-draggable": "no-drag" } as React.CSSProperties} aria-label="Maximize">
-          <Maximize className="w-3.5 h-3.5"/>
-        </button>
-        <button onClick={handleClose} className="w-8 h-7 flex items-center justify-center hover:bg-destructive hover:text-white transition-colors rounded" style={{ "--wails-draggable": "no-drag" } as React.CSSProperties} aria-label="Close">
-          <X className="w-3.5 h-3.5"/>
-        </button>
       </div>
     </>);
 }
