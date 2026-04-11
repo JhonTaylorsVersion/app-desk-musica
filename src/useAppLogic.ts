@@ -1944,7 +1944,7 @@ export function useAppLogic() {
   
   
   const currentViewMode = ref<ViewMode>("library");
-  const spotiFlacUrl = "/spotiflac/index.html";
+  const spotiFlacUrl = import.meta.env.DEV ? "http://localhost:5175" : "/spotiflac/index.html";
   const isSpotiFlacChecking = ref(false);
   const isSpotiFlacReady = ref(true);
   const spotiFlacStatusMessage = ref("SpotiFLAC esta listo.");
