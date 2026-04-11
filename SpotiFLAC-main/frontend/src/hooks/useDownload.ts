@@ -55,6 +55,17 @@ interface BatchConflictAnalysis {
     conflictGroups: BatchConflictTrack[][];
     filenameOverrides: Map<number, string>;
 }
+export interface UiDownloadQueueItem {
+    id: string;
+    track_name: string;
+    artist_name: string;
+    album_name: string;
+    status: "queued" | "downloading" | "completed" | "failed" | "skipped";
+    progress: number;
+    speed: number;
+    file_path?: string;
+    error_message?: string;
+}
 const CheckFilesExistence = (outputDir: string, rootDir: string, tracks: CheckFileExistenceRequest[]): Promise<FileExistenceResult[]> => (window as any)["go"]["main"]["App"]["CheckFilesExistence"](outputDir, rootDir, tracks);
 const SkipDownloadItem = (itemID: string, filePath: string): Promise<void> => (window as any)["go"]["main"]["App"]["SkipDownloadItem"](itemID, filePath);
 const CreateM3U8File = (playlistName: string, outputDir: string, filePaths: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateM3U8File"](playlistName, outputDir, filePaths);
@@ -372,13 +383,20 @@ export function useDownload(region: string) {
     const [failedTracks, setFailedTracks] = useState<Set<string>>(new Set());
     const [skippedTracks, setSkippedTracks] = useState<Set<string>>(new Set());
     const [queuedTracks, setQueuedTracks] = useState<Set<string>>(new Set());
+    const [downloadQueueItems, setDownloadQueueItems] = useState<UiDownloadQueueItem[]>([]);
     const [currentDownloadInfo, setCurrentDownloadInfo] = useState<{
         name: string;
         artists: string;
     } | null>(null);
     const shouldStopDownloadRef = useRef(false);
-    const singleTrackQueueRef = useRef<Array<[string, string | undefined, string | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, number | undefined, number | undefined, string | undefined, string | undefined]>>([]);
+    const singleTrackQueueRef = useRef<Array<[string, string, string | undefined, string | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, string | undefined, string | undefined, string | undefined, number | undefined, number | undefined, number | undefined, number | undefined, string | undefined, string | undefined]>>([]);
     const singleTrackProcessingRef = useRef(false);
+    const pushUiQueueItem = (item: UiDownloadQueueItem) => {
+        setDownloadQueueItems((previous) => [item, ...previous].slice(0, 200));
+    };
+    const updateUiQueueItem = (queueId: string, patch: Partial<UiDownloadQueueItem>) => {
+        setDownloadQueueItems((previous) => previous.map((item) => item.id === queueId ? { ...item, ...patch } : item));
+    };
     const downloadWithAutoFallback = async (id: string, settings: any, trackName?: string, artistName?: string, albumName?: string, playlistName?: string, position?: number, spotifyId?: string, durationMs?: number, releaseYear?: string, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => {
         const service = settings.downloader;
         const baseFilenameTemplate = settings.filenameTemplate || "{title} - {artist}";
@@ -1016,7 +1034,7 @@ export function useDownload(region: string) {
         singleTrackProcessingRef.current = true;
         try {
             while (singleTrackQueueRef.current.length > 0) {
-                const [id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher] = singleTrackQueueRef.current.shift()!;
+                const [queueId, id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher] = singleTrackQueueRef.current.shift()!;
                 const settings = getSettings();
                 const displayArtist = settings.useFirstArtistOnly && artistName ? getFirstArtist(artistName) : artistName;
                 logger.info(`starting download: ${trackName} - ${displayArtist}`);
@@ -1025,6 +1043,7 @@ export function useDownload(region: string) {
                     next.delete(id);
                     return next;
                 });
+                updateUiQueueItem(queueId, { status: "downloading" });
                 setDownloadingTrack(id);
                 try {
                     const releaseYear = releaseDate?.substring(0, 4);
@@ -1033,9 +1052,11 @@ export function useDownload(region: string) {
                         if (response.already_exists) {
                             toast.info(response.message);
                             setSkippedTracks((prev) => new Set(prev).add(id));
+                            updateUiQueueItem(queueId, { status: "skipped", file_path: response.file });
                         }
                         else {
                             toast.success(response.message);
+                            updateUiQueueItem(queueId, { status: "completed", progress: 100, file_path: response.file });
                         }
                         setDownloadedTracks((prev) => new Set(prev).add(id));
                         setFailedTracks((prev) => {
@@ -1047,11 +1068,13 @@ export function useDownload(region: string) {
                     else {
                         toast.error(response.error || "Download failed");
                         setFailedTracks((prev) => new Set(prev).add(id));
+                        updateUiQueueItem(queueId, { status: "failed", error_message: response.error || "Download failed" });
                     }
                 }
                 catch (err) {
                     toast.error(err instanceof Error ? err.message : "Download failed");
                     setFailedTracks((prev) => new Set(prev).add(id));
+                    updateUiQueueItem(queueId, { status: "failed", error_message: err instanceof Error ? err.message : "Download failed" });
                 }
                 finally {
                     setDownloadingTrack(null);
@@ -1069,10 +1092,20 @@ export function useDownload(region: string) {
         }
         if (downloadingTrack === id ||
             queuedTracks.has(id) ||
-            singleTrackQueueRef.current.some((entry) => entry[0] === id)) {
+            singleTrackQueueRef.current.some((entry) => entry[1] === id)) {
             return;
         }
-        singleTrackQueueRef.current.push([id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher]);
+        const queueId = crypto.randomUUID();
+        pushUiQueueItem({
+            id: queueId,
+            track_name: trackName || "",
+            artist_name: artistName || "",
+            album_name: albumName || "",
+            status: "queued",
+            progress: 0,
+            speed: 0,
+        });
+        singleTrackQueueRef.current.push([queueId, id, trackName, artistName, albumName, spotifyId, playlistName, durationMs, position, albumArtist, releaseDate, coverUrl, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, copyright, publisher]);
         setQueuedTracks((prev) => new Set(prev).add(id));
         queueMicrotask(() => {
             void processSingleTrackQueue();
@@ -1443,6 +1476,7 @@ export function useDownload(region: string) {
         failedTracks,
         skippedTracks,
         queuedTracks,
+        downloadQueueItems,
         currentDownloadInfo,
         handleDownloadTrack,
         handleDownloadSelected,

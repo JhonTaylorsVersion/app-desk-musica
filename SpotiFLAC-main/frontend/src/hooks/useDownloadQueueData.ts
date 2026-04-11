@@ -1,9 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { GetDownloadQueue } from "../../wailsjs/go/main/App";
 import { backend } from "../../wailsjs/go/models";
+const DOWNLOAD_QUEUE_KEY = "spotiflac-download-queue";
+const DOWNLOAD_PROGRESS_KEY = "spotiflac-download-progress";
 interface UseDownloadQueueDataOptions {
     enabled?: boolean;
     intervalMs?: number;
+}
+function getFallbackQueueInfo() {
+    try {
+        const runtimeState = (window as any).__spotiflacRuntimeState;
+        const queue = Array.isArray(runtimeState?.queue)
+            ? runtimeState.queue
+            : JSON.parse(localStorage.getItem(DOWNLOAD_QUEUE_KEY) || "[]");
+        const progress = runtimeState?.progress || JSON.parse(localStorage.getItem(DOWNLOAD_PROGRESS_KEY) || "{}");
+        return new backend.DownloadQueueInfo({
+            queue: Array.isArray(queue) ? queue : [],
+            queued_count: Array.isArray(queue) ? queue.filter((item: any) => item.status === "queued").length : 0,
+            completed_count: Array.isArray(queue) ? queue.filter((item: any) => item.status === "completed").length : 0,
+            failed_count: Array.isArray(queue) ? queue.filter((item: any) => item.status === "failed").length : 0,
+            skipped_count: Array.isArray(queue) ? queue.filter((item: any) => item.status === "skipped").length : 0,
+            total_downloaded: Number(progress?.mb_downloaded || 0),
+            current_speed: Number(progress?.speed_mbps || 0),
+            session_start_time: Number(progress?.session_start_time || 0),
+            is_downloading: Boolean(progress?.is_downloading),
+        });
+    }
+    catch {
+        return null;
+    }
 }
 export function useDownloadQueueData(options?: UseDownloadQueueDataOptions) {
     const enabled = options?.enabled ?? true;
@@ -31,12 +56,22 @@ export function useDownloadQueueData(options?: UseDownloadQueueDataOptions) {
             requestInFlightRef.current = true;
             try {
                 const info = await GetDownloadQueue();
-                setQueueInfo((previous) => JSON.stringify(previous) === JSON.stringify(info)
+                const fallback = getFallbackQueueInfo();
+                const finalInfo = info.queue.length === 0 && fallback ? fallback : info;
+                setQueueInfo((previous) => JSON.stringify(previous) === JSON.stringify(finalInfo)
                     ? previous
-                    : info);
+                    : finalInfo);
             }
             catch (error) {
-                console.error("Failed to get download queue:", error);
+                const fallback = getFallbackQueueInfo();
+                if (fallback) {
+                    setQueueInfo((previous) => JSON.stringify(previous) === JSON.stringify(fallback)
+                        ? previous
+                        : fallback);
+                }
+                else {
+                    console.error("Failed to get download queue:", error);
+                }
             }
             finally {
                 requestInFlightRef.current = false;

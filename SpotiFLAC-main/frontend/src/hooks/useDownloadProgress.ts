@@ -4,6 +4,7 @@ export interface DownloadProgressInfo {
     is_downloading: boolean;
     mb_downloaded: number;
     speed_mbps: number;
+    session_start_time: number;
 }
 interface UseDownloadProgressOptions {
     enabled?: boolean;
@@ -16,6 +17,7 @@ export function useDownloadProgress(options?: UseDownloadProgressOptions) {
         is_downloading: false,
         mb_downloaded: 0,
         speed_mbps: 0,
+        session_start_time: 0,
     });
     const intervalRef = useRef<number | null>(null);
     const requestInFlightRef = useRef(false);
@@ -25,6 +27,7 @@ export function useDownloadProgress(options?: UseDownloadProgressOptions) {
                 is_downloading: false,
                 mb_downloaded: 0,
                 speed_mbps: 0,
+                session_start_time: 0,
             });
             return;
         }
@@ -37,7 +40,8 @@ export function useDownloadProgress(options?: UseDownloadProgressOptions) {
                 const progressInfo = await GetDownloadProgress();
                 setProgress((previous) => previous.is_downloading === progressInfo.is_downloading &&
                     previous.mb_downloaded === progressInfo.mb_downloaded &&
-                    previous.speed_mbps === progressInfo.speed_mbps
+                    previous.speed_mbps === progressInfo.speed_mbps &&
+                    previous.session_start_time === progressInfo.session_start_time
                     ? previous
                     : progressInfo);
             }

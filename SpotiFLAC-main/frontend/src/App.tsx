@@ -628,12 +628,11 @@ function App() {
 
             <DownloadProgressToast onClick={downloadQueue.openQueue} forceVisible={download.isDownloading ||
                 download.downloadingTrack !== null ||
-                download.queuedTracks.size > 0 ||
                 combinedDownloadingTrack !== null ||
                 combinedBulkDownloadType !== null}/>
 
 
-            <DownloadQueue isOpen={downloadQueue.isOpen} onClose={downloadQueue.closeQueue}/>
+            <DownloadQueue isOpen={downloadQueue.isOpen} onClose={downloadQueue.closeQueue} fallbackQueueItems={download.downloadQueueItems} fallbackDownloadedMB={downloadProgress.mb_downloaded} fallbackSpeedMbps={downloadProgress.speed_mbps} fallbackSessionStartTime={downloadProgress.session_start_time} fallbackIsDownloading={downloadProgress.is_downloading}/>
 
 
             {showScrollTop && (<Button onClick={scrollToTop} className="fixed bottom-6 right-6 z-50 h-10 w-10 rounded-full shadow-lg" size="icon">
