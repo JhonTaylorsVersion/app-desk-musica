@@ -850,6 +850,17 @@ export async function GetSpotifyMetadata(req: AnyRecord): Promise<string> {
   const url = req?.url ?? "";
 
   try {
+    const result = await invokeHost<any>("getSpotifyMetadata", req);
+    if (result) {
+      const data = typeof result === "string" ? JSON.parse(result) : result;
+      emitCompatEvent("metadata-stream", data);
+      return typeof result === "string" ? result : JSON.stringify(result);
+    }
+  } catch (err) {
+    console.debug("Bridge metadata fetch failed, trying SpotFetch API...", err);
+  }
+
+  try {
     const data = normalizeSpotFetchPayload(url, await fetchSpotFetchData(url));
     emitCompatEvent("metadata-stream", data);
     return JSON.stringify(data);

@@ -298,6 +298,7 @@ export function useAppLogic() {
     | "checkTrackAvailability"
     | "searchSpotify"
     | "searchSpotifyByType"
+    | "getSpotifyMetadata"
     | "syncDownloadedPlaylist";
 
   let detachSpotiFlacHost: (() => void) | null = null;
@@ -592,6 +593,14 @@ export function useAppLogic() {
                 typeof payload.limit === "number" ? payload.limit : undefined,
               offset:
                 typeof payload.offset === "number" ? payload.offset : undefined,
+            });
+          case "getSpotifyMetadata":
+            return await invoke("spotiflac_get_spotify_metadata", {
+              url: payload.url,
+              batch: payload.batch,
+              delay: payload.delay,
+              timeout: payload.timeout,
+              separator: payload.separator,
             });
           case "syncDownloadedPlaylist": {
             const name =

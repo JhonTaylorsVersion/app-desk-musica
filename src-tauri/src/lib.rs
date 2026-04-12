@@ -2109,6 +2109,26 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
 }
 
 #[tauri::command]
+fn spotiflac_get_spotify_metadata(
+    url: String,
+    batch: Option<bool>,
+    delay: Option<f64>,
+    timeout: Option<f64>,
+    separator: Option<String>,
+) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "get-spotify-metadata",
+        serde_json::json!({
+            "url": url,
+            "batch": batch.unwrap_or(true),
+            "delay": delay.unwrap_or(1.0),
+            "timeout": timeout.unwrap_or(300.0),
+            "separator": separator.unwrap_or_else(|| ", ".to_string()),
+        }),
+    )
+}
+
+#[tauri::command]
 fn spotiflac_get_streaming_urls(
     spotify_track_id: String,
     region: Option<String>,
@@ -3172,6 +3192,7 @@ pub fn run() {
             spotiflac_get_file_size_mb,
             spotiflac_find_duplicate_candidates,
             spotiflac_download_track,
+            spotiflac_get_spotify_metadata,
             spotiflac_get_streaming_urls,
             spotiflac_check_track_availability,
             spotiflac_search_spotify,
