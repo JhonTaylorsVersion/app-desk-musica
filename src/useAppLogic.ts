@@ -2421,19 +2421,20 @@ export function useAppLogic() {
         (item) => normalizeSearchValue(item.name) === normalizedName,
       ) ?? null;
 
-    if (existingPlaylist) {
-      await invoke("delete_playlist", {
-        playlistId: existingPlaylist.id,
+    let targetPlaylistId = existingPlaylist?.id ?? null;
+
+    if (!targetPlaylistId) {
+      const createdPlaylist = await invoke<PlaylistSummary>("create_playlist", {
+        name: trimmedName,
       });
+      targetPlaylistId = createdPlaylist.id;
     }
 
-    const createdPlaylist = await invoke<PlaylistSummary>("create_playlist", {
-      name: trimmedName,
-    });
+    const playlistId = targetPlaylistId;
 
     for (const trackPath of normalizedTrackPaths) {
       await invoke("add_track_to_playlist", {
-        playlistId: createdPlaylist.id,
+        playlistId,
         trackPath,
       });
     }
@@ -2473,10 +2474,10 @@ export function useAppLogic() {
     await loadPlaylists();
 
     if (options.openAfterSync) {
-      goToPlaylist(createdPlaylist.id);
+      goToPlaylist(playlistId);
     }
 
-    return createdPlaylist;
+    return playlists.value.find((p) => p.id === playlistId) || null;
   };
 
   

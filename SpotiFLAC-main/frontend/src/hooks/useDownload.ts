@@ -1065,6 +1065,18 @@ export function useDownload(region: string) {
                             newSet.delete(id);
                             return newSet;
                         });
+
+                        // --- NUEVO: Sincronizar con la playlist del Host si existe ---
+                        if (playlistName && response.file) {
+                          try {
+                            await SyncDownloadedPlaylist(playlistName, [response.file], {
+                              openAfterSync: false
+                            });
+                          } catch (syncErr) {
+                            logger.warn(`Failed to sync single track to host playlist: ${syncErr}`);
+                          }
+                        }
+                        // -------------------------------------------------------------
                     }
                     else {
                         toast.error(response.error || "Download failed");
@@ -1276,7 +1288,7 @@ export function useDownload(region: string) {
                 try {
                     logger.info(`syncing downloaded collection to host playlist: ${folderName}`);
                     await SyncDownloadedPlaylist(folderName, playlistTrackPaths, {
-                        openAfterSync: true,
+                        openAfterSync: false,
                     });
                 }
                 catch (err) {
@@ -1459,7 +1471,7 @@ export function useDownload(region: string) {
                 try {
                     logger.info(`syncing downloaded collection to host playlist: ${folderName}`);
                     await SyncDownloadedPlaylist(folderName, playlistTrackPaths, {
-                        openAfterSync: true,
+                        openAfterSync: false,
                     });
                 }
                 catch (err) {
