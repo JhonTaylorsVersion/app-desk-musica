@@ -3555,21 +3555,34 @@ export default defineComponent({
         <p>Se eliminara {{ playlistPendingDeletion.name }} de Tu biblioteca.</p>
       </div>
 
-      <div class="playlist-modal-actions">
-        <button
-          class="playlist-modal-btn ghost"
-          type="button"
-          @click="closePlaylistDeleteModal"
-        >
-          Cancelar
-        </button>
-        <button
-          class="playlist-modal-btn danger"
-          type="button"
-          @click="confirmDeletePlaylist"
-        >
-          Eliminar
-        </button>
+      <div class="playlist-modal-actions delete-playlist-actions-wrap">
+        <div class="delete-files-option">
+          <label class="delete-files-checkbox">
+            <input type="checkbox" v-model="deletePlaylistWithFiles" />
+            <span class="checkbox-custom"></span>
+            <span class="checkbox-label">Eliminar también los archivos físicos descargados del PC</span>
+          </label>
+          <div v-if="deletePlaylistWithFiles" class="delete-files-hard-warning">
+            ⚠️ Esta acción es permanente y no se puede deshacer (los archivos no irán a la papelera).
+          </div>
+        </div>
+
+        <div class="modal-footer-buttons">
+          <button
+            class="playlist-modal-btn ghost"
+            type="button"
+            @click="closePlaylistDeleteModal"
+          >
+            Cancelar
+          </button>
+          <button
+            class="playlist-modal-btn danger"
+            type="button"
+            @click="confirmDeletePlaylist"
+          >
+            {{ deletePlaylistWithFiles ? 'Eliminar todo' : 'Eliminar' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

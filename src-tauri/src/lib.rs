@@ -1057,12 +1057,63 @@ fn load_playlist_track_paths(conn: &Connection, playlist_id: i64) -> Result<Vec<
     Ok(track_paths)
 }
 
+fn reconcile_playlists_with_filesystem(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT id FROM playlists")
+        .map_err(|e| e.to_string())?;
+
+    let playlist_ids = stmt
+        .query_map([], |row| row.get::<_, i64>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<i64>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for playlist_id in playlist_ids {
+        let tracks = load_playlist_track_paths(conn, playlist_id)?;
+        if tracks.is_empty() {
+            continue;
+        }
+
+        let mut missing_count = 0;
+        for track_path in &tracks {
+            if !Path::new(track_path).exists() {
+                missing_count += 1;
+
+                // Purge broken track record from this playlist
+                conn.execute(
+                    "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_path = ?2",
+                    params![playlist_id, track_path],
+                )
+                .map_err(|e| e.to_string())?;
+
+                // Purge from library cache since file is gone from disk
+                conn.execute(
+                    "DELETE FROM library_cache WHERE path = ?1",
+                    params![track_path],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+
+        // Auto-Delete Sync Rule: If ALL previously existing tracks are gone from disk, remove playlist
+        if missing_count > 0 && missing_count == tracks.len() {
+            conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 fn get_playlists(
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<Vec<PlaylistSummary>, String> {
-    let conn = Connection::open(&cache_state.db_path)
+    let mut conn = Connection::open(&cache_state.db_path)
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    // Perform architectural reconciliation first
+    reconcile_playlists_with_filesystem(&conn)?;
 
     let mut stmt = conn
         .prepare(
@@ -1320,17 +1371,69 @@ fn rename_playlist(
 #[tauri::command]
 fn delete_playlist(
     playlist_id: i64,
+    delete_files: bool,
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<(), String> {
-    let conn = Connection::open(&cache_state.db_path)
+    let mut conn = Connection::open(&cache_state.db_path)
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
 
-    let deleted_rows = conn
-        .execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])
-        .map_err(|e| e.to_string())?;
+    if delete_files {
+        let track_paths = load_playlist_track_paths(&conn, playlist_id)?;
+        let mut parent_dirs = std::collections::HashSet::new();
 
-    if deleted_rows == 0 {
-        return Err("La playlist ya no existe.".to_string());
+        for path_str in track_paths {
+            let track_path = Path::new(&path_str);
+            
+            if let Some(parent) = track_path.parent() {
+                parent_dirs.insert(parent.to_path_buf());
+            }
+
+            // Check "Shared Count" across other playlists (path-specific)
+            let other_refs: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_path = ?1 AND playlist_id != ?2",
+                params![path_str, playlist_id],
+                |row| row.get(0)
+            ).unwrap_or(0);
+
+            if other_refs == 0 {
+                // Delete physical audio file
+                if track_path.exists() {
+                    let _ = fs::remove_file(track_path);
+                }
+
+                // Delete paired .lrc sidecar if present
+                let lrc_path = track_path.with_extension("lrc");
+                if lrc_path.exists() {
+                    let _ = fs::remove_file(lrc_path);
+                }
+
+                // Remove library_cache entry only for tracks physically deleted
+                let _ = conn.execute("DELETE FROM library_cache WHERE path = ?1", params![path_str]);
+            }
+        }
+
+        // Delete playlist from DB (cascades to playlist_tracks)
+        let _ = conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id]);
+
+        // Attempt to cleanup folder ONLY if it is completely empty
+        for dir in parent_dirs {
+            if dir.exists() && dir.is_dir() {
+                if let Ok(mut entries) = fs::read_dir(&dir) {
+                    if entries.next().is_none() {
+                        let _ = fs::remove_dir(&dir);
+                    }
+                }
+            }
+        }
+    } else {
+        // Mode 1: Remove from App only
+        let deleted_rows = conn
+            .execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])
+            .map_err(|e| e.to_string())?;
+
+        if deleted_rows == 0 {
+            return Err("La playlist ya no existe.".to_string());
+        }
     }
 
     Ok(())

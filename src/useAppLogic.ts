@@ -1072,6 +1072,7 @@ export function useAppLogic() {
 
   
   const playlistPendingDeletionId = ref<number | null>(null);
+  const deletePlaylistWithFiles = ref(false);
 
   
   const isContextMenuPlaylistPickerVisible = ref(false);
@@ -1286,6 +1287,7 @@ export function useAppLogic() {
   
   const closePlaylistDeleteModal = () => {
     playlistPendingDeletionId.value = null;
+    deletePlaylistWithFiles.value = false;
   };
 
   
@@ -3336,7 +3338,10 @@ export function useAppLogic() {
     if (playlistId == null) return;
   
     try {
-      await invoke("delete_playlist", { playlistId });
+      await invoke("delete_playlist", {
+        playlistId,
+        deleteFiles: deletePlaylistWithFiles.value,
+      });
       closePlaylistDeleteModal();
       await loadPlaylists();
   
@@ -8168,6 +8173,7 @@ export function useAppLogic() {
     submitPlaylistRename,
     requestDeletePlaylist,
     playlistPendingDeletion,
+    deletePlaylistWithFiles,
     confirmDeletePlaylist,
     playPlaylistFromContextMenu,
     addPlaylistToQueueFromContextMenu,
