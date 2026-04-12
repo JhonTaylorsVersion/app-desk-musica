@@ -297,7 +297,8 @@ export function useAppLogic() {
     | "getStreamingURLs"
     | "checkTrackAvailability"
     | "searchSpotify"
-    | "searchSpotifyByType";
+    | "searchSpotifyByType"
+    | "syncDownloadedPlaylist";
 
   let detachSpotiFlacHost: (() => void) | null = null;
   let spotiFlacDownloadSequence = 0;
@@ -592,6 +593,30 @@ export function useAppLogic() {
               offset:
                 typeof payload.offset === "number" ? payload.offset : undefined,
             });
+          case "syncDownloadedPlaylist": {
+            const name =
+              typeof payload.name === "string" ? payload.name.trim() : "";
+            const trackPaths = Array.isArray(payload.trackPaths)
+              ? payload.trackPaths.filter(
+                  (trackPath): trackPath is string =>
+                    typeof trackPath === "string",
+                )
+              : [];
+
+            if (!name) {
+              throw new Error("La playlist necesita un nombre.");
+            }
+
+            if (trackPaths.length === 0) {
+              throw new Error(
+                "No hay canciones descargadas para crear la playlist.",
+              );
+            }
+
+            return await syncSpotiFlacCollectionToPlaylist(name, trackPaths, {
+              openAfterSync: payload.openAfterSync === true,
+            });
+          }
           default:
             throw new Error(`Metodo de SpotiFLAC no soportado: ${method}`);
         }
@@ -2333,6 +2358,121 @@ export function useAppLogic() {
     } catch (error) {
       console.error("No se pudieron cargar las playlists:", error);
     }
+  };
+
+  const normalizeComparablePath = (value: string) =>
+    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+  const getCommonDirectoryFromPaths = (paths: string[]) => {
+    if (!paths.length) return null;
+
+    const splitPaths = paths.map((value) =>
+      value.replace(/\\/g, "/").split("/").filter(Boolean),
+    );
+
+    const commonSegments: string[] = [];
+    const shortestLength = Math.min(...splitPaths.map((parts) => parts.length));
+
+    for (let index = 0; index < shortestLength - 1; index += 1) {
+      const baseSegment = splitPaths[0][index];
+      const allMatch = splitPaths.every(
+        (parts) => parts[index]?.toLowerCase() === baseSegment?.toLowerCase(),
+      );
+
+      if (!allMatch) {
+        break;
+      }
+
+      commonSegments.push(baseSegment);
+    }
+
+    if (!commonSegments.length) {
+      return null;
+    }
+
+    return commonSegments.join("\\");
+  };
+
+  const syncSpotiFlacCollectionToPlaylist = async (
+    name: string,
+    trackPaths: string[],
+    options: {
+      openAfterSync?: boolean;
+    } = {},
+  ) => {
+    const trimmedName = name.trim();
+    const normalizedTrackPaths = Array.from(
+      new Set(
+        trackPaths
+          .map((trackPath) => trackPath.trim())
+          .filter((trackPath) => trackPath.length > 0),
+      ),
+    );
+
+    if (!trimmedName || normalizedTrackPaths.length === 0) {
+      return null;
+    }
+
+    await loadPlaylists();
+
+    const normalizedName = normalizeSearchValue(trimmedName);
+    const existingPlaylist =
+      playlists.value.find(
+        (item) => normalizeSearchValue(item.name) === normalizedName,
+      ) ?? null;
+
+    if (existingPlaylist) {
+      await invoke("delete_playlist", {
+        playlistId: existingPlaylist.id,
+      });
+    }
+
+    const createdPlaylist = await invoke<PlaylistSummary>("create_playlist", {
+      name: trimmedName,
+    });
+
+    for (const trackPath of normalizedTrackPaths) {
+      await invoke("add_track_to_playlist", {
+        playlistId: createdPlaylist.id,
+        trackPath,
+      });
+    }
+
+    const commonDirectory = getCommonDirectoryFromPaths(normalizedTrackPaths);
+    if (commonDirectory) {
+      const normalizedCommonDirectory = normalizeComparablePath(commonDirectory);
+      const isAlreadyTracked = musicDirectories.value.some((directory) => {
+        const normalizedDirectory = normalizeComparablePath(directory);
+        return (
+          normalizedCommonDirectory === normalizedDirectory ||
+          normalizedCommonDirectory.startsWith(`${normalizedDirectory}/`)
+        );
+      });
+
+      if (!isAlreadyTracked) {
+        musicDirectories.value = [...musicDirectories.value, commonDirectory];
+        await persistMusicDirectories();
+        await invoke("watch_directories", {
+          directories: musicDirectories.value,
+        });
+      }
+    }
+
+    const shouldRefreshLibrary = normalizedTrackPaths.some(
+      (trackPath) => !playlist.value.some((track) => track.path === trackPath),
+    );
+
+    if (shouldRefreshLibrary) {
+      await syncLibrary();
+    }
+
+    await loadPlaylists();
+
+    if (options.openAfterSync) {
+      goToPlaylist(createdPlaylist.id);
+    }
+
+    return createdPlaylist;
   };
 
   
@@ -7616,7 +7756,7 @@ export function useAppLogic() {
   
   onMounted(async () => {
     installSpotiFlacHost();
-    // installPerformanceDiagnostics();
+    installPerformanceDiagnostics();
     updateSpotiFlacConnectivityStatus();
     await nextTick();
     await waitForNextPaint();

@@ -8,6 +8,7 @@ use lofty::tag::{ItemKey, Tag};
 use serde::{Deserialize, Serialize};
 // Asegúrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
+use std::cmp::Ordering as CmpOrdering;
 use std::fs;
 use std::io::Write;
 use std::process::Command;
@@ -2482,6 +2483,96 @@ fn set_audio_volume(volume: f32, state: State<'_, AudioPlayerState>) {
     let _ = state.tx.send(AudioCommand::SetVolume(volume));
 }
 
+fn compare_natural_segment(left: &str, right: &str) -> CmpOrdering {
+    let left_trimmed = left.trim_start_matches('0');
+    let right_trimmed = right.trim_start_matches('0');
+
+    let normalized_left = if left_trimmed.is_empty() { "0" } else { left_trimmed };
+    let normalized_right = if right_trimmed.is_empty() { "0" } else { right_trimmed };
+
+    match normalized_left.len().cmp(&normalized_right.len()) {
+        CmpOrdering::Equal => match normalized_left.cmp(normalized_right) {
+            CmpOrdering::Equal => left.len().cmp(&right.len()),
+            ordering => ordering,
+        },
+        ordering => ordering,
+    }
+}
+
+fn compare_natural_text(left: &str, right: &str) -> CmpOrdering {
+    let mut left_chars = left.chars().peekable();
+    let mut right_chars = right.chars().peekable();
+
+    loop {
+        match (left_chars.peek(), right_chars.peek()) {
+            (None, None) => return CmpOrdering::Equal,
+            (None, Some(_)) => return CmpOrdering::Less,
+            (Some(_), None) => return CmpOrdering::Greater,
+            (Some(left_char), Some(right_char)) => {
+                if left_char.is_ascii_digit() && right_char.is_ascii_digit() {
+                    let mut left_number = String::new();
+                    let mut right_number = String::new();
+
+                    while let Some(current) = left_chars.peek() {
+                        if !current.is_ascii_digit() {
+                            break;
+                        }
+                        left_number.push(*current);
+                        left_chars.next();
+                    }
+
+                    while let Some(current) = right_chars.peek() {
+                        if !current.is_ascii_digit() {
+                            break;
+                        }
+                        right_number.push(*current);
+                        right_chars.next();
+                    }
+
+                    let ordering = compare_natural_segment(&left_number, &right_number);
+                    if ordering != CmpOrdering::Equal {
+                        return ordering;
+                    }
+
+                    continue;
+                }
+
+                let left_lower = left_char.to_ascii_lowercase();
+                let right_lower = right_char.to_ascii_lowercase();
+                match left_lower.cmp(&right_lower) {
+                    CmpOrdering::Equal => {
+                        left_chars.next();
+                        right_chars.next();
+                    }
+                    ordering => return ordering,
+                }
+            }
+        }
+    }
+}
+
+fn compare_library_paths(left: &str, right: &str) -> CmpOrdering {
+    let normalized_left = left.replace('\\', "/");
+    let normalized_right = right.replace('\\', "/");
+
+    let mut left_parts = normalized_left.split('/');
+    let mut right_parts = normalized_right.split('/');
+
+    loop {
+        match (left_parts.next(), right_parts.next()) {
+            (None, None) => return CmpOrdering::Equal,
+            (None, Some(_)) => return CmpOrdering::Less,
+            (Some(_), None) => return CmpOrdering::Greater,
+            (Some(left_part), Some(right_part)) => {
+                let ordering = compare_natural_text(left_part, right_part);
+                if ordering != CmpOrdering::Equal {
+                    return ordering;
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn scan_directories(directories: Vec<String>) -> Vec<PlaylistTrack> {
     let mut tracks = Vec::new();
@@ -2512,6 +2603,8 @@ fn scan_directories(directories: Vec<String>) -> Vec<PlaylistTrack> {
             }
         }
     }
+
+    tracks.sort_by(|left, right| compare_library_paths(&left.path, &right.path));
 
     tracks
 }

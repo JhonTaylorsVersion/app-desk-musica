@@ -15,6 +15,7 @@ import { parseTemplate, type TemplateData } from "@/lib/settings";
 import type { TrackMetadata, TrackAvailability } from "@/types/api";
 interface PlaylistInfoProps {
     playlistInfo: {
+        name?: string;
         owner: {
             name: string;
             display_name: string;
@@ -94,8 +95,8 @@ interface PlaylistInfoProps {
 export function PlaylistInfo({ playlistInfo, trackList, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, queuedTracks, downloadingTrack, combinedDownloadingTrack, isDownloading, bulkDownloadType, downloadProgress, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadTrackWithLyrics, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadAllWithLyrics, onDownloadSelected, onDownloadSelectedWithLyrics, onStopDownload, onOpenFolder, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, }: PlaylistInfoProps) {
     const settings = getSettings();
     const [downloadingPlaylistCover, setDownloadingPlaylistCover] = useState(false);
-    const playlistName = playlistInfo?.owner?.name || "Unknown Playlist";
-    const playlistDisplayName = playlistInfo?.owner?.display_name || playlistName;
+    const playlistName = playlistInfo?.name || playlistInfo?.owner?.name || "Unknown Playlist";
+    const playlistDisplayName = playlistInfo?.owner?.display_name || playlistInfo?.owner?.name || playlistName;
     const playlistOwnerImage = playlistInfo?.owner?.images || "";
     const totalTracks = playlistInfo?.tracks?.total ?? trackList.length;
     const totalFollowers = playlistInfo?.followers?.total ?? 0;

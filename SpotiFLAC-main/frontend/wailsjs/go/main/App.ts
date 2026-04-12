@@ -1112,6 +1112,20 @@ export async function OpenConfigFolder(): Promise<void> {
   await invokeHost("openConfigFolder");
 }
 
+export async function SyncDownloadedPlaylist(
+  name: string,
+  trackPaths: string[],
+  options: {
+    openAfterSync?: boolean;
+  } = {},
+): Promise<any> {
+  return await invokeHost("syncDownloadedPlaylist", {
+    name,
+    trackPaths,
+    openAfterSync: options.openAfterSync === true,
+  });
+}
+
 export async function SelectFolder(defaultPath = DEFAULT_DOWNLOAD_PATH): Promise<string> {
   return await invokeHost<string>("selectFolder", { defaultPath });
 }
@@ -1625,6 +1639,7 @@ const appApi = {
   SelectFolder,
   SelectImageVideo,
   SkipDownloadItem,
+  SyncDownloadedPlaylist,
 };
 
 (window as any).go = {

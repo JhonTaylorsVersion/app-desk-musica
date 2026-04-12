@@ -5,6 +5,7 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { joinPath, sanitizePath, getFirstArtist } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import type { TrackMetadata } from "@/types/api";
+import { SyncDownloadedPlaylist } from "../../wailsjs/go/main/App";
 interface CheckFileExistenceRequest {
     spotify_id: string;
     track_name: string;
@@ -1269,6 +1270,21 @@ export function useDownload(region: string) {
                 }
             }
         }
+        if (folderName) {
+            const playlistTrackPaths = selectedTrackObjects.map((track) => finalFilePaths.get(track.spotify_id || "") || "").filter((path) => path !== "");
+            if (playlistTrackPaths.length > 0) {
+                try {
+                    logger.info(`syncing downloaded collection to host playlist: ${folderName}`);
+                    await SyncDownloadedPlaylist(folderName, playlistTrackPaths, {
+                        openAfterSync: true,
+                    });
+                }
+                catch (err) {
+                    logger.error(`failed to sync downloaded playlist with host: ${err}`);
+                    toast.warning("La descarga termino, pero no se pudo sincronizar la playlist con tu biblioteca local.");
+                }
+            }
+        }
         logger.info(`batch complete: ${successCount} downloaded, ${skippedCount} skipped, ${errorCount} failed`);
         if (errorCount === 0 && skippedCount === 0) {
             toast.success(`Downloaded ${successCount} tracks successfully`);
@@ -1435,6 +1451,21 @@ export function useDownload(region: string) {
             catch (err) {
                 logger.error(`failed to create m3u8 playlist: ${err}`);
                 toast.error(`Failed to create M3U8 playlist: ${err}`);
+            }
+        }
+        if (folderName) {
+            const playlistTrackPaths = finalFilePaths.filter((path) => path !== "");
+            if (playlistTrackPaths.length > 0) {
+                try {
+                    logger.info(`syncing downloaded collection to host playlist: ${folderName}`);
+                    await SyncDownloadedPlaylist(folderName, playlistTrackPaths, {
+                        openAfterSync: true,
+                    });
+                }
+                catch (err) {
+                    logger.error(`failed to sync downloaded playlist with host: ${err}`);
+                    toast.warning("La descarga termino, pero no se pudo sincronizar la playlist con tu biblioteca local.");
+                }
             }
         }
         logger.info(`batch complete: ${successCount} downloaded, ${skippedCount} skipped, ${errorCount} failed`);
