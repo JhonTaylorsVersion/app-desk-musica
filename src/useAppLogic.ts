@@ -615,6 +615,8 @@ export function useAppLogic() {
 
             return await syncSpotiFlacCollectionToPlaylist(name, trackPaths, {
               openAfterSync: payload.openAfterSync === true,
+              position: typeof payload.position === "number" ? payload.position : undefined,
+              positions: Array.isArray(payload.positions) ? payload.positions : undefined,
             });
           }
           default:
@@ -2398,6 +2400,8 @@ export function useAppLogic() {
     trackPaths: string[],
     options: {
       openAfterSync?: boolean;
+      position?: number;
+      positions?: number[];
     } = {},
   ) => {
     const trimmedName = name.trim();
@@ -2432,10 +2436,14 @@ export function useAppLogic() {
 
     const playlistId = targetPlaylistId;
 
-    for (const trackPath of normalizedTrackPaths) {
+    for (let i = 0; i < normalizedTrackPaths.length; i++) {
+      const trackPath = normalizedTrackPaths[i];
+      const targetPos = options.positions ? options.positions[i] : (normalizedTrackPaths.length === 1 ? options.position : undefined);
+
       await invoke("add_track_to_playlist", {
         playlistId,
         trackPath,
+        position: targetPos !== undefined ? targetPos : null,
       });
     }
 

@@ -1144,6 +1144,7 @@ fn add_track_to_playlist(
     playlist_id: i64,
     track_path: String,
     allow_duplicate: Option<bool>,
+    position: Option<i64>,
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<(), String> {
     let mut conn = Connection::open(&cache_state.db_path)
@@ -1186,20 +1187,23 @@ fn add_track_to_playlist(
         return Ok(());
     }
 
-    let next_position: i64 = tx
-        .query_row(
+    let target_position: i64 = if let Some(pos) = position {
+        pos
+    } else {
+        tx.query_row(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
             params![playlist_id],
             |row| row.get(0),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+    };
 
     tx.execute(
         r#"
         INSERT INTO playlist_tracks (playlist_id, track_path, position, added_at)
         VALUES (?1, ?2, ?3, strftime('%s','now'))
         "#,
-        params![playlist_id, track_path, next_position],
+        params![playlist_id, track_path, target_position],
     )
     .map_err(|e| e.to_string())?;
 

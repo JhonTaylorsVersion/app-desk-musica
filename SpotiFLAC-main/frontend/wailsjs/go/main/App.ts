@@ -1117,12 +1117,16 @@ export async function SyncDownloadedPlaylist(
   trackPaths: string[],
   options: {
     openAfterSync?: boolean;
+    position?: number;
+    positions?: number[];
   } = {},
 ): Promise<any> {
   return await invokeHost("syncDownloadedPlaylist", {
     name,
     trackPaths,
     openAfterSync: options.openAfterSync === true,
+    position: options.position,
+    positions: options.positions,
   });
 }
 
