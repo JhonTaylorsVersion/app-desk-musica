@@ -2245,6 +2245,25 @@ fn get_library_metadata_batch(
     Ok(result)
 }
 
+#[tauri::command]
+fn invalidate_library_cache(
+    paths: Vec<String>,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let mut conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    for path in paths {
+        tx.execute("DELETE FROM library_cache WHERE path = ?1", params![path])
+            .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn non_empty(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let trimmed = v.trim().to_string();
@@ -3169,6 +3188,7 @@ pub fn run() {
             get_desktop_connect_state,
             set_desktop_connect_active_device,
             consume_connect_commands,
+            invalidate_library_cache,
         ])
         .run(tauri::generate_context!())
         .expect("Error al iniciar la aplicación Tauri");

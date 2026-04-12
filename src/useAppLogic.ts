@@ -2458,13 +2458,17 @@ export function useAppLogic() {
       }
     }
 
-    const shouldRefreshLibrary = normalizedTrackPaths.some(
-      (trackPath) => !playlist.value.some((track) => track.path === trackPath),
-    );
+    await invoke("invalidate_library_cache", {
+      paths: normalizedTrackPaths,
+    });
 
-    if (shouldRefreshLibrary) {
-      await syncLibrary();
+    const nextMap = { ...libraryMetadataMap.value };
+    for (const trackPath of normalizedTrackPaths) {
+      delete nextMap[trackPath];
     }
+    libraryMetadataMap.value = nextMap;
+
+    await syncLibrary();
 
     await loadPlaylists();
 
