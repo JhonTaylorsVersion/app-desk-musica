@@ -191,7 +191,8 @@ struct PlaylistSummary {
     created_at: i64,
     updated_at: i64,
     track_paths: Vec<String>,
-    spotify_url: Option<String>, // <-- NUEVO: URL de Spotify vinculada
+    spotify_url: Option<String>, 
+    spotify_synced_ids: Option<String>, // <-- NUEVO: IDs ya conocidos (JSON)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -397,6 +398,7 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     );
     let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN spotify_id TEXT", []);
     let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_url TEXT", []);
+    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT", []); // <-- NUEVO
     let _ = conn.execute(
         "ALTER TABLE recent_global_searches ADD COLUMN artist_name TEXT",
         [],
@@ -1136,10 +1138,10 @@ fn get_playlists(
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count, p.spotify_url
+            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count, p.spotify_url, p.spotify_synced_ids
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-            GROUP BY p.id, p.name, p.created_at, p.updated_at, p.spotify_url
+            GROUP BY p.id, p.name, p.created_at, p.updated_at, p.spotify_url, p.spotify_synced_ids
             ORDER BY p.updated_at DESC, p.id DESC
             "#,
         )
@@ -1154,13 +1156,14 @@ fn get_playlists(
                 row.get::<_, i64>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .map_err(|e| e.to_string())?;
 
     let mut playlists = Vec::new();
     for row in rows {
-        let (id, name, created_at, updated_at, track_count, spotify_url) =
+        let (id, name, created_at, updated_at, track_count, spotify_url, spotify_synced_ids) =
             row.map_err(|e| e.to_string())?;
 
         playlists.push(PlaylistSummary {
@@ -1171,6 +1174,7 @@ fn get_playlists(
             updated_at,
             track_paths: load_playlist_track_paths(&conn, id)?,
             spotify_url,
+            spotify_synced_ids,
         });
     }
 
@@ -1209,6 +1213,7 @@ fn create_playlist(
         updated_at: 0,
         track_paths: Vec::new(),
         spotify_url: None,
+        spotify_synced_ids: None,
     })
 }
 
@@ -1228,16 +1233,55 @@ fn set_playlist_spotify_url(
         Some(trimmed)
     };
 
+    println!("[DB][Log] Updating Spotify URL for playlist {}: {:?}", playlist_id, url_to_save);
+
     let updated_rows = conn
         .execute(
             "UPDATE playlists SET spotify_url = ?1, updated_at = strftime('%s','now') WHERE id = ?2",
             params![url_to_save, playlist_id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let err = e.to_string();
+            println!("[DB][Error] Failed to update URL: {}", err);
+            err
+        })?;
 
     if updated_rows == 0 {
         return Err("La playlist ya no existe.".to_string());
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_playlist_synced_ids(
+    playlist_id: i64,
+    synced_ids_json: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    println!("[DB][Log] Updating Synced IDs for playlist {}. Length: {} chars", playlist_id, synced_ids_json.len());
+
+    conn.execute(
+        "UPDATE playlists SET spotify_synced_ids = ?1, updated_at = ?2 WHERE id = ?3",
+        params![
+            synced_ids_json,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+            playlist_id
+        ],
+    )
+    .map_err(|e| {
+        let err = e.to_string();
+        println!("[DB][Error] Failed to update Synced IDs: {}", err);
+        err
+    })?;
+
+    println!("[DB][Log] Synced IDs updated successfully.");
 
     Ok(())
 }
@@ -3395,7 +3439,8 @@ pub fn run() {
             remove_track_from_playlist,
             rename_playlist,
             delete_playlist,
-            set_playlist_spotify_url, // <-- NUEVO
+            set_playlist_spotify_url,
+            set_playlist_synced_ids, // <-- NUEVO
             get_recent_global_searches,
             set_recent_global_searches,
             get_app_session,
