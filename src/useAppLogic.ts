@@ -96,6 +96,7 @@ export function useAppLogic() {
     duration_formatted: string;
     cover_art?: CoverArt | null;
     track_number?: number | null;
+    spotify_id?: string | null; // <-- NUEVO
   };
 
   
@@ -111,6 +112,7 @@ export function useAppLogic() {
     duration_formatted: string;
     cover_path?: string | null;
     track_number?: number | null;
+    spotify_id?: string | null; // <-- NUEVO
   };
 
   
@@ -122,6 +124,7 @@ export function useAppLogic() {
     createdAt: number;
     updatedAt: number;
     trackPaths: string[];
+    spotifyUrl?: string | null; // <-- NUEVO
   };
 
   
@@ -624,6 +627,7 @@ export function useAppLogic() {
 
             return await syncSpotiFlacCollectionToPlaylist(name, trackPaths, {
               openAfterSync: payload.openAfterSync === true,
+              spotifyUrl: typeof payload.spotifyUrl === "string" ? payload.spotifyUrl : undefined, // <-- NUEVO
               position: typeof payload.position === "number" ? payload.position : undefined,
               positions: Array.isArray(payload.positions) ? payload.positions : undefined,
             });
@@ -2411,6 +2415,7 @@ export function useAppLogic() {
     trackPaths: string[],
     options: {
       openAfterSync?: boolean;
+      spotifyUrl?: string; // <-- NUEVO
       position?: number;
       positions?: number[];
     } = {},
@@ -2446,6 +2451,14 @@ export function useAppLogic() {
     }
 
     const playlistId = targetPlaylistId;
+
+    // NUEVO: Vincular con Spotify si hay URL
+    if (options.spotifyUrl) {
+      await invoke("set_playlist_spotify_url", {
+        playlistId,
+        spotifyUrl: options.spotifyUrl,
+      });
+    }
 
     for (let i = 0; i < normalizedTrackPaths.length; i++) {
       const trackPath = normalizedTrackPaths[i];
@@ -6023,6 +6036,84 @@ export function useAppLogic() {
 
   
   
+  const pendingSpotifySyncs = ref<{
+    playlistId: number;
+    playlistName: string;
+    newTracks: any[];
+  }[]>([]);
+
+  const checkSpotifyPlaylistsForUpdates = async () => {
+    const syncedPlaylists = playlists.value.filter(p => p.spotifyUrl);
+    if (syncedPlaylists.length === 0) return;
+
+    console.log("[SpotifySync] Checking updates for", syncedPlaylists.length, "playlists...");
+
+    for (const p of syncedPlaylists) {
+      if (!p.spotifyUrl) continue;
+
+      try {
+        const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", { url: p.spotifyUrl });
+        if (!remoteData || !Array.isArray(remoteData.tracks)) continue;
+
+        // IDs locales de esta playlist
+        const localTrackIds = p.trackPaths
+          .map(path => libraryMetadataMap.value[path]?.spotify_id)
+          .filter((id): id is string => id != null);
+
+        const newTracks = remoteData.tracks.filter((t: any) => !localTrackIds.includes(t.id));
+
+        if (newTracks.length > 0) {
+          console.log(`[SpotifySync] Found ${newTracks.length} new tracks for playlist "${p.name}"`);
+          pendingSpotifySyncs.value.push({
+            playlistId: p.id,
+            playlistName: p.name,
+            newTracks: newTracks
+          });
+        }
+      } catch (e) {
+        console.error("[SpotifySync] Error checking playlist", p.name, e);
+      }
+    }
+  };
+
+  const applySpotifySync = async (sync: typeof pendingSpotifySyncs.value[0]) => {
+    // 1. Quitar de la lista de pendientes
+    pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== sync.playlistId);
+
+    console.log(`[SpotifySync] Downloading ${sync.newTracks.length} tracks for "${sync.playlistName}"...`);
+
+    for (const track of sync.newTracks) {
+      try {
+        const result = await invoke<any>("spotiflac_download_track", {
+          id: track.id,
+          spotify_id: track.id, // <-- NUEVO: Para que Rust lo reconozca en la normalización
+          url: track.url || `https://open.spotify.com/track/${track.id}`,
+          name: `${track.artists} - ${track.title}`,
+          playlistName: sync.playlistName,
+          updateDb: true,
+          isSpotify: true
+        });
+
+        if (result && result.file) {
+          await invoke("add_track_to_playlist", {
+            playlistId: sync.playlistId,
+            trackPath: result.file,
+            position: null
+          });
+        }
+      } catch (e) {
+        console.error(`[SpotifySync] Failed to download track ${track.title}`, e);
+      }
+    }
+
+    // Recargar playlists al terminar
+    await loadPlaylists();
+  };
+
+  const discardSpotifySync = (playlistId: number) => {
+    pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+  };
+
   const getLibraryTrackMetadata = (track: PlaylistTrack) => {
     return libraryMetadataMap.value[track.path] ?? null;
   };
@@ -6120,6 +6211,7 @@ export function useAppLogic() {
           cover_art: coverUrl ? { data_url: coverUrl } : null,
   
           track_number: row.track_number ?? null,
+          spotify_id: row.spotify_id ?? null, // <-- NUEVO
         };
         }
 
@@ -7837,6 +7929,9 @@ export function useAppLogic() {
   
       if (musicDirectories.value.length > 0) {
         await syncLibrary();
+        // ======== NUEVO ========
+        void checkSpotifyPlaylistsForUpdates();
+        // =======================
         await invoke("watch_directories", {
           directories: musicDirectories.value,
         });
@@ -8391,5 +8486,8 @@ export function useAppLogic() {
     getAverageColor,
     updateAlbumCompactBar,
     unlistenDeviceChanged,
+    pendingSpotifySyncs,
+    applySpotifySync,
+    discardSpotifySync,
   };
 }

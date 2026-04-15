@@ -4,25 +4,25 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::prelude::Accessor;
 use lofty::read_from_path;
-use lofty::tag::{ItemKey, Tag};
+use lofty::tag::{ItemKey, Tag, TagType};
 use serde::{Deserialize, Serialize};
 // Asegúrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
 use std::cmp::Ordering as CmpOrdering;
 use std::fs;
+use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
-use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
-use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 // === NUEVAS DEPENDENCIAS PARA BIBLIOTECA ===
@@ -70,6 +70,7 @@ struct LibraryTrackMetadataLite {
     duration_formatted: String,
     cover_path: Option<String>, // <-- NUEVO: Ruta física de la imagen
     track_number: Option<u32>,  // <-- NUEVO: Agregamos el número de pista
+    spotify_id: Option<String>, // <-- NUEVO: ID de Spotify para sincronización
 }
 
 #[derive(Serialize, Clone)]
@@ -190,6 +191,7 @@ struct PlaylistSummary {
     created_at: i64,
     updated_at: i64,
     track_paths: Vec<String>,
+    spotify_url: Option<String>, // <-- NUEVO: URL de Spotify vinculada
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -393,6 +395,8 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         "ALTER TABLE library_cache ADD COLUMN track_number INTEGER",
         [],
     );
+    let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN spotify_id TEXT", []);
+    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_url TEXT", []);
     let _ = conn.execute(
         "ALTER TABLE recent_global_searches ADD COLUMN artist_name TEXT",
         [],
@@ -548,6 +552,13 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
     // Lofty limpia automáticamente formatos tipo "22/22" y nos da el "22" en u32
     let track_number = tags.iter().find_map(|tag| tag.track());
 
+    // NUEVO: Intentar extraer el ID de Spotify usando un campo seguro
+    let spotify_id = tags.iter().find_map(|tag| {
+        // Quitamos el '&' y usamos MusicBrainzTrackId como contenedor del ID
+        tag.get_string(ItemKey::MusicBrainzTrackId)
+            .map(|s| s.to_string())
+    });
+
     Ok(LibraryTrackMetadataLite {
         path: path.to_string(),
         title,
@@ -557,7 +568,8 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
         duration_seconds,
         duration_formatted: format_duration(duration_seconds),
         cover_path,
-        track_number, // <-- SE AGREGA AQUÍ
+        track_number,
+        spotify_id, // <-- SE AGREGA AQUÍ
     })
 }
 
@@ -568,7 +580,7 @@ fn get_cached_track(
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT path, title, artist, album, album_artist, duration_seconds, duration_formatted, modified_at, cover_path, track_number
+            SELECT path, title, artist, album, album_artist, duration_seconds, duration_formatted, modified_at, cover_path, track_number, spotify_id
             FROM library_cache
             WHERE path = ?1
             "#,
@@ -590,7 +602,8 @@ fn get_cached_track(
             duration_seconds: row.get::<_, i64>(5).map_err(|e| e.to_string())? as u64,
             duration_formatted: row.get(6).map_err(|e| e.to_string())?,
             cover_path: row.get(8).map_err(|e| e.to_string())?,
-            track_number: row.get::<_, Option<u32>>(9).unwrap_or(None), // <-- NUEVO
+            track_number: row.get::<_, Option<u32>>(9).unwrap_or(None),
+            spotify_id: row.get::<_, Option<String>>(10).unwrap_or(None), // <-- NUEVO
         };
 
         let modified_at: i64 = row.get(7).map_err(|e| e.to_string())?;
@@ -610,9 +623,9 @@ fn upsert_cached_track(
     conn.execute(
         r#"
         INSERT INTO library_cache (
-            path, file_name, title, artist, album, album_artist, duration_seconds, duration_formatted, modified_at, cover_path, track_number
+            path, file_name, title, artist, album, album_artist, duration_seconds, duration_formatted, modified_at, cover_path, track_number, spotify_id
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ON CONFLICT(path) DO UPDATE SET
             file_name = excluded.file_name,
             title = excluded.title,
@@ -623,7 +636,8 @@ fn upsert_cached_track(
             duration_formatted = excluded.duration_formatted,
             modified_at = excluded.modified_at,
             cover_path = excluded.cover_path,
-            track_number = excluded.track_number -- <-- NUEVO
+            track_number = excluded.track_number,
+            spotify_id = excluded.spotify_id -- <-- NUEVO
         "#,
         params![
             path,
@@ -636,7 +650,8 @@ fn upsert_cached_track(
             data.duration_formatted,
             modified_at,
             data.cover_path,
-            data.track_number // <-- NUEVO
+            data.track_number,
+            data.spotify_id // <-- NUEVO
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -950,9 +965,11 @@ fn get_desktop_connect_state(
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
 
     let active_device = conn
-        .query_row("SELECT device FROM connect_active WHERE id = 1", [], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_row(
+            "SELECT device FROM connect_active WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
         .ok();
 
     Ok(ConnectStateRecord {
@@ -1000,7 +1017,8 @@ fn consume_connect_commands(
         let rows = stmt
             .query_map([], |row| {
                 let payload_json: String = row.get(2)?;
-                let payload = serde_json::from_str(&payload_json).unwrap_or(serde_json::Value::Null);
+                let payload =
+                    serde_json::from_str(&payload_json).unwrap_or(serde_json::Value::Null);
                 Ok(ConnectCommandRecord {
                     id: row.get(0)?,
                     command: row.get(1)?,
@@ -1109,7 +1127,7 @@ fn reconcile_playlists_with_filesystem(conn: &Connection) -> Result<(), String> 
 fn get_playlists(
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<Vec<PlaylistSummary>, String> {
-    let mut conn = Connection::open(&cache_state.db_path)
+    let conn = Connection::open(&cache_state.db_path)
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
 
     // Perform architectural reconciliation first
@@ -1118,10 +1136,10 @@ fn get_playlists(
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count
+            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count, p.spotify_url
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-            GROUP BY p.id, p.name, p.created_at, p.updated_at
+            GROUP BY p.id, p.name, p.created_at, p.updated_at, p.spotify_url
             ORDER BY p.updated_at DESC, p.id DESC
             "#,
         )
@@ -1135,13 +1153,15 @@ fn get_playlists(
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })
         .map_err(|e| e.to_string())?;
 
     let mut playlists = Vec::new();
     for row in rows {
-        let (id, name, created_at, updated_at, track_count) = row.map_err(|e| e.to_string())?;
+        let (id, name, created_at, updated_at, track_count, spotify_url) =
+            row.map_err(|e| e.to_string())?;
 
         playlists.push(PlaylistSummary {
             id,
@@ -1150,6 +1170,7 @@ fn get_playlists(
             created_at,
             updated_at,
             track_paths: load_playlist_track_paths(&conn, id)?,
+            spotify_url,
         });
     }
 
@@ -1187,7 +1208,38 @@ fn create_playlist(
         created_at: 0,
         updated_at: 0,
         track_paths: Vec::new(),
+        spotify_url: None,
     })
+}
+
+#[tauri::command]
+fn set_playlist_spotify_url(
+    playlist_id: i64,
+    spotify_url: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let trimmed = spotify_url.trim();
+    let url_to_save = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+
+    let updated_rows = conn
+        .execute(
+            "UPDATE playlists SET spotify_url = ?1, updated_at = strftime('%s','now') WHERE id = ?2",
+            params![url_to_save, playlist_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if updated_rows == 0 {
+        return Err("La playlist ya no existe.".to_string());
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1374,7 +1426,7 @@ fn delete_playlist(
     delete_files: bool,
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<(), String> {
-    let mut conn = Connection::open(&cache_state.db_path)
+    let conn = Connection::open(&cache_state.db_path)
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
 
     if delete_files {
@@ -1383,7 +1435,7 @@ fn delete_playlist(
 
         for path_str in track_paths {
             let track_path = Path::new(&path_str);
-            
+
             if let Some(parent) = track_path.parent() {
                 parent_dirs.insert(parent.to_path_buf());
             }
@@ -1408,7 +1460,10 @@ fn delete_playlist(
                 }
 
                 // Remove library_cache entry only for tracks physically deleted
-                let _ = conn.execute("DELETE FROM library_cache WHERE path = ?1", params![path_str]);
+                let _ = conn.execute(
+                    "DELETE FROM library_cache WHERE path = ?1",
+                    params![path_str],
+                );
             }
         }
 
@@ -1698,10 +1753,7 @@ fn debug_spotiflac_written_tags(file_path: &str) {
             );
         }
         Err(error) => {
-            eprintln!(
-                "[spotiflac][tags] file={} read_error={}",
-                file_path, error
-            );
+            eprintln!("[spotiflac][tags] file={} read_error={}", file_path, error);
         }
     }
 }
@@ -1830,7 +1882,10 @@ fn fetch_spotiflac_artist_genres(artist_name: &str) -> Result<Vec<String>, Strin
         }),
     )?;
 
-    let Some(artists) = search_response.get("artists").and_then(|value| value.as_array()) else {
+    let Some(artists) = search_response
+        .get("artists")
+        .and_then(|value| value.as_array())
+    else {
         return Ok(Vec::new());
     };
 
@@ -1922,6 +1977,7 @@ fn fetch_spotiflac_fallback_genres(
 fn normalize_spotiflac_tag_fields(
     tag: &mut Tag,
     request_release_date: Option<&str>,
+    request_spotify_id: Option<&str>,
     fallback_genres: &[String],
     use_single_genre: bool,
 ) -> bool {
@@ -1970,13 +2026,23 @@ fn normalize_spotiflac_tag_fields(
         }
     }
 
+    // NUEVO: Guardar el ID de Spotify usando un campo seguro
+    if let Some(spotify_id) = request_spotify_id {
+        let key = ItemKey::MusicBrainzTrackId;
+        // Quitamos el '&' y no necesitamos .clone()
+        if tag.get_string(key).is_none() {
+            tag.insert_text(key, spotify_id.to_string());
+            changed = true;
+        }
+    }
+
     changed
 }
 
 fn normalize_spotiflac_written_tags_once(
     file_path: &str,
     request_release_date: Option<&str>,
-    _request_spotify_id: Option<&str>,
+    request_spotify_id: Option<&str>,
     request_embed_genre: bool,
     request_use_single_genre: bool,
 ) -> Result<(), String> {
@@ -2009,6 +2075,7 @@ fn normalize_spotiflac_written_tags_once(
         normalize_spotiflac_tag_fields(
             tag,
             request_release_date,
+            request_spotify_id,
             &fallback_genres,
             request_use_single_genre,
         )
@@ -2016,6 +2083,7 @@ fn normalize_spotiflac_written_tags_once(
         normalize_spotiflac_tag_fields(
             tag,
             request_release_date,
+            request_spotify_id,
             &fallback_genres,
             request_use_single_genre,
         )
@@ -2032,7 +2100,10 @@ fn normalize_spotiflac_written_tags_once(
     Ok(())
 }
 
-fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Result<serde_json::Value, String> {
+fn run_spotiflac_bridge(
+    command_name: &str,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let trace_id = SPOTIFLAC_BRIDGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
     let started_at = Instant::now();
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2095,10 +2166,7 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
 
     let mut child = Command::new(&bridge_path)
         .arg(command_name)
-        .current_dir(
-            workspace_root
-                .join("SpotiFLAC-main"),
-        )
+        .current_dir(workspace_root.join("SpotiFLAC-main"))
         .env_remove("HTTP_PROXY")
         .env_remove("HTTPS_PROXY")
         .env_remove("ALL_PROXY")
@@ -2139,8 +2207,12 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
         });
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).map_err(|e| format!("Respuesta JSON invalida del bridge: {} | stdout: {}", e, stdout))?;
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
+        format!(
+            "Respuesta JSON invalida del bridge: {} | stdout: {}",
+            e, stdout
+        )
+    })?;
 
     eprintln!(
         "[spotiflac][bridge:end] trace_id={} command={} success={} duration_ms={} stderr={}",
@@ -2148,14 +2220,22 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
         command_name,
         output.status.success(),
         started_at.elapsed().as_millis(),
-        if stderr.is_empty() { "<empty>" } else { &stderr }
+        if stderr.is_empty() {
+            "<empty>"
+        } else {
+            &stderr
+        }
     );
 
     if is_download_track {
         eprintln!(
             "[spotiflac][response] success={} stderr={} body={}",
             output.status.success(),
-            if stderr.is_empty() { "<empty>" } else { &stderr },
+            if stderr.is_empty() {
+                "<empty>"
+            } else {
+                &stderr
+            },
             parsed
         );
 
@@ -2174,10 +2254,7 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
                         .and_then(|value| value.as_bool())
                         .unwrap_or(false),
                 ) {
-                    eprintln!(
-                        "[spotiflac][normalize] file={} error={}",
-                        file_path, error
-                    );
+                    eprintln!("[spotiflac][normalize] file={} error={}", file_path, error);
                 }
                 debug_spotiflac_written_tags(file_path);
             }
@@ -2190,8 +2267,7 @@ fn run_spotiflac_bridge(command_name: &str, request: serde_json::Value) -> Resul
             .saturating_sub(1);
         eprintln!(
             "[spotiflac][bridge:settled] trace_id={} inflight_downloads={}",
-            trace_id,
-            remaining
+            trace_id, remaining
         );
     }
 
@@ -2324,6 +2400,7 @@ fn get_library_metadata_batch(
                     duration_formatted: "—".to_string(),
                     cover_path: None,
                     track_number: None, // <-- CORRECCIÓN AQUÍ
+                    spotify_id: None,
                 });
                 continue;
             }
@@ -2359,6 +2436,7 @@ fn get_library_metadata_batch(
                     duration_formatted: "—".to_string(),
                     cover_path: None,
                     track_number: None, // <-- CORRECCIÓN AQUÍ
+                    spotify_id: None,
                 };
 
                 upsert_cached_track(&conn, path, &file_name, &fallback, current_modified_at)?;
@@ -2493,7 +2571,7 @@ fn leer_metadata(
         let file_name = std::path::Path::new(&path)
             .file_name()
             .and_then(|n| n.to_str());
-        
+
         if let Some(name) = file_name {
             let custom_lrc_path = std::path::Path::new(&custom_dir)
                 .join(name)
@@ -2633,8 +2711,16 @@ fn compare_natural_segment(left: &str, right: &str) -> CmpOrdering {
     let left_trimmed = left.trim_start_matches('0');
     let right_trimmed = right.trim_start_matches('0');
 
-    let normalized_left = if left_trimmed.is_empty() { "0" } else { left_trimmed };
-    let normalized_right = if right_trimmed.is_empty() { "0" } else { right_trimmed };
+    let normalized_left = if left_trimmed.is_empty() {
+        "0"
+    } else {
+        left_trimmed
+    };
+    let normalized_right = if right_trimmed.is_empty() {
+        "0"
+    } else {
+        right_trimmed
+    };
 
     match normalized_left.len().cmp(&normalized_right.len()) {
         CmpOrdering::Equal => match normalized_left.cmp(normalized_right) {
@@ -2780,40 +2866,40 @@ fn watch_directories(
     let (refresh_tx, refresh_rx) = std::sync::mpsc::channel::<()>();
     let refresh_handle = app_handle.clone();
 
-    thread::spawn(move || {
-        loop {
-            if refresh_rx.recv().is_err() {
-                break;
-            }
+    thread::spawn(move || loop {
+        if refresh_rx.recv().is_err() {
+            break;
+        }
 
-            loop {
-                match refresh_rx.recv_timeout(Duration::from_millis(1500)) {
-                    Ok(_) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let _ = refresh_handle.emit("library-updated", ());
-                        break;
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+        loop {
+            match refresh_rx.recv_timeout(Duration::from_millis(1500)) {
+                Ok(_) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = refresh_handle.emit("library-updated", ());
+                    break;
                 }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
     });
 
     // 1. Creamos un nuevo watcher que reaccionará a cambios en el sistema operativo
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        match res {
+    let mut watcher =
+        notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
             Ok(event) => {
                 let should_refresh = is_library_refresh_event(&event.kind)
-                    && event.paths.iter().any(|path| is_library_relevant_path(path));
+                    && event
+                        .paths
+                        .iter()
+                        .any(|path| is_library_relevant_path(path));
 
                 if should_refresh {
                     let _ = refresh_tx.send(());
                 }
             }
             Err(e) => eprintln!("Error en el watcher: {:?}", e),
-        }
-    })
-    .map_err(|e| e.to_string())?;
+        })
+        .map_err(|e| e.to_string())?;
 
     // 2. Le decimos al watcher qué carpetas vigilar
     for dir in directories {
@@ -3309,6 +3395,7 @@ pub fn run() {
             remove_track_from_playlist,
             rename_playlist,
             delete_playlist,
+            set_playlist_spotify_url, // <-- NUEVO
             get_recent_global_searches,
             set_recent_global_searches,
             get_app_session,

@@ -3587,6 +3587,40 @@ export default defineComponent({
     </div>
   </div>
 
+  <div
+    v-if="pendingSpotifySyncs.length > 0"
+    class="spotify-sync-modal-backdrop"
+    @click.self="discardSpotifySync(pendingSpotifySyncs[0].playlistId)"
+  >
+    <div class="spotify-sync-modal">
+      <div class="spotify-sync-modal-copy">
+        <h2>Actualización disponible</h2>
+        <p>
+          Hay {{ pendingSpotifySyncs[0].newTracks.length }} canciones nuevas en tu playlist 
+          <strong>"{{ pendingSpotifySyncs[0].playlistName }}"</strong> de Spotify.
+          ¿Quieres descargarlas y actualizar tu biblioteca local?
+        </p>
+      </div>
+
+      <div class="spotify-sync-modal-actions">
+        <button
+          class="spotify-sync-btn ghost"
+          type="button"
+          @click="discardSpotifySync(pendingSpotifySyncs[0].playlistId)"
+        >
+          Más tarde
+        </button>
+        <button
+          class="spotify-sync-btn primary"
+          type="button"
+          @click="applySpotifySync(pendingSpotifySyncs[0])"
+        >
+          Actualizar ahora
+        </button>
+      </div>
+    </div>
+  </div>
+
   <transition name="playlist-add-toast">
     <div
       v-if="playlistAddToast"
