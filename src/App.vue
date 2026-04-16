@@ -1805,6 +1805,44 @@ export default defineComponent({
                       <h1 class="sah-title playlist-view-title">
                         {{ activePlaylist.name }}
                       </h1>
+                      
+                      <!-- Botones de Sincronización Manual -->
+                      <div v-if="activePlaylist && activePlaylist.spotifyUrl" class="playlist-sync-manual-controls">
+                        <button 
+                          class="playlist-sync-force-btn" 
+                          :class="{ 'is-loading': isManualSyncing === activePlaylist.id }"
+                          :disabled="isManualSyncing === activePlaylist.id"
+                          title="Sincronizar ahora con Spotify"
+                          @click="activePlaylist && manualForceSync(activePlaylist.id)"
+                        >
+                          <svg v-if="isManualSyncing !== activePlaylist.id" viewBox="0 0 496 512" width="16" height="16">
+                            <path fill="#1ed760" d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"/>
+                            <path d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"/>
+                          </svg>
+                          <div v-else class="spotify-sync-spinner-mini white" style="width: 14px; height: 14px;"></div>
+                          {{ isManualSyncing === activePlaylist.id ? 'Sincronizando...' : 'Sincronizar' }}
+                        </button>
+
+                        <template v-if="activePlaylistSync">
+                          <button 
+                            v-if="activePlaylistSync.newTracks.length > 0"
+                            class="playlist-sync-status-badge nuevas"
+                            @click="activePlaylist && (sessionDismissedNuevas[activePlaylist.id] = '')"
+                          >
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            Ver {{ activePlaylistSync.newTracks.length }} nuevas
+                          </button>
+                          
+                          <button 
+                            v-if="activePlaylistSync.removedTracks.length > 0"
+                            class="playlist-sync-status-badge eliminadas"
+                            @click="activePlaylist && (sessionDismissedBajas[activePlaylist.id] = '')"
+                          >
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                            Ver {{ activePlaylistSync.removedTracks.length }} eliminadas
+                          </button>
+                        </template>
+                      </div>
                       <div class="playlist-owner-row">
                         <button
                           class="playlist-owner-add-btn"
@@ -3592,7 +3630,7 @@ export default defineComponent({
     <div
       v-if="pendingSpotifySyncs.length > 0"
       class="spotify-sync-modal-backdrop"
-      @click.self="discardSpotifySync(pendingSpotifySyncs[0].playlistId)"
+      @click.self="discardSpotifySync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0])"
     >
       <div class="spotify-sync-modal glass-panel">
         <div class="spotify-sync-modal-header">
@@ -3602,13 +3640,21 @@ export default defineComponent({
               <path d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"/>
             </svg>
           </div>
-          <h2>Sincronización de Spotify</h2>
+          <h2 v-if="!isSyncSuccess">Sincronización de Spotify</h2>
+          <h2 v-else>¡Todo listo!</h2>
         </div>
 
-        <div class="spotify-sync-sections">
+        <div v-if="isSyncSuccess" class="spotify-sync-success-view">
+          <div class="spotify-sync-success-icon">
+            <svg viewBox="0 0 24 24" width="80" height="80" fill="#1db954"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          </div>
+          <p>Sincronización completada con éxito</p>
+        </div>
+
+        <div v-else class="spotify-sync-sections">
           <!-- Columna Izquierda: NUEVAS -->
           <div 
-            v-if="pendingSpotifySyncs[0].newTracks.length > 0 && !sessionDismissedNuevas.includes(pendingSpotifySyncs[0].playlistId)" 
+            v-if="pendingSpotifySyncs[0].newTracks.length > 0 && sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] !== pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')" 
             class="spotify-sync-column"
           >
             <div class="spotify-sync-column-header">
@@ -3629,9 +3675,18 @@ export default defineComponent({
                   <img v-if="track.cover" :src="track.cover" alt="" />
                   <div v-else class="spotify-sync-track-placeholder">♪</div>
                 </div>
-                <div class="spotify-sync-track-info">
-                  <div class="spotify-sync-track-title">{{ track.title }}</div>
-                  <div class="spotify-sync-track-artist">{{ track.artists }}</div>
+                <div class="spotify-sync-track-info" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <div style="flex: 1; min-width: 0;">
+                    <div class="spotify-sync-track-title">{{ track.title }}</div>
+                    <div class="spotify-sync-track-artist">{{ track.artists }}</div>
+                  </div>
+                  <!-- Estado de la descarga en la fila -->
+                  <div v-if="track.status" class="spotify-sync-track-status" :class="track.status">
+                    <div v-if="track.status === 'downloading'" class="spotify-sync-spinner-mini"></div>
+                    <span v-if="track.status === 'downloading'">Bajando...</span>
+                    <span v-if="track.status === 'done'">Listo</span>
+                    <span v-if="track.status === 'error'">Error</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3641,7 +3696,7 @@ export default defineComponent({
                 <button
                   class="spotify-sync-btn ghost mini"
                   type="button"
-                  @click="sessionDismissedNuevas.push(pendingSpotifySyncs[0].playlistId)"
+                  @click="sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')"
                   title="Recordar luego"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
@@ -3658,16 +3713,23 @@ export default defineComponent({
               <button
                 class="spotify-sync-btn primary mini"
                 type="button"
+                :disabled="isSyncDownloading"
                 @click="applyNewTracksSync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0].newTracks, pendingSpotifySyncs[0].remoteIds || [])"
               >
-                Descargar todas
+                <template v-if="isSyncDownloading">
+                  <div class="spotify-sync-spinner-mini white" style="margin-right: 10px;"></div>
+                  Descargando ({{ pendingSpotifySyncs[0].newTracks.filter(t => t.status !== 'done').length }})
+                </template>
+                <template v-else>
+                  Descargar todas
+                </template>
               </button>
             </div>
           </div>
 
           <!-- Columna Derecha: ELIMINADAS -->
           <div 
-            v-if="pendingSpotifySyncs[0].removedTracks.length > 0 && !sessionDismissedBajas.includes(pendingSpotifySyncs[0].playlistId)" 
+            v-if="pendingSpotifySyncs[0].removedTracks.length > 0 && sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] !== pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')" 
             class="spotify-sync-column"
           >
             <div class="spotify-sync-column-header">
@@ -3707,7 +3769,7 @@ export default defineComponent({
                 <button
                   class="spotify-sync-btn ghost mini"
                   type="button"
-                  @click="sessionDismissedBajas.push(pendingSpotifySyncs[0].playlistId)"
+                  @click="sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')"
                   title="Recordar luego"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
@@ -3733,9 +3795,9 @@ export default defineComponent({
           </div>
         </div>
 
-        <!-- Cierre automático si ambas se ocultan -->
-        <div v-if="(pendingSpotifySyncs[0].newTracks.length === 0 || sessionDismissedNuevas.includes(pendingSpotifySyncs[0].playlistId)) && (pendingSpotifySyncs[0].removedTracks.length === 0 || sessionDismissedBajas.includes(pendingSpotifySyncs[0].playlistId))" v-show="false">
-          {{ discardSpotifySync(pendingSpotifySyncs[0].playlistId) }}
+        <!-- Cierre automático si ambos estados coinciden con los descartados -->
+        <div v-if="(pendingSpotifySyncs[0].newTracks.length === 0 || sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] === pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')) && (pendingSpotifySyncs[0].removedTracks.length === 0 || sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] === pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(','))" v-show="false">
+          {{ discardSpotifySync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0]) }}
         </div>
       </div>
     </div>
@@ -3890,6 +3952,95 @@ export default defineComponent({
 
 .spotify-sync-column-subtitle strong {
   color: rgba(255, 255, 255, 0.7);
+}
+
+.playlist-sync-manual-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+  animation: spotify-sync-fade-in 0.5s ease-out;
+}
+
+.playlist-sync-force-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.playlist-sync-force-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.playlist-sync-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  animation: spotify-sync-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.playlist-sync-status-badge.nuevas {
+  background: #1db954;
+  color: #000;
+}
+
+.playlist-sync-status-badge.eliminadas {
+  background: #ff4d4d;
+  color: #fff;
+}
+
+.playlist-sync-status-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.spotify-sync-success-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  animation: spotify-sync-fade-in 0.4s ease-out;
+}
+
+.spotify-sync-success-icon {
+  margin-bottom: 24px;
+  animation: spotify-sync-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.spotify-sync-success-view p {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+@keyframes spotify-sync-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spotify-sync-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .spotify-sync-track-list {
@@ -4063,6 +4214,51 @@ export default defineComponent({
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.spotify-sync-track-status {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.spotify-sync-track-status.downloading {
+  color: #1db954;
+  background: rgba(29, 185, 84, 0.1);
+}
+
+.spotify-sync-track-status.done {
+  color: #1db954;
+  opacity: 0.7;
+}
+
+.spotify-sync-track-status.error {
+  color: #ff4d4d;
+  background: rgba(255, 77, 77, 0.1);
+}
+
+/* Spinner animado */
+.spotify-sync-spinner-mini {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(29, 185, 84, 0.3);
+  border-top-color: #1db954;
+  border-radius: 50%;
+  animation: spotify-sync-spin 0.8s linear infinite;
+}
+
+.spotify-sync-spinner-mini.white {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+
+@keyframes spotify-sync-spin {
+  to { transform: rotate(360deg); }
 }
 
 .spotify-sync-more-count {

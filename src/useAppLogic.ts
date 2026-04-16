@@ -5510,8 +5510,17 @@ export function useAppLogic() {
   >([]);
   
   const selectedRemovedTracks = ref<string[]>([]); // Rutas seleccionadas para borrar
-  const sessionDismissedNuevas = ref<number[]>([]); // PlaylistIds donde se ocultó "Nuevas" esta sesión
-  const sessionDismissedBajas = ref<number[]>([]); // PlaylistIds donde se ocultó "Bajas" esta sesión
+  const sessionDismissedNuevas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks nuevas descartadas
+  const sessionDismissedBajas = ref<Record<number, string>>({});  // PlaylistId -> Hash de tracks eliminadas descartadas
+  const isSyncDownloading = ref(false); // Indica si hay una descarga masiva en curso en el modal
+  const isSyncSuccess = ref(false); // Indica si acabamos de terminar con éxito
+  const isManualSyncing = ref<number | null>(null); // ID de la playlist que se está sincronizando manualmente
+
+  // Obtiene el estado de sincronización de la playlist activa actualmente
+  const activePlaylistSync = computed(() => {
+    if (!activePlaylist.value) return null;
+    return pendingSpotifySyncs.value.find(s => s.playlistId === activePlaylist.value!.id) || null;
+  });
 
   const toggleRemovedTrackSelection = (path: string) => {
     if (selectedRemovedTracks.value.includes(path)) {
@@ -5833,22 +5842,44 @@ export function useAppLogic() {
     await loadPlaylists();
   };
 
-  const discardSpotifySync = (playlistId: number) => {
-    // Solo quitamos de la lista en memoria (volverá a aparecer en el próximo check o al recargar)
+  const discardSpotifySync = (playlistId: number, syncObj: any) => {
+    // Si el usuario cierra el modal dándole al backdrop, silenciamos ambos estados con sus hashes actuales
+    const newHash = (syncObj.newTracks || []).map((t: any) => t.id).sort().join(",");
+    const removedHash = (syncObj.removedTracks || []).map((t: any) => t.path).sort().join(",");
+    
+    if (newHash) sessionDismissedNuevas.value[playlistId] = newHash;
+    if (removedHash) sessionDismissedBajas.value[playlistId] = removedHash;
+
     pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
       (s) => s.playlistId !== playlistId,
     );
+  };
+
+  const manualForceSync = async (playlistId: number) => {
+    // Acción manual del usuario: Reseteamos descartes temporales para que el modal se vea sí o sí
+    isManualSyncing.value = playlistId;
+    delete sessionDismissedNuevas.value[playlistId];
+    delete sessionDismissedBajas.value[playlistId];
+    try {
+      await checkSpecificSpotifyPlaylist(playlistId);
+    } finally {
+      isManualSyncing.value = null;
+    }
   };
 
   const applyNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
     const p = playlists.value.find(item => item.id === playlistId);
     if (!p) return;
     
+    isSyncDownloading.value = true;
     console.log(`[SpotifySync] Downloading ${tracks.length} tracks for "${p.name}"...`);
     const mainMusicDir = musicDirectories.value[0] || "";
 
     for (const track of tracks) {
+      if (track.status === "done") continue;
+      
       try {
+        track.status = "downloading";
         const request = {
           item_id: `${track.id}_${Date.now()}`,
           spotify_id: track.id,
@@ -5877,24 +5908,41 @@ export function useAppLogic() {
           try {
             await invoke("get_library_metadata_batch", { paths: [result.file] });
           } catch (e) {}
+          track.status = "done";
+        } else {
+          track.status = "error";
         }
       } catch (e) {
         console.error(`[SpotifySync] Error downloading ${track.title}`, e);
+        track.status = "error";
       }
     }
 
-    // Al terminar, actualizamos el sync de esta playlist en el modal
-    const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
-    if (syncIdx !== -1) {
-      // Quitamos las nuevas que ya bajamos
-      pendingSpotifySyncs.value[syncIdx].newTracks = [];
-      // Si ya no queda nada que hacer, quitamos el modal
-      if (pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
-        await acknowledgeSpotifySync(playlistId, remoteIds);
-        pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+    isSyncDownloading.value = false;
+
+    // Si todo salió bien (al menos intentamos todo), mostramos éxito un momento
+    isSyncSuccess.value = true;
+
+    // Esperamos 1.5 segundos para que el usuario vea el éxito
+    setTimeout(async () => {
+      // Al terminar, primero actualizamos el sync de esta playlist en el modal
+      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      if (syncIdx !== -1) {
+        // Quitamos las nuevas que ya bajamos correctamente
+        pendingSpotifySyncs.value[syncIdx].newTracks = pendingSpotifySyncs.value[syncIdx].newTracks.filter(t => t.status !== "done");
+        
+        // Si ya no queda nada que hacer (ni altas ni bajas), quitamos el modal definitivamente
+        if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 && pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
+          await acknowledgeSpotifySync(playlistId, { synced: remoteIds });
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+        }
       }
-    }
-    await loadPlaylists();
+      
+      // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
+      await nextTick();
+      isSyncSuccess.value = false;
+      await loadPlaylists();
+    }, 1500);
   };
 
   const applyRemovedTracksSync = async (playlistId: number, trackPaths: string[], remoteIds: string[]) => {
@@ -5913,17 +5961,34 @@ export function useAppLogic() {
       }
     }
 
-    const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
-    if (syncIdx !== -1) {
-      // Quitamos las borradas de la lista
-      pendingSpotifySyncs.value[syncIdx].removedTracks = [];
-      // Si ya no queda nada que hacer, quitamos el modal
-      if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0) {
-        await acknowledgeSpotifySync(playlistId, { synced: remoteIds, ignoredRemovals: [] });
-        pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+    // Al terminar, activamos el estado de éxito para el feedback visual
+    isSyncSuccess.value = true;
+
+    // Esperamos 1.5 segundos para que el usuario vea el éxito
+    setTimeout(async () => {
+      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      if (syncIdx !== -1) {
+        // Quitamos las borradas de la lista
+        pendingSpotifySyncs.value[syncIdx].removedTracks = [];
+        
+        // Si ya no queda nada que hacer, quitamos el modal definitivamente
+        if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0) {
+          // Recuperamos el estado actual para no borrar los ignorados
+          let syncState: any = { synced: [], ignoredRemovals: [] };
+          try {
+            const parsed = JSON.parse(p.spotifySyncedIds || "{}");
+            syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+          } catch (e) {}
+
+          await acknowledgeSpotifySync(playlistId, { ...syncState, synced: remoteIds });
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+        }
       }
-    }
-    await loadPlaylists();
+      
+      await nextTick();
+      isSyncSuccess.value = false;
+      await loadPlaylists();
+    }, 1500);
   };
 
   const ignoreNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
@@ -5943,6 +6008,7 @@ export function useAppLogic() {
       const updatedSynced = [...new Set([...(syncState.synced || []), ...newIds])];
       
       await acknowledgeSpotifySync(playlistId, { ...syncState, synced: updatedSynced });
+      await loadPlaylists();
       
       // Actualizamos UI reactivamente
       const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
@@ -5977,6 +6043,7 @@ export function useAppLogic() {
       const updatedIgnored = [...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds])];
       
       await acknowledgeSpotifySync(playlistId, { ...syncState, ignoredRemovals: updatedIgnored });
+      await loadPlaylists();
 
       // Actualizamos UI reactivamente
       const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
@@ -8286,6 +8353,12 @@ export function useAppLogic() {
     getAverageColor,
     updateAlbumCompactBar,
     unlistenDeviceChanged,
+    checkSpecificSpotifyPlaylist,
+    manualForceSync,
+    isManualSyncing,
+    isSyncDownloading,
+    isSyncSuccess,
+    activePlaylistSync,
     pendingSpotifySyncs,
     selectedRemovedTracks,
     toggleRemovedTrackSelection,
