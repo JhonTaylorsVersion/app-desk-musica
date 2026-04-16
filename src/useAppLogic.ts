@@ -5498,10 +5498,23 @@ export function useAppLogic() {
       playlistId: number;
       playlistName: string;
       newTracks: any[];
+      removedTracks: any[];
       spotifyUrl?: string | null;
       remoteIds?: string[];
     }[]
   >([]);
+  
+  const selectedRemovedTracks = ref<string[]>([]); // Rutas seleccionadas para borrar
+  const sessionDismissedNuevas = ref<number[]>([]); // PlaylistIds donde se ocultó "Nuevas" esta sesión
+  const sessionDismissedBajas = ref<number[]>([]); // PlaylistIds donde se ocultó "Bajas" esta sesión
+
+  const toggleRemovedTrackSelection = (path: string) => {
+    if (selectedRemovedTracks.value.includes(path)) {
+      selectedRemovedTracks.value = selectedRemovedTracks.value.filter(p => p !== path);
+    } else {
+      selectedRemovedTracks.value.push(path);
+    }
+  };
 
   let isSpotifyCheckInFlight = false;
 
@@ -5592,21 +5605,32 @@ export function useAppLogic() {
         );
       }
 
-      // IDs que ya teníamos en local
-      const localTrackIds = p.trackPaths
-        .map((path) => libraryMetadataMap.value[path]?.spotify_id)
-        .filter((id): id is string => id != null);
+      // NUEVO: Verificamos si hubo cambios reales en Spotify desde la última vez que "vimos" la playlist
+      // Ahora manejamos un objeto de sincronización más complejo
+      let syncState: { synced?: string[], ignoredRemovals?: string[] } = { synced: [], ignoredRemovals: [] };
+      try {
+        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
+        if (Array.isArray(parsed)) {
+          syncState.synced = parsed;
+        } else {
+          syncState = parsed;
+        }
+      } catch (e) {}
 
-      // IDs que ya habíamos "visto" o ignorado antes
-      const syncedIds: string[] = JSON.parse(p.spotifySyncedIds || "[]");
+      const syncedIds = syncState.synced || [];
+      const ignoredRemovals = syncState.ignoredRemovals || [];
 
-      // Una canción es NUEVA solo si no está en Local Y no está en la lista de "Vista/Sincronizada"
+      // NUEVO: Escaneamos metadatos de la playlist local para tener los IDs reales
+      const localMetadata = await invoke<any[]>("get_library_metadata_batch", {
+        paths: p.trackPaths,
+      });
+      const localTrackIds = localMetadata.map(m => m.spotify_id).filter((id): id is string => id != null);
+
+      // Una canción es NUEVA solo si no está en Local Y no está en la lista de "Vistas/Ignoradas"
       const newTracks = rawTracks
         .filter((t: any) => {
           const tid = getTrackId(t);
-          return (
-            tid && !localTrackIds.includes(tid) && !syncedIds.includes(tid)
-          );
+          return tid && !localTrackIds.includes(tid) && !syncedIds.includes(tid);
         })
         .map((t: any) => ({
           id: getTrackId(t),
@@ -5619,52 +5643,60 @@ export function useAppLogic() {
           url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`
         }));
 
-      // Si no hay nuevas, pero los IDs remotos han cambiado (ej. se borraron canciones),
-      // actualizamos el registro de sincronización silenciosamente para estar al día.
-      if (newTracks.length === 0) {
-        console.log(
-          `[SpotifySync] No new tracks for playlist "${p.name}" (Up to date)`,
-        );
+      // NUEVO: Detección de canciones eliminadas
+      // Solo nos importan las que tenemos en local, con ID de Spotify y que NO hemos ignorado antes
 
-        // Solo actualizamos si la lista de IDs es distinta (para no escribir en BD por gusto)
-        if (JSON.stringify(remoteIds) !== JSON.stringify(syncedIds)) {
-          await acknowledgeSpotifySync(p.id, remoteIds);
+      const removedTracks = localMetadata
+        .filter(
+          (m) => m.spotify_id && !remoteIds.includes(m.spotify_id) && !ignoredRemovals.includes(m.spotify_id)
+        )
+        .map((m) => ({
+          id: m.spotify_id || "",
+          title: m.title || "Unknown Title",
+          artists: m.artist || "Unknown Artist",
+          path: m.path,
+          cover: m.cover_path ? convertFileSrc(m.cover_path) : null, // <-- CORRECCIÓN
+        }));
+
+      // Verificamos si el estado remoto ha cambiado respecto a lo que sabíamos
+      const isUpToDate = JSON.stringify(remoteIds.slice().sort()) === JSON.stringify(syncedIds.slice().sort());
+
+      // Si no hay nada nuevo que reportar (ni altas ni bajas filtradas), salimos
+      if (newTracks.length === 0 && removedTracks.length === 0) {
+        // Pero si el control Maestro (remoteIds) cambió, actualizamos suavemente
+        if (!isUpToDate) {
+          await acknowledgeSpotifySync(p.id, { ...syncState, synced: remoteIds });
         }
         return;
       }
 
       console.log(
-        `[SpotifySync] Found ${newTracks.length} new tracks for playlist "${p.name}". Details:`,
-        newTracks,
-      );
-      console.log(
-        `[SpotifySync] Raw first new track data:`,
-        rawTracks.find((t) => getTrackId(t) === newTracks[0].id),
-      );
-
-      console.log(
-        `[SpotifySync] List:`,
-        newTracks.map((t: any) => `${t.artists} - ${t.title} (${t.id})`),
+        `[SpotifySync] Changes detected for "${p.name}". ${newTracks.length} new, ${removedTracks.length} removed.`,
       );
 
       // Añadimos a la lista de avisos pendientes de forma reactiva
-      const alreadyExists = pendingSpotifySyncs.value.some(
+      const alreadyExistsIndex = pendingSpotifySyncs.value.findIndex(
         (s) => s.playlistId === p.id,
       );
-      if (!alreadyExists) {
-        pendingSpotifySyncs.value = [
-          ...pendingSpotifySyncs.value,
-          {
-            playlistId: p.id,
-            playlistName: p.name,
-            spotifyUrl: p.spotifyUrl,
-            newTracks: newTracks,
-            remoteIds: remoteIds,
-          },
-        ];
-        console.log(
-          `[SpotifySync][UI] Notification added to pending list. Count: ${pendingSpotifySyncs.value.length}`,
-        );
+
+      const syncObj = {
+        playlistId: p.id,
+        playlistName: p.name,
+        spotifyUrl: p.spotifyUrl,
+        newTracks: newTracks,
+        removedTracks: removedTracks, // <-- PASAMOS LA LISTA DE ELIMINADAS
+        remoteIds: remoteIds,
+      };
+
+      if (alreadyExistsIndex === -1) {
+        pendingSpotifySyncs.value = [...pendingSpotifySyncs.value, syncObj];
+        // Por defecto seleccionamos todas las eliminadas para que el usuario sea consciente
+        selectedRemovedTracks.value = removedTracks.map(t => t.path);
+      } else {
+        // Si ya existía uno, lo actualizamos con los nuevos datos
+        const newList = [...pendingSpotifySyncs.value];
+        newList[alreadyExistsIndex] = syncObj;
+        pendingSpotifySyncs.value = newList;
       }
     } catch (e) {
       console.error("[SpotifySync] Error checking playlist", p.name, e);
@@ -5673,21 +5705,21 @@ export function useAppLogic() {
 
   const acknowledgeSpotifySync = async (
     playlistId: number,
-    allRemoteIds: string[],
+    state: any,
   ) => {
     console.log(
-      `[SpotifySync][DB] Attempting to save ${allRemoteIds.length} IDs to DB for playlist ${playlistId}...`,
+      `[SpotifySync][DB] Attempting to save sync state for playlist ${playlistId}...`,
     );
     try {
       await invoke("set_playlist_synced_ids", {
         playlistId,
-        syncedIdsJson: JSON.stringify(allRemoteIds),
+        syncedIdsJson: JSON.stringify(state),
       });
       console.log(`[SpotifySync][DB] Save successful.`);
 
       // Actualizamos localmente para no esperar a recargar todo
       const p = playlists.value.find((item) => item.id === playlistId);
-      if (p) p.spotifySyncedIds = JSON.stringify(allRemoteIds);
+      if (p) p.spotifySyncedIds = JSON.stringify(state);
     } catch (e) {
       console.error(`[SpotifySync][DB] ERROR saving to database:`, e);
     }
@@ -5703,6 +5735,23 @@ export function useAppLogic() {
     pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
       (s) => s.playlistId !== playlistId,
     );
+
+    // NUEVO: Procesar eliminaciones primero
+    if (selectedRemovedTracks.value.length > 0) {
+      console.log(`[SpotifySync] Removing ${selectedRemovedTracks.value.length} tracks from playlist "${playlistName}"...`);
+      for (const path of selectedRemovedTracks.value) {
+        try {
+          await invoke("remove_track_from_playlist", {
+            playlistId: playlistId,
+            trackPath: path
+          });
+        } catch (e) {
+          console.error(`[SpotifySync] Error removing ${path}`, e);
+        }
+      }
+      // Limpiamos selección
+      selectedRemovedTracks.value = [];
+    }
 
     console.log(
       `[SpotifySync] Downloading ${sync.newTracks.length} tracks for "${playlistName}"...`,
@@ -5779,30 +5828,178 @@ export function useAppLogic() {
     await loadPlaylists();
   };
 
-  const discardSpotifySync = async (playlistId: number) => {
+  const discardSpotifySync = (playlistId: number) => {
+    // Solo quitamos de la lista en memoria (volverá a aparecer en el próximo check o al recargar)
     pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
       (s) => s.playlistId !== playlistId,
     );
+  };
 
-    // Al darle a "Más tarde" o ignorar, también marcamos los actuales como "vistos"
-    // para que no vuelva a preguntar por los mismos hasta que haya canciones Realmente Nuevas en Spotify.
-    try {
-      const p = playlists.value.find((item) => item.id === playlistId);
-      if (p && p.spotifyUrl) {
-        const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", {
-          url: p.spotifyUrl,
+  const applyNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
+    const p = playlists.value.find(item => item.id === playlistId);
+    if (!p) return;
+    
+    console.log(`[SpotifySync] Downloading ${tracks.length} tracks for "${p.name}"...`);
+    const mainMusicDir = musicDirectories.value[0] || "";
+
+    for (const track of tracks) {
+      try {
+        const request = {
+          item_id: `${track.id}_${Date.now()}`,
+          spotify_id: track.id,
+          track_name: track.title,
+          artist_name: track.artists,
+          album_name: track.album,
+          cover_url: track.cover,
+          release_date: track.release_date,
+          output_dir: mainMusicDir,
+          playlist_name: p.name,
+          audio_format: "LOSSLESS",
+          embed_lyrics: true,
+          embed_max_quality_cover: true,
+          overwrite: true
+        };
+
+        const result = await invoke<any>("spotiflac_download_track", { request });
+
+        if (result && result.file) {
+          await invoke("add_track_to_playlist", {
+            playlistId: playlistId,
+            trackPath: result.file,
+            position: null,
+          });
+
+          try {
+            await invoke("get_library_metadata_batch", { paths: [result.file] });
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.error(`[SpotifySync] Error downloading ${track.title}`, e);
+      }
+    }
+
+    // Al terminar, actualizamos el sync de esta playlist en el modal
+    const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+    if (syncIdx !== -1) {
+      // Quitamos las nuevas que ya bajamos
+      pendingSpotifySyncs.value[syncIdx].newTracks = [];
+      // Si ya no queda nada que hacer, quitamos el modal
+      if (pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
+        await acknowledgeSpotifySync(playlistId, remoteIds);
+        pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+      }
+    }
+    await loadPlaylists();
+  };
+
+  const applyRemovedTracksSync = async (playlistId: number, trackPaths: string[], remoteIds: string[]) => {
+    const p = playlists.value.find(item => item.id === playlistId);
+    if (!p) return;
+
+    console.log(`[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"...`);
+    for (const path of trackPaths) {
+      try {
+        await invoke("remove_track_from_playlist", {
+          playlistId: playlistId,
+          trackPath: path
         });
-        if (remoteData && Array.isArray(remoteData.tracks)) {
-          await acknowledgeSpotifySync(
-            playlistId,
-            remoteData.tracks.map((t: any) => t.id),
-          );
+      } catch (e) {
+        console.error(`[SpotifySync] Error removing ${path}`, e);
+      }
+    }
+
+    const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+    if (syncIdx !== -1) {
+      // Quitamos las borradas de la lista
+      pendingSpotifySyncs.value[syncIdx].removedTracks = [];
+      // Si ya no queda nada que hacer, quitamos el modal
+      if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0) {
+        await acknowledgeSpotifySync(playlistId, { synced: remoteIds, ignoredRemovals: [] });
+        pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+      }
+    }
+    await loadPlaylists();
+  };
+
+  const ignoreNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
+    try {
+      const p = playlists.value.find(item => item.id === playlistId);
+      if (!p) return;
+
+      // Leemos el estado actual
+      let syncState: any = { synced: [], ignoredRemovals: [] };
+      try {
+        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
+        syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+      } catch (e) {}
+
+      // Añadimos los IDs de los tracks a la lista de "ya vistos"
+      const newIds = tracks.map(t => t.id);
+      const updatedSynced = [...new Set([...(syncState.synced || []), ...newIds])];
+      
+      await acknowledgeSpotifySync(playlistId, { ...syncState, synced: updatedSynced });
+      
+      // Actualizamos UI reactivamente
+      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      if (syncIdx !== -1) {
+        pendingSpotifySyncs.value[syncIdx].newTracks = [];
+        if (pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
         }
       }
     } catch (e) {
-      console.error("[SpotifySync] Error acknowledging sync", e);
+      console.error("[SpotifySync] Error ignoring new tracks", e);
     }
   };
+
+  const ignoreRemovedTracksSync = async (playlistId: number, trackPaths: string[]) => {
+    try {
+      const p = playlists.value.find(item => item.id === playlistId);
+      if (!p) return;
+
+      // Leemos el estado actual
+      let syncState: any = { synced: [], ignoredRemovals: [] };
+      try {
+        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
+        syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+      } catch (e) {}
+
+      // Obtenemos los spotify_ids de esos paths
+      const metadata = await invoke<any[]>("get_library_metadata_batch", { paths: trackPaths });
+      const ignoredIds = metadata.map(m => m.spotify_id).filter(id => !!id);
+
+      // Los añadimos a la lista de "ignorados para borrado"
+      const updatedIgnored = [...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds])];
+      
+      await acknowledgeSpotifySync(playlistId, { ...syncState, ignoredRemovals: updatedIgnored });
+
+      // Actualizamos UI reactivamente
+      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      if (syncIdx !== -1) {
+        pendingSpotifySyncs.value[syncIdx].removedTracks = pendingSpotifySyncs.value[syncIdx].removedTracks.filter(
+          t => !trackPaths.includes(t.path)
+        );
+        if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 && pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+        }
+      }
+    } catch (e) {
+      console.error("[SpotifySync] Error ignoring removed tracks", e);
+    }
+  };
+
+  const ignoreSpotifySync = async (playlistId: number, remoteIds: string[]) => {
+    // Marcamos el estado actual como "visto completo" en la DB
+    try {
+      await acknowledgeSpotifySync(playlistId, { synced: remoteIds, ignoredRemovals: [] });
+      pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+        (s) => s.playlistId !== playlistId,
+      );
+    } catch (e) {
+      console.error("[SpotifySync] Error ignoring sync", e);
+    }
+  };
+
 
   const getLibraryTrackMetadata = (track: PlaylistTrack) => {
     return libraryMetadataMap.value[track.path] ?? null;
@@ -8085,7 +8282,16 @@ export function useAppLogic() {
     updateAlbumCompactBar,
     unlistenDeviceChanged,
     pendingSpotifySyncs,
+    selectedRemovedTracks,
+    toggleRemovedTrackSelection,
     applySpotifySync,
+    applyNewTracksSync,
+    applyRemovedTracksSync,
+    ignoreNewTracksSync,
+    ignoreRemovedTracksSync,
+    sessionDismissedNuevas,
+    sessionDismissedBajas,
     discardSpotifySync,
+    ignoreSpotifySync,
   };
 }
