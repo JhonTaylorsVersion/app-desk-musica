@@ -5612,6 +5612,9 @@ export function useAppLogic() {
           id: getTrackId(t),
           title: t.name || t.track_name || t.title || "Unknown Title",
           artists: t.artists || t.artist_name || "Unknown Artist",
+          album: t.album_name || t.album || "Unknown Album",
+          isrc: t.isrc || (t.external_ids ? t.external_ids.isrc : null),
+          url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`
         }));
 
       // Si no hay nuevas, pero los IDs remotos han cambiado (ej. se borraron canciones),
@@ -5721,17 +5724,25 @@ export function useAppLogic() {
       console.warn("[SpotifySync] Non-critical error updating sync IDs", e);
     }
 
+    const mainMusicDir = musicDirectories.value[0] || "";
+    
     for (const track of sync.newTracks) {
       try {
-        const result = await invoke<any>("spotiflac_download_track", {
-          id: track.id,
-          spotify_id: track.id, // <-- NUEVO: Para que Rust lo reconozca en la normalización
-          url: track.url || `https://open.spotify.com/track/${track.id}`,
-          name: `${track.artists} - ${track.title}`,
-          playlistName: sync.playlistName,
-          updateDb: true,
-          isSpotify: true,
-        });
+        const outputDir = mainMusicDir ? `${mainMusicDir}\\${sync.playlistName}` : "";
+
+        // Usamos los campos en snake_case exactos que Go espera (ver main.go del bridge)
+        const request = {
+          item_id: `${track.id}_${Date.now()}`,
+          spotify_id: track.id,
+          track_name: track.title,
+          artist_name: track.artists,
+          album_name: track.album,
+          output_dir: mainMusicDir,
+          playlist_name: sync.playlistName,
+          overwrite: true
+        };
+
+        const result = await invoke<any>("spotiflac_download_track", { request });
 
         if (result && result.file) {
           await invoke("add_track_to_playlist", {
@@ -5742,8 +5753,8 @@ export function useAppLogic() {
         }
       } catch (e) {
         console.error(
-          `[SpotifySync] Failed to download track ${track.title}`,
-          e,
+          `[SpotifySync] Error during download of "${track.title}":`,
+          e
         );
       }
     }
