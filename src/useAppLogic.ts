@@ -1346,10 +1346,14 @@ export function useAppLogic() {
     lastSelectedTrackIndex.value = null;
   };
 
-  const handleTrackPointerDown = (event: MouseEvent, track: PlaylistTrack, index: number) => {
+  const handleTrackPointerDown = (
+    event: MouseEvent,
+    track: PlaylistTrack,
+    index: number,
+  ) => {
     // 1. Lógica de Selección (Multi-select)
     if (event.button === 2) {
-      if (multiSelectedLibraryTracks.value.some(t => t.index === index)) {
+      if (multiSelectedLibraryTracks.value.some((t) => t.index === index)) {
         return;
       }
     }
@@ -1360,7 +1364,7 @@ export function useAppLogic() {
     if (isShift && lastSelectedTrackIndex.value !== null) {
       const start = Math.min(lastSelectedTrackIndex.value, index);
       const end = Math.max(lastSelectedTrackIndex.value, index);
-      
+
       const newSelection = [];
       for (let i = start; i <= end; i++) {
         const t = displayedTracks.value[i];
@@ -1370,18 +1374,23 @@ export function useAppLogic() {
       }
       multiSelectedLibraryTracks.value = newSelection;
     } else if (isCtrl) {
-      const existing = multiSelectedLibraryTracks.value.findIndex(t => t.index === index);
+      const existing = multiSelectedLibraryTracks.value.findIndex(
+        (t) => t.index === index,
+      );
       if (existing !== -1) {
         multiSelectedLibraryTracks.value.splice(existing, 1);
       } else {
-        multiSelectedLibraryTracks.value.push({ path: track.path, index: index });
+        multiSelectedLibraryTracks.value.push({
+          path: track.path,
+          index: index,
+        });
         lastSelectedTrackIndex.value = index;
       }
     } else {
       multiSelectedLibraryTracks.value = [{ path: track.path, index: index }];
       lastSelectedTrackIndex.value = index;
     }
-    
+
     selectLibraryTrack(track, index);
 
     // 2. Lógica de Drag and Drop
@@ -1408,27 +1417,27 @@ export function useAppLogic() {
   };
 
   const isLibraryTrackSelected = (track: PlaylistTrack, index?: number) => {
-    if (typeof index === 'number') {
-      return multiSelectedLibraryTracks.value.some(t => t.index === index);
+    if (typeof index === "number") {
+      return multiSelectedLibraryTracks.value.some((t) => t.index === index);
     }
     return selectedLibraryTrack.value?.path === track.path;
   };
 
   const addSelectionToQueue = () => {
     if (multiSelectedLibraryTracks.value.length === 0) return;
-    
+
     // Obtener los tracks reales de la selección
     const tracksToQueue = multiSelectedLibraryTracks.value
-      .map(s => displayedTracks.value[s.index])
-      .filter(t => !!t) as PlaylistTrack[];
-      
-    tracksToQueue.forEach(t => addToQueue(t));
+      .map((s) => displayedTracks.value[s.index])
+      .filter((t) => !!t) as PlaylistTrack[];
+
+    tracksToQueue.forEach((t) => addToQueue(t));
     closeTrackContextMenu();
     clearMultiSelection();
   };
 
   const addSelectionToPlaylist = async (targetPlaylistId: number) => {
-    const paths = multiSelectedLibraryTracks.value.map(s => s.path);
+    const paths = multiSelectedLibraryTracks.value.map((s) => s.path);
     if (paths.length === 0) return;
 
     try {
@@ -1449,20 +1458,21 @@ export function useAppLogic() {
   const removeSelectionFromPlaylist = async (deleteFiles: boolean = false) => {
     if (contextMenu.value.playlistId == null) return;
     const playlistId = contextMenu.value.playlistId;
-    
+
     // Copia de la selección porque se va a limpiar
-    const selection = [...multiSelectedLibraryTracks.value].sort((a, b) => b.index - a.index);
-    
+    const selection = [...multiSelectedLibraryTracks.value].sort(
+      (a, b) => b.index - a.index,
+    );
+
     try {
       for (const item of selection) {
         await invoke("remove_track_from_playlist", {
           playlistId,
           trackPath: item.path,
           deleteFiles,
-          occurrenceIndex: getTrackOccurrenceIndex(displayedTracks.value, item.index, item.path)
         });
       }
-      
+
       await loadPlaylists();
       closeTrackContextMenu();
       closeTrackDeleteModal();
@@ -1478,7 +1488,10 @@ export function useAppLogic() {
     index?: number,
   ) => {
     // Si el track no está en la selección múltiple, lo seleccionamos solo a él
-    if (typeof index === 'number' && !multiSelectedLibraryTracks.value.some(t => t.index === index)) {
+    if (
+      typeof index === "number" &&
+      !multiSelectedLibraryTracks.value.some((t) => t.index === index)
+    ) {
       handleTrackPointerDown(event, track, index);
     }
 
@@ -2228,13 +2241,26 @@ export function useAppLogic() {
       globalQuery: globalSearch.value.trim(),
     });
 
-    // ======== NUEVO ========
-    // Revisar si hay actualizaciones de Spotify al entrar en la playlist
-    console.log(
-      `[SpotifySync][Flow] Triggering check for "${targetPlaylist.name}"`,
-    );
-    void checkSpecificSpotifyPlaylist(playlistId);
-    // =======================
+    console.log(`[DEBUG][Nav] Switched to Playlist ID: ${playlistId}. activePlaylistViewId is now: ${activePlaylistViewId.value}`);
+
+    // ======== OPTIMIZACIÓN DE SINCRONIZACIÓN ========
+    // 1. Cancelamos estados de carga y procesos en vuelo INMEDIATAMENTE
+    console.log(`[DEBUG][Sync] Navigation clean-up. Reseting manualSync and currentActiveSyncId.`);
+    isManualSyncing.value = null;
+    currentActiveSyncId = null; 
+
+    // 2. Limpiamos cualquier chequeo previo si estamos saltando rápido entre playlists
+    if (syncCheckTimeout) {
+      console.log(`[DEBUG][Sync] Clearing previous pending debounce timeout.`);
+      clearTimeout(syncCheckTimeout);
+    }
+
+    // 2. Esperamos un poco (debounce) para asegurar que el usuario quiere ver esta playlist
+    syncCheckTimeout = setTimeout(() => {
+      // Usamos forceState=true para que el tiempo de chequeo sea de solo 30s
+      void checkSpecificSpotifyPlaylist(playlistId, true);
+    }, 800); 
+    // ===============================================
   };
 
   const loadPlaylists = async () => {
@@ -2599,9 +2625,14 @@ export function useAppLogic() {
   };
 
   const addContextMenuTrackToPlaylist = async (playlistId: number) => {
-    const tracksToAdd = multiSelectedLibraryTracks.value.length > 1 
-      ? multiSelectedLibraryTracks.value.map(s => displayedTracks.value[s.index]).filter(t => !!t) as PlaylistTrack[]
-      : contextMenu.value.track ? [contextMenu.value.track] : [];
+    const tracksToAdd =
+      multiSelectedLibraryTracks.value.length > 1
+        ? (multiSelectedLibraryTracks.value
+            .map((s) => displayedTracks.value[s.index])
+            .filter((t) => !!t) as PlaylistTrack[])
+        : contextMenu.value.track
+          ? [contextMenu.value.track]
+          : [];
 
     if (tracksToAdd.length === 0) return;
 
@@ -2686,14 +2717,19 @@ export function useAppLogic() {
 
   const removeContextMenuTrackFromPlaylist = async () => {
     if (contextMenu.value.playlistId == null) return;
-    
+
     const playlistId = contextMenu.value.playlistId;
     const targetPlaylist = playlists.value.find((p) => p.id === playlistId);
     const playlistName = targetPlaylist?.name || "";
 
-    const selection = multiSelectedLibraryTracks.value.length > 1
-      ? multiSelectedLibraryTracks.value.map(s => displayedTracks.value[s.index]).filter(t => !!t) as PlaylistTrack[]
-      : contextMenu.value.track ? [contextMenu.value.track] : [];
+    const selection =
+      multiSelectedLibraryTracks.value.length > 1
+        ? (multiSelectedLibraryTracks.value
+            .map((s) => displayedTracks.value[s.index])
+            .filter((t) => !!t) as PlaylistTrack[])
+        : contextMenu.value.track
+          ? [contextMenu.value.track]
+          : [];
 
     if (selection.length === 0) return;
 
@@ -2702,10 +2738,13 @@ export function useAppLogic() {
 
     for (let track of selection) {
       try {
-        const reconciledPath = await invoke<string | null>("try_reconcile_physical_path", {
-          playlistId,
-          currentPath: track.path,
-        });
+        const reconciledPath = await invoke<string | null>(
+          "try_reconcile_physical_path",
+          {
+            playlistId,
+            currentPath: track.path,
+          },
+        );
         if (reconciledPath) {
           track = { ...track, path: reconciledPath };
         }
@@ -2731,7 +2770,7 @@ export function useAppLogic() {
       playlistName: playlistName || "esta playlist",
       isPhysical: anyPhysical,
       count: processedTracks.length,
-      tracks: processedTracks
+      tracks: processedTracks,
     };
     closeTrackContextMenu();
   };
@@ -2739,7 +2778,8 @@ export function useAppLogic() {
   const confirmDeleteTrack = async () => {
     if (!trackPendingDeletion.value) return;
 
-    const { playlistId, track, tracks, playlistName } = trackPendingDeletion.value;
+    const { playlistId, track, tracks, playlistName } =
+      trackPendingDeletion.value;
     const globalDeleteRequest = deleteTrackWithFiles.value;
 
     const computeIsPhysical = (t: PlaylistTrack) => {
@@ -2971,8 +3011,6 @@ export function useAppLogic() {
     window.removeEventListener("mousemove", handlePendingTrackPointerMove);
     window.removeEventListener("mouseup", handlePendingTrackPointerUp);
   };
-
-
 
   function handlePendingTrackPointerMove(event: MouseEvent) {
     if (!pendingTrackPointerDrag) return;
@@ -3451,15 +3489,23 @@ export function useAppLogic() {
     }
   };
 
+  // CACHÉ DE ALTO RENDIMIENTO: Mapa indexado de toda la biblioteca por ruta
+  // Esto hace que las búsquedas pasen de O(N) a O(1), eliminando el lag en listas grandes.
+  const libraryTrackMap = computed(() => {
+    const map = new Map<string, PlaylistTrack>();
+    for (const t of playlist.value) {
+      map.set(t.path, t);
+    }
+    return map;
+  });
+
   const activePlaylistTracks = computed(() => {
     const targetPlaylist = activePlaylist.value;
     if (!targetPlaylist) return [];
 
-    const trackMap = new Map(
-      playlist.value.map((track) => [track.path, track]),
-    );
+    const map = libraryTrackMap.value;
     return targetPlaylist.trackPaths
-      .map((trackPath) => trackMap.get(trackPath) ?? null)
+      .map((trackPath) => map.get(trackPath) ?? null)
       .filter((track): track is PlaylistTrack => track !== null);
   });
 
@@ -3657,19 +3703,21 @@ export function useAppLogic() {
   const emptyPlaylistSearchResults = computed(() => {
     const activeP = activePlaylist.value;
     if (!activeP) return [];
-    
+
     // Accedemos al contador para que sea reactivo al botón "Refrescar"
     void recommendationRefreshCounter.value;
 
     // 1. Excluir tracks que ya están en la playlist activa
     const currentPaths = new Set(activeP.trackPaths);
-    const availableTracks = playlist.value.filter(t => !currentPaths.has(t.path));
+    const availableTracks = playlist.value.filter(
+      (t) => !currentPaths.has(t.path),
+    );
 
     const query = emptyPlaylistSearch.value.trim();
     if (query) {
       // Si hay búsqueda, devolvemos resultados de búsqueda filtrando los ya presentes
       return getTracksForSearchQuery(query)
-        .filter(t => !currentPaths.has(t.path))
+        .filter((t) => !currentPaths.has(t.path))
         .slice(0, 10);
     }
 
@@ -3680,21 +3728,21 @@ export function useAppLogic() {
     if (activeP.trackPaths.length > 0) {
       const pTracks = activePlaylistTracks.value;
       const playlistArtists = new Set(
-        pTracks.map(t => getLibraryTrackArtist(t).toLowerCase())
+        pTracks.map((t) => getLibraryTrackArtist(t).toLowerCase()),
       );
-      
-      recommendations = availableTracks.filter(t => 
-        playlistArtists.has(getLibraryTrackArtist(t).toLowerCase())
+
+      recommendations = availableTracks.filter((t) =>
+        playlistArtists.has(getLibraryTrackArtist(t).toLowerCase()),
       );
     }
 
     // B. Aleatorización para que no siempre salgan los mismos (Fallback)
     // Usamos una semilla simple basada en el tiempo o solo shuffle
     const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
-    
+
     // Combinamos: primero artistas relacionados, luego aleatorios para rellenar
     const finalResults = [...new Set([...recommendations, ...shuffled])];
-    
+
     return finalResults.slice(0, 10);
   });
 
@@ -5747,10 +5795,14 @@ export function useAppLogic() {
       remoteIds?: string[];
     }[]
   >([]);
-  
+
   const selectedRemovedTracks = ref<string[]>([]); // Rutas seleccionadas para borrar
   const sessionDismissedNuevas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks nuevas descartadas
-  const sessionDismissedBajas = ref<Record<number, string>>({});  // PlaylistId -> Hash de tracks eliminadas descartadas
+  const sessionDismissedBajas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks eliminadas descartadas
+  const spotifySyncLastChecked = ref<Record<number, number>>({}); // PlaylistId -> Timestamp de último chequeo exitoso
+  let syncCheckTimeout: any = null; // Timer para el debounce de navegación
+  let currentActiveSyncId: number | null = null; // ID ÚNICO para cancelar procesos en vuelo instantáneamente
+
   const isSyncDownloading = ref(false); // Indica si hay una descarga masiva en curso en el modal
   const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con éxito
   const isManualSyncing = ref<number | null>(null); // ID de la playlist que se está sincronizando manualmente
@@ -5758,12 +5810,18 @@ export function useAppLogic() {
   // Obtiene el estado de sincronización de la playlist activa actualmente
   const activePlaylistSync = computed(() => {
     if (!activePlaylist.value) return null;
-    return pendingSpotifySyncs.value.find(s => s.playlistId === activePlaylist.value!.id) || null;
+    return (
+      pendingSpotifySyncs.value.find(
+        (s) => s.playlistId === activePlaylist.value!.id,
+      ) || null
+    );
   });
 
   const toggleRemovedTrackSelection = (path: string) => {
     if (selectedRemovedTracks.value.includes(path)) {
-      selectedRemovedTracks.value = selectedRemovedTracks.value.filter(p => p !== path);
+      selectedRemovedTracks.value = selectedRemovedTracks.value.filter(
+        (p) => p !== path,
+      );
     } else {
       selectedRemovedTracks.value.push(path);
     }
@@ -5773,118 +5831,98 @@ export function useAppLogic() {
 
   const checkSpotifyPlaylistsForUpdates = async () => {
     if (isSpotifyCheckInFlight) return;
-    const syncedPlaylists = playlists.value.filter((p) => p.spotifyUrl);
+    const syncedPlaylists = playlists.value.filter((p) => !!p.spotifyUrl);
     if (syncedPlaylists.length === 0) return;
 
     isSpotifyCheckInFlight = true;
-    console.log(
-      "[SpotifySync] Checking updates for",
-      syncedPlaylists.length,
-      "playlists...",
-    );
+    console.log(`[DEBUG][Sync] Global mass check START for ${syncedPlaylists.length} playlists.`);
 
     for (const p of syncedPlaylists) {
+      // Si el usuario está sincronizando algo manualmente, pausamos el loop global para dar prioridad
+      if (isManualSyncing.value !== null) {
+        console.log(`[DEBUG][Sync] Global loop paused: manual sync in progress.`);
+        break;
+      }
+      
+      // OPTIMIZACIÓN: Dejamos un respiro de 200ms entre cada playlist para no saturar el canal de Tauri
+      await new Promise(resolve => setTimeout(resolve, 200)); 
+      
+      // Si el usuario navegó a otra playlist, abortamos el loop global para no causar lag
+      // El loop se retomará en el próximo ciclo automático.
       await checkSpecificSpotifyPlaylist(p.id, false);
     }
     isSpotifyCheckInFlight = false;
+    console.log(`[DEBUG][Sync] Global mass check FINISHED.`);
   };
 
   const checkSpecificSpotifyPlaylist = async (
     playlistId: number,
     forceState = true,
-  ) => {
+  ): Promise<boolean> => {
     const p = playlists.value.find((item) => item.id === playlistId);
-    if (!p) {
-      if (forceState)
-        console.warn(
-          `[SpotifySync][Check] Playlist ID ${playlistId} not found.`,
-        );
-      return;
+    if (!p || !p.spotifyUrl) return false;
+
+    // Token de sesión local para este cierre (clousure) específico
+    const thisSessionToken = playlistId;
+    if (forceState) currentActiveSyncId = thisSessionToken;
+
+    // ESTRATEGIA DE THROTTLING INTELIGENTE:
+    // Manual/Navegación: 30 segundos de gracia para ser inmediato.
+    // Automático (Background): 10 minutos para ahorrar batería/red.
+    const now = Date.now();
+    const lastCheck = spotifySyncLastChecked.value[playlistId] || 0;
+    const throttleTime = forceState ? 1000 * 30 : 1000 * 60 * 10; 
+
+    if (now - lastCheck < throttleTime) {
+      // Si ya hay un proceso manual, no lo interrumpimos, pero si es solo tiempo, salimos
+      if (!forceState) return true;
     }
 
-    if (!p.spotifyUrl) {
-      if (forceState)
-        console.log(
-          `[SpotifySync][Skip] Playlist "${p.name}" has no Spotify URL linked.`,
-        );
-      return;
-    }
-
-    // Si ya está en la lista de pendientes, y NO es un chequeo manual forzado, no volver a preguntar.
-    // Pero si es manual (forceState=true), quitamos el aviso viejo para poner el nuevo corregido.
     if (pendingSpotifySyncs.value.some((s) => s.playlistId === playlistId)) {
-      if (!forceState) {
-        return;
-      } else {
-        // Limpiamos el aviso pendiente anterior para refrescarlo
-        pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
-          (s) => s.playlistId !== playlistId,
-        );
-      }
+      if (!forceState) return true;
+      pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter((s) => s.playlistId !== playlistId);
     }
 
     try {
-      if (forceState)
-        console.log(
-          `[SpotifySync] Checking updates for specific playlist "${p.name}"...`,
-        );
+      if (forceState) console.log(`[DEBUG][Sync] START Manual sync for ID: ${playlistId}`);
+      else console.log(`[DEBUG][Sync] START Automatic background check for ID: ${playlistId}`);
 
-      const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", {
-        url: p.spotifyUrl,
-      });
-      const rawTracks = remoteData
-        ? remoteData.track_list || remoteData.tracks
-        : null;
+      const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", { url: p.spotifyUrl });
+      
+      // PAUSA TÁCTICA Y VALIDACIÓN DE MUERTE INTEGRAL
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (forceState && currentActiveSyncId !== thisSessionToken) return false;
+      if (!forceState && activePlaylistViewId.value !== playlistId) return false;
 
-      if (!Array.isArray(rawTracks)) {
-        console.warn(
-          `[SpotifySync][Check] Raw metadata structure for "${p.name}":`,
-          remoteData,
-        );
-        console.warn(
-          `[SpotifySync][Check] Could not retrieve tracks array. URL:`,
-          p.spotifyUrl,
-        );
-        return;
-      }
+      const rawTracks = remoteData ? remoteData.track_list || remoteData.tracks : null;
+      if (!Array.isArray(rawTracks)) return false;
 
       const getTrackId = (t: any) => t.id || t.spotify_id || t.track_id;
       const remoteIds = rawTracks.map(getTrackId).filter((id) => !!id);
 
-      if (remoteIds.length === 0 && rawTracks.length > 0) {
-        console.warn(
-          `[SpotifySync][Check] Tracks found but NO IDs detected. First track keys:`,
-          Object.keys(rawTracks[0]),
-        );
-      }
+      const localTracksWithMeta = p.trackPaths
+        .map((path) => ({ path, meta: libraryMetadataMap.value[path] }))
+        .filter((x): x is { path: string; meta: any } => !!x.meta);
 
-      // NUEVO: Verificamos si hubo cambios reales en Spotify desde la última vez que "vimos" la playlist
-      // Ahora manejamos un objeto de sincronización más complejo
-      let syncState: { synced?: string[], ignoredRemovals?: string[] } = { synced: [], ignoredRemovals: [] };
+      if (forceState && currentActiveSyncId !== thisSessionToken) return false;
+
+      const localTrackIds = localTracksWithMeta
+        .map((x) => x.meta.spotify_id)
+        .filter((id): id is string => id != null);
+
+      let syncState: { synced?: string[]; ignoredRemovals?: string[] } = { synced: [], ignoredRemovals: [] };
       try {
         const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        if (Array.isArray(parsed)) {
-          syncState.synced = parsed;
-        } else {
-          syncState = parsed;
-        }
+        if (Array.isArray(parsed)) syncState.synced = parsed; else syncState = parsed;
       } catch (e) {}
 
       const syncedIds = syncState.synced || [];
       const ignoredRemovals = syncState.ignoredRemovals || [];
 
-      // NUEVO: Escaneamos metadatos de la playlist local para tener los IDs reales
-      const localMetadata = await invoke<any[]>("get_library_metadata_batch", {
-        paths: p.trackPaths,
-      });
-      const localTrackIds = localMetadata.map(m => m.spotify_id).filter((id): id is string => id != null);
-
-      // Una canción es NUEVA solo si no está en Local Y no está en la lista de "Vistas/Ignoradas"
+      const localIdSet = new Set(localTrackIds);
+      const syncedIdSet = new Set(syncedIds);
       const newTracks = rawTracks
-        .filter((t: any) => {
-          const tid = getTrackId(t);
-          return tid && !localTrackIds.includes(tid) && !syncedIds.includes(tid);
-        })
+        .filter((t: any) => { const tid = getTrackId(t); return tid && !localIdSet.has(tid) && !syncedIdSet.has(tid); })
         .map((t: any) => ({
           id: getTrackId(t),
           title: t.name || t.track_name || t.title || "Unknown Title",
@@ -5893,73 +5931,52 @@ export function useAppLogic() {
           cover: t.images || (t.album_images && t.album_images.length > 0 ? t.album_images[0].url : null),
           release_date: t.release_date || null,
           isrc: t.isrc || (t.external_ids ? t.external_ids.isrc : null),
-          url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`
+          url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`,
         }));
 
-      // NUEVO: Detección de canciones eliminadas
-      // Solo nos importan las que tenemos en local, con ID de Spotify y que NO hemos ignorado antes
-
-      const removedTracks = localMetadata
-        .filter(
-          (m) => m.spotify_id && !remoteIds.includes(m.spotify_id) && !ignoredRemovals.includes(m.spotify_id)
-        )
-        .map((m) => ({
-          id: m.spotify_id || "",
-          title: m.title || "Unknown Title",
-          artists: m.artist || "Unknown Artist",
-          path: m.path,
-          cover: m.cover_path ? convertFileSrc(m.cover_path) : null, // <-- CORRECCIÓN
+      const remoteIdSet = new Set(remoteIds);
+      const ignoredRemovalsSet = new Set(ignoredRemovals);
+      const removedTracks = localTracksWithMeta
+        .filter((x) => x.meta.spotify_id && !remoteIdSet.has(x.meta.spotify_id) && !ignoredRemovalsSet.has(x.meta.spotify_id))
+        .map((x) => ({
+          id: x.meta.spotify_id || "", title: x.meta.title || "Unknown Title", artists: x.meta.artist || "Unknown Artist", path: x.path, cover: x.meta.cover_art?.data_url || null,
         }));
 
-      // Verificamos si el estado remoto ha cambiado respecto a lo que sabíamos
-      const isUpToDate = JSON.stringify(remoteIds.slice().sort()) === JSON.stringify(syncedIds.slice().sort());
+      const isUpToDate = remoteIds.length === syncedIds.length && remoteIds.every((id) => syncedIdSet.has(id));
 
-      // Si no hay nada nuevo que reportar (ni altas ni bajas filtradas), salimos
       if (newTracks.length === 0 && removedTracks.length === 0) {
-        // Pero si el control Maestro (remoteIds) cambió, actualizamos suavemente
         if (!isUpToDate) {
+          if (forceState && currentActiveSyncId !== thisSessionToken) return false;
           await acknowledgeSpotifySync(p.id, { ...syncState, synced: remoteIds });
         }
-        return;
+        spotifySyncLastChecked.value[playlistId] = Date.now();
+        return true;
       }
 
-      console.log(
-        `[SpotifySync] Changes detected for "${p.name}". ${newTracks.length} new, ${removedTracks.length} removed.`,
-      );
+      if (forceState && currentActiveSyncId !== thisSessionToken) return false;
 
-      // Añadimos a la lista de avisos pendientes de forma reactiva
-      const alreadyExistsIndex = pendingSpotifySyncs.value.findIndex(
-        (s) => s.playlistId === p.id,
-      );
-
-      const syncObj = {
-        playlistId: p.id,
-        playlistName: p.name,
-        spotifyUrl: p.spotifyUrl,
-        newTracks: newTracks,
-        removedTracks: removedTracks, // <-- PASAMOS LA LISTA DE ELIMINADAS
-        remoteIds: remoteIds,
-      };
+      const syncObj = { playlistId: p.id, playlistName: p.name, newTracks, removedTracks, remoteIds };
+      const alreadyExistsIndex = pendingSpotifySyncs.value.findIndex((s) => s.playlistId === p.id);
 
       if (alreadyExistsIndex === -1) {
         pendingSpotifySyncs.value = [...pendingSpotifySyncs.value, syncObj];
-        // Por defecto seleccionamos todas las eliminadas para que el usuario sea consciente
-        selectedRemovedTracks.value = removedTracks.map(t => t.path);
+        selectedRemovedTracks.value = removedTracks.map((t) => t.path);
       } else {
-        // Si ya existía uno, lo actualizamos con los nuevos datos
         const newList = [...pendingSpotifySyncs.value];
         newList[alreadyExistsIndex] = syncObj;
         pendingSpotifySyncs.value = newList;
       }
+      spotifySyncLastChecked.value[playlistId] = Date.now();
+      return true;
     } catch (e) {
-      console.error("[SpotifySync] Error checking playlist", p.name, e);
+      console.error(`[SpotifySync] Error checking ${p.name}:`, e);
+      return false;
+    } finally {
+      if (forceState && currentActiveSyncId === thisSessionToken) currentActiveSyncId = null;
     }
   };
 
-  const acknowledgeSpotifySync = async (
-    playlistId: number,
-    state: any,
-  ) => {
+  const acknowledgeSpotifySync = async (playlistId: number, state: any) => {
     console.log(
       `[SpotifySync][DB] Attempting to save sync state for playlist ${playlistId}...`,
     );
@@ -5991,12 +6008,15 @@ export function useAppLogic() {
 
     // NUEVO: Procesar eliminaciones primero
     if (selectedRemovedTracks.value.length > 0) {
-      console.log(`[SpotifySync] Removing ${selectedRemovedTracks.value.length} tracks from playlist "${playlistName}"...`);
+      console.log(
+        `[SpotifySync] Removing ${selectedRemovedTracks.value.length} tracks from playlist "${playlistName}"...`,
+      );
       for (const path of selectedRemovedTracks.value) {
         try {
           await invoke("remove_track_from_playlist", {
             playlistId: playlistId,
-            trackPath: path
+            trackPath: path,
+            deleteFiles: false,
           });
         } catch (e) {
           console.error(`[SpotifySync] Error removing ${path}`, e);
@@ -6029,10 +6049,12 @@ export function useAppLogic() {
     }
 
     const mainMusicDir = musicDirectories.value[0] || "";
-    
+
     for (const track of sync.newTracks) {
       try {
-        const outputDir = mainMusicDir ? `${mainMusicDir}\\${sync.playlistName}` : "";
+        const outputDir = mainMusicDir
+          ? `${mainMusicDir}\\${sync.playlistName}`
+          : "";
 
         // Petición completa con metadatos y flags de incrustación (según DownloadRequest en Go)
         const request = {
@@ -6048,10 +6070,12 @@ export function useAppLogic() {
           audio_format: "LOSSLESS",
           embed_lyrics: true,
           embed_max_quality_cover: true,
-          overwrite: true
+          overwrite: true,
         };
 
-        const result = await invoke<any>("spotiflac_download_track", { request });
+        const result = await invoke<any>("spotiflac_download_track", {
+          request,
+        });
 
         if (result && result.file) {
           await invoke("add_track_to_playlist", {
@@ -6063,16 +6087,20 @@ export function useAppLogic() {
           // Forzar escaneo de metadatos para que el caché se actualice inmediatamente
           try {
             await invoke("get_library_metadata_batch", {
-              paths: [result.file]
+              paths: [result.file],
             });
           } catch (e) {
-            console.warn("[SpotifySync] Error indexing metadata for", result.file, e);
+            console.warn(
+              "[SpotifySync] Error indexing metadata for",
+              result.file,
+              e,
+            );
           }
         }
       } catch (e) {
         console.error(
           `[SpotifySync] Error during download of "${track.title}":`,
-          e
+          e,
         );
       }
     }
@@ -6082,10 +6110,16 @@ export function useAppLogic() {
   };
 
   const discardSpotifySync = (playlistId: number, syncObj: any) => {
-    // Si el usuario cierra el modal dándole al backdrop, silenciamos ambos estados con sus hashes actuales
-    const newHash = (syncObj.newTracks || []).map((t: any) => t.id).sort().join(",");
-    const removedHash = (syncObj.removedTracks || []).map((t: any) => t.path).sort().join(",");
-    
+    // ESTO ES UN DESCARTAR REAL: Silenciamos por el resto de la sesión para este hash exacto
+    const newHash = (syncObj.newTracks || [])
+      .map((t: any) => t.id)
+      .sort()
+      .join(",");
+    const removedHash = (syncObj.removedTracks || [])
+      .map((t: any) => t.path)
+      .sort()
+      .join(",");
+
     if (newHash) sessionDismissedNuevas.value[playlistId] = newHash;
     if (removedHash) sessionDismissedBajas.value[playlistId] = removedHash;
 
@@ -6094,7 +6128,16 @@ export function useAppLogic() {
     );
   };
 
+  const closeSyncModalSoft = (playlistId: number) => {
+    // ESTO ES UN CERRAR SUAVE: No guardamos el hash, solo lo quitamos de la vista actual
+    // Al volver a entrar a la playlist o realizar un nuevo escaneo, el modal volverá a saltar
+    pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+      (s) => s.playlistId !== playlistId,
+    );
+  };
+
   const manualForceSync = async (playlistId: number) => {
+    console.log(`[DEBUG][Sync] USER CLICKED Sync Button for ID: ${playlistId}. Setting state...`);
     // Acción manual del usuario: Reseteamos descartes temporales para que el modal se vea sí o sí
     isManualSyncing.value = playlistId;
     isSyncSuccess.value = null;
@@ -6102,10 +6145,25 @@ export function useAppLogic() {
     delete sessionDismissedNuevas.value[playlistId];
     delete sessionDismissedBajas.value[playlistId];
     try {
-      await checkSpecificSpotifyPlaylist(playlistId);
+      const success = await checkSpecificSpotifyPlaylist(playlistId);
+
+      console.log(`[DEBUG][Sync] manualForceSync: Internal check finished for ID: ${playlistId}. Success=${success}`);
       
-      const syncResult = pendingSpotifySyncs.value.find(s => s.playlistId === playlistId);
-      const hasChanges = syncResult && (syncResult.newTracks.length > 0 || syncResult.removedTracks.length > 0);
+      // VERIFICACIÓN DE CANCELACIÓN ABSOLUTA:
+      if (!success || activePlaylistViewId.value !== playlistId) {
+        console.warn(`[DEBUG][Sync] manualForceSync ABORT: User navigated away or process was cancelled. (Success=${success}, CurrentView=${activePlaylistViewId.value})`);
+        return;
+      }
+      
+      console.log(`[DEBUG][Sync] Current view still matches. Proceding to show results.`);
+
+      const syncResult = pendingSpotifySyncs.value.find(
+        (s) => s.playlistId === playlistId,
+      );
+      const hasChanges =
+        syncResult &&
+        (syncResult.newTracks.length > 0 ||
+          syncResult.removedTracks.length > 0);
 
       if (!hasChanges) {
         isSyncSuccess.value = playlistId;
@@ -6120,17 +6178,23 @@ export function useAppLogic() {
     }
   };
 
-  const applyNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
-    const p = playlists.value.find(item => item.id === playlistId);
+  const applyNewTracksSync = async (
+    playlistId: number,
+    tracks: any[],
+    remoteIds: string[],
+  ) => {
+    const p = playlists.value.find((item) => item.id === playlistId);
     if (!p) return;
-    
+
     isSyncDownloading.value = true;
-    console.log(`[SpotifySync] Downloading ${tracks.length} tracks for "${p.name}"...`);
+    console.log(
+      `[SpotifySync] Downloading ${tracks.length} tracks for "${p.name}"...`,
+    );
     const mainMusicDir = musicDirectories.value[0] || "";
 
     for (const track of tracks) {
       if (track.status === "done") continue;
-      
+
       try {
         track.status = "downloading";
         const request = {
@@ -6146,10 +6210,12 @@ export function useAppLogic() {
           audio_format: "LOSSLESS",
           embed_lyrics: true,
           embed_max_quality_cover: true,
-          overwrite: true
+          overwrite: true,
         };
 
-        const result = await invoke<any>("spotiflac_download_track", { request });
+        const result = await invoke<any>("spotiflac_download_track", {
+          request,
+        });
 
         if (result && result.file) {
           await invoke("add_track_to_playlist", {
@@ -6159,7 +6225,9 @@ export function useAppLogic() {
           });
 
           try {
-            await invoke("get_library_metadata_batch", { paths: [result.file] });
+            await invoke("get_library_metadata_batch", {
+              paths: [result.file],
+            });
           } catch (e) {}
           track.status = "done";
         } else {
@@ -6179,18 +6247,28 @@ export function useAppLogic() {
     // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
       // Al terminar, primero actualizamos el sync de esta playlist en el modal
-      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      const syncIdx = pendingSpotifySyncs.value.findIndex(
+        (s) => s.playlistId === playlistId,
+      );
       if (syncIdx !== -1) {
         // Quitamos las nuevas que ya bajamos correctamente
-        pendingSpotifySyncs.value[syncIdx].newTracks = pendingSpotifySyncs.value[syncIdx].newTracks.filter(t => t.status !== "done");
-        
+        pendingSpotifySyncs.value[syncIdx].newTracks =
+          pendingSpotifySyncs.value[syncIdx].newTracks.filter(
+            (t) => t.status !== "done",
+          );
+
         // Si ya no queda nada que hacer (ni altas ni bajas), quitamos el modal definitivamente
-        if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 && pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
+        if (
+          pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 &&
+          pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0
+        ) {
           await acknowledgeSpotifySync(playlistId, { synced: remoteIds });
-          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+            (s) => s.playlistId !== playlistId,
+          );
         }
       }
-      
+
       // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
       await nextTick();
       isSyncSuccess.value = null;
@@ -6198,16 +6276,23 @@ export function useAppLogic() {
     }, 1500);
   };
 
-  const applyRemovedTracksSync = async (playlistId: number, trackPaths: string[], remoteIds: string[]) => {
-    const p = playlists.value.find(item => item.id === playlistId);
+  const applyRemovedTracksSync = async (
+    playlistId: number,
+    trackPaths: string[],
+    remoteIds: string[],
+  ) => {
+    const p = playlists.value.find((item) => item.id === playlistId);
     if (!p) return;
 
-    console.log(`[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"...`);
+    console.log(
+      `[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"...`,
+    );
     for (const path of trackPaths) {
       try {
         await invoke("remove_track_from_playlist", {
           playlistId: playlistId,
-          trackPath: path
+          trackPath: path,
+          deleteFiles: false,
         });
       } catch (e) {
         console.error(`[SpotifySync] Error removing ${path}`, e);
@@ -6219,25 +6304,34 @@ export function useAppLogic() {
 
     // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
-      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      const syncIdx = pendingSpotifySyncs.value.findIndex(
+        (s) => s.playlistId === playlistId,
+      );
       if (syncIdx !== -1) {
         // Quitamos las borradas de la lista
         pendingSpotifySyncs.value[syncIdx].removedTracks = [];
-        
+
         // Si ya no queda nada que hacer, quitamos el modal definitivamente
         if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0) {
           // Recuperamos el estado actual para no borrar los ignorados
           let syncState: any = { synced: [], ignoredRemovals: [] };
           try {
             const parsed = JSON.parse(p.spotifySyncedIds || "{}");
-            syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+            syncState = Array.isArray(parsed)
+              ? { synced: parsed, ignoredRemovals: [] }
+              : parsed;
           } catch (e) {}
 
-          await acknowledgeSpotifySync(playlistId, { ...syncState, synced: remoteIds });
-          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+          await acknowledgeSpotifySync(playlistId, {
+            ...syncState,
+            synced: remoteIds,
+          });
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+            (s) => s.playlistId !== playlistId,
+          );
         }
       }
-      
+
       await nextTick();
       isSyncSuccess.value = null;
       await loadPlaylists();
@@ -6246,29 +6340,40 @@ export function useAppLogic() {
 
   const ignoreNewTracksSync = async (playlistId: number, tracks: any[]) => {
     try {
-      const p = playlists.value.find(item => item.id === playlistId);
+      const p = playlists.value.find((item) => item.id === playlistId);
       if (!p) return;
 
       // Leemos el estado actual
       let syncState: any = { synced: [], ignoredRemovals: [] };
       try {
         const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+        syncState = Array.isArray(parsed)
+          ? { synced: parsed, ignoredRemovals: [] }
+          : parsed;
       } catch (e) {}
 
       // Añadimos los IDs de los tracks a la lista de "ya vistos"
-      const newIds = tracks.map(t => t.id);
-      const updatedSynced = [...new Set([...(syncState.synced || []), ...newIds])];
-      
-      await acknowledgeSpotifySync(playlistId, { ...syncState, synced: updatedSynced });
+      const newIds = tracks.map((t) => t.id);
+      const updatedSynced = [
+        ...new Set([...(syncState.synced || []), ...newIds]),
+      ];
+
+      await acknowledgeSpotifySync(playlistId, {
+        ...syncState,
+        synced: updatedSynced,
+      });
       await loadPlaylists();
-      
+
       // Actualizamos UI reactivamente
-      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      const syncIdx = pendingSpotifySyncs.value.findIndex(
+        (s) => s.playlistId === playlistId,
+      );
       if (syncIdx !== -1) {
         pendingSpotifySyncs.value[syncIdx].newTracks = [];
         if (pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
-          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+            (s) => s.playlistId !== playlistId,
+          );
         }
       }
     } catch (e) {
@@ -6276,36 +6381,56 @@ export function useAppLogic() {
     }
   };
 
-  const ignoreRemovedTracksSync = async (playlistId: number, trackPaths: string[]) => {
+  const ignoreRemovedTracksSync = async (
+    playlistId: number,
+    trackPaths: string[],
+  ) => {
     try {
-      const p = playlists.value.find(item => item.id === playlistId);
+      const p = playlists.value.find((item) => item.id === playlistId);
       if (!p) return;
 
       // Leemos el estado actual
       let syncState: any = { synced: [], ignoredRemovals: [] };
       try {
         const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        syncState = Array.isArray(parsed) ? { synced: parsed, ignoredRemovals: [] } : parsed;
+        syncState = Array.isArray(parsed)
+          ? { synced: parsed, ignoredRemovals: [] }
+          : parsed;
       } catch (e) {}
 
       // Obtenemos los spotify_ids de esos paths
-      const metadata = await invoke<any[]>("get_library_metadata_batch", { paths: trackPaths });
-      const ignoredIds = metadata.map(m => m.spotify_id).filter(id => !!id);
+      const metadata = await invoke<any[]>("get_library_metadata_batch", {
+        paths: trackPaths,
+      });
+      const ignoredIds = metadata.map((m) => m.spotify_id).filter((id) => !!id);
 
       // Los añadimos a la lista de "ignorados para borrado"
-      const updatedIgnored = [...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds])];
-      
-      await acknowledgeSpotifySync(playlistId, { ...syncState, ignoredRemovals: updatedIgnored });
+      const updatedIgnored = [
+        ...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds]),
+      ];
+
+      await acknowledgeSpotifySync(playlistId, {
+        ...syncState,
+        ignoredRemovals: updatedIgnored,
+      });
       await loadPlaylists();
 
       // Actualizamos UI reactivamente
-      const syncIdx = pendingSpotifySyncs.value.findIndex(s => s.playlistId === playlistId);
+      const syncIdx = pendingSpotifySyncs.value.findIndex(
+        (s) => s.playlistId === playlistId,
+      );
       if (syncIdx !== -1) {
-        pendingSpotifySyncs.value[syncIdx].removedTracks = pendingSpotifySyncs.value[syncIdx].removedTracks.filter(
-          t => !trackPaths.includes(t.path)
-        );
-        if (pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 && pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0) {
-          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(s => s.playlistId !== playlistId);
+        pendingSpotifySyncs.value[syncIdx].removedTracks =
+          pendingSpotifySyncs.value[syncIdx].removedTracks.filter(
+            (t) => !trackPaths.includes(t.path),
+          );
+        if (
+          pendingSpotifySyncs.value[syncIdx].newTracks.length === 0 &&
+          pendingSpotifySyncs.value[syncIdx].removedTracks.length === 0
+        ) {
+          pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
+            (s) => s.playlistId !== playlistId,
+          );
         }
       }
     } catch (e) {
@@ -6316,7 +6441,10 @@ export function useAppLogic() {
   const ignoreSpotifySync = async (playlistId: number, remoteIds: string[]) => {
     // Marcamos el estado actual como "visto completo" en la DB
     try {
-      await acknowledgeSpotifySync(playlistId, { synced: remoteIds, ignoredRemovals: [] });
+      await acknowledgeSpotifySync(playlistId, {
+        synced: remoteIds,
+        ignoredRemovals: [],
+      });
       pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
         (s) => s.playlistId !== playlistId,
       );
@@ -6324,7 +6452,6 @@ export function useAppLogic() {
       console.error("[SpotifySync] Error ignoring sync", e);
     }
   };
-
 
   const getLibraryTrackMetadata = (track: PlaylistTrack) => {
     return libraryMetadataMap.value[track.path] ?? null;
@@ -8626,6 +8753,7 @@ export function useAppLogic() {
     sessionDismissedNuevas,
     sessionDismissedBajas,
     discardSpotifySync,
+    closeSyncModalSoft,
     ignoreSpotifySync,
     multiSelectedLibraryTracks,
     addSelectionToQueue,

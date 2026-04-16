@@ -403,9 +403,23 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT", []);
     let _ = conn.execute("ALTER TABLE playlists ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0", []); // <-- NUEVO
     
-    // Asegurarnos de que "Tus Me Gusta" existe siempre como playlist del sistema
+    // DEDUPLICACIÓN: Asegurarnos de que solo exista UNA "Tus Me Gusta" y que sea de sistema
+    // 1. Si existe una manual llamada "Tus Me Gusta", la promovemos a sistema
     let _ = conn.execute(
-        "INSERT OR IGNORE INTO playlists (name, is_system) VALUES ('Tus Me Gusta', 1)",
+        "UPDATE playlists SET is_system = 1 WHERE (name = 'Tus Me Gusta' OR name = 'Tus Me Gusta ') AND is_system = 0",
+        [],
+    );
+
+    // 2. LIMPIEZA DRÁSTICA: Borramos cualquier duplicado de sistema, quedándonos SOLO con el ID más bajo
+    // Esto limpia las que se crearon por el error del bucle anterior.
+    let _ = conn.execute(
+        "DELETE FROM playlists WHERE is_system = 1 AND id NOT IN (SELECT id FROM playlists WHERE is_system = 1 ORDER BY id ASC LIMIT 1)",
+        [],
+    );
+
+    // 3. CREACIÓN CONDICIONAL: Solo insertamos si NO existe absolutamente ninguna playlist de sistema
+    let _ = conn.execute(
+        "INSERT INTO playlists (name, is_system) SELECT 'Tus Me Gusta', 1 WHERE NOT EXISTS (SELECT 1 FROM playlists WHERE is_system = 1)",
         [],
     );
     let _ = conn.execute(
@@ -2461,91 +2475,115 @@ fn run_spotiflac_bridge(
 }
 
 #[tauri::command]
-fn spotiflac_get_spotify_metadata(
+async fn spotiflac_get_spotify_metadata(
     url: String,
     batch: Option<bool>,
     delay: Option<f64>,
     timeout: Option<f64>,
     separator: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
-        "get-spotify-metadata",
-        serde_json::json!({
-            "url": url,
-            "batch": batch.unwrap_or(true),
-            "delay": delay.unwrap_or(1.0),
-            "timeout": timeout.unwrap_or(300.0),
-            "separator": separator.unwrap_or_else(|| ", ".to_string()),
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        run_spotiflac_bridge(
+            "get-spotify-metadata",
+            serde_json::json!({
+                "url": url,
+                "batch": batch.unwrap_or(true),
+                "delay": delay.unwrap_or(1.0),
+                "timeout": timeout.unwrap_or(300.0),
+                "separator": separator.unwrap_or_else(|| ", ".to_string()),
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn spotiflac_get_streaming_urls(
+async fn spotiflac_get_streaming_urls(
     spotify_track_id: String,
     region: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
-        "get-streaming-urls",
-        serde_json::json!({
-            "spotify_track_id": spotify_track_id,
-            "region": region.unwrap_or_default(),
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        run_spotiflac_bridge(
+            "get-streaming-urls",
+            serde_json::json!({
+                "spotify_track_id": spotify_track_id,
+                "region": region.unwrap_or_default(),
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn spotiflac_check_track_availability(
+async fn spotiflac_check_track_availability(
     spotify_track_id: String,
 ) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
-        "check-track-availability",
-        serde_json::json!({
-            "spotify_track_id": spotify_track_id,
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        run_spotiflac_bridge(
+            "check-track-availability",
+            serde_json::json!({
+                "spotify_track_id": spotify_track_id,
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn spotiflac_search_spotify(
+async fn spotiflac_search_spotify(
     query: String,
     limit: Option<i32>,
 ) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
-        "search-spotify",
-        serde_json::json!({
-            "query": query,
-            "limit": limit.unwrap_or(50),
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        run_spotiflac_bridge(
+            "search-spotify",
+            serde_json::json!({
+                "query": query,
+                "limit": limit.unwrap_or(50),
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn spotiflac_search_spotify_by_type(
+async fn spotiflac_search_spotify_by_type(
     query: String,
     search_type: String,
     limit: Option<i32>,
     offset: Option<i32>,
 ) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         run_spotiflac_bridge(
-        "search-spotify-by-type",
-        serde_json::json!({
-            "query": query,
-            "search_type": search_type,
-            "limit": limit.unwrap_or(50),
-            "offset": offset.unwrap_or(0),
-        }),
-    )
+            "search-spotify-by-type",
+            serde_json::json!({
+                "query": query,
+                "search_type": search_type,
+                "limit": limit.unwrap_or(50),
+                "offset": offset.unwrap_or(0),
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn spotiflac_get_preview_url(track_id: String) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
-        "get-preview-url",
-        serde_json::json!({
-            "track_id": track_id,
-        }),
-    )
+async fn spotiflac_get_preview_url(track_id: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_spotiflac_bridge(
+            "get-preview-url",
+            serde_json::json!({
+                "track_id": track_id,
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

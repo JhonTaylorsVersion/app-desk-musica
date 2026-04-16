@@ -1780,8 +1780,18 @@ export default defineComponent({
                   "
                 >
                   <div class="sah-content playlist-sah-content">
+                    <!-- Carátula de sistema para Tus Me Gusta -->
+                      <div
+                        v-if="activePlaylist.isSystem === 1"
+                        class="playlist-cover-system liked-songs sah-cover glass-shadow"
+                      >
+                        <svg viewBox="0 0 24 24" width="86" height="86" fill="white">
+                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                      </div>
+
                     <div
-                      v-if="activePlaylistCoverTiles.length > 0"
+                      v-else-if="activePlaylistCoverTiles.length > 0"
                       class="playlist-cover-grid sah-cover playlist-hero-cover-grid glass-shadow"
                       :class="`count-${Math.min(activePlaylistCoverTiles.length, 4)}`"
                     >
@@ -3797,7 +3807,7 @@ export default defineComponent({
     <div
       v-if="pendingSpotifySyncs.length > 0"
       class="spotify-sync-modal-backdrop"
-      @click.self="discardSpotifySync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0])"
+      @click.self="closeSyncModalSoft(pendingSpotifySyncs[0].playlistId)"
     >
       <div class="spotify-sync-modal glass-panel">
         <div class="spotify-sync-modal-header">
@@ -4531,12 +4541,19 @@ export default defineComponent({
 }
 .playlist-cover-system.liked-songs {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1 / 1;
   background: linear-gradient(135deg, #450af5, #c4efd9);
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+}
+
+.playlist-view-hero .playlist-cover-system.liked-songs {
+  width: 232px; /* Tamaño estándar de carátula en héroe */
+  height: 232px;
+  flex-shrink: 0;
+  border-radius: 8px;
 }
 .playlist-cover-system.liked-songs svg {
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
