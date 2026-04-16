@@ -1810,17 +1810,29 @@ export default defineComponent({
                       <div v-if="activePlaylist && activePlaylist.spotifyUrl" class="playlist-sync-manual-controls">
                         <button 
                           class="playlist-sync-force-btn" 
-                          :class="{ 'is-loading': isManualSyncing === activePlaylist.id }"
+                          :class="{ 
+                            'is-loading': isManualSyncing === activePlaylist.id,
+                            'is-success': isSyncSuccess === activePlaylist.id
+                          }"
                           :disabled="isManualSyncing === activePlaylist.id"
                           title="Sincronizar ahora con Spotify"
                           @click="activePlaylist && manualForceSync(activePlaylist.id)"
                         >
-                          <svg v-if="isManualSyncing !== activePlaylist.id" viewBox="0 0 496 512" width="16" height="16">
+                          <template v-if="isSyncSuccess === activePlaylist.id">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+                              <path d="M20 6L9 17L4 12" stroke="#1db954" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                          </template>
+                          <template v-else-if="isManualSyncing === activePlaylist.id">
+                            <div class="spotify-sync-spinner-mini white" style="width: 14px; height: 14px;"></div>
+                          </template>
+                          <svg v-else viewBox="0 0 496 512" width="16" height="16">
                             <path fill="#1ed760" d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"/>
                             <path d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"/>
                           </svg>
-                          <div v-else class="spotify-sync-spinner-mini white" style="width: 14px; height: 14px;"></div>
-                          {{ isManualSyncing === activePlaylist.id ? 'Sincronizando...' : 'Sincronizar' }}
+                          <span>
+                            {{ isManualSyncing === activePlaylist.id ? 'Sincronizando...' : isSyncSuccess === activePlaylist.id ? 'Al día' : 'Sincronizar' }}
+                          </span>
                         </button>
 
                         <template v-if="activePlaylistSync">
@@ -2397,11 +2409,8 @@ export default defineComponent({
                   :data-track-path="track.path"
                   @mouseenter="hoveredLibraryTrackPath = track.path"
                   @mouseleave="hoveredLibraryTrackPath = null"
-                  @mousedown.left="handleTrackPointerDown($event, track)"
-                  @click.stop="
-                    handleLibraryTrackPrimaryAction($event, track, index)
-                  "
-                  @contextmenu="openLibraryTrackMenu($event, track, index)"
+                  @mousedown.left="handleTrackPointerDown($event, track, index)"
+                  @contextmenu.prevent="openLibraryTrackContextMenu($event, track, index)"
                   @dblclick="playTrackFromLibrary(track, index)"
                 >
                   <div
@@ -2466,7 +2475,7 @@ export default defineComponent({
                   <div
                     class="col-title row-title-wrap"
                     @click.stop="
-                      handleLibraryTrackPrimaryAction($event, track, index)
+                      toggleLibraryTrackPlayback(track, index)
                     "
                   >
                     <div class="row-cover" v-if="currentViewMode !== 'album'">
@@ -2531,7 +2540,7 @@ export default defineComponent({
                       class="library-row-menu-btn"
                       type="button"
                       aria-label="Más opciones"
-                      @click.stop="openLibraryTrackMenu($event, track, index)"
+                      @click.stop="openLibraryTrackContextMenu($event, track, index)"
                     >
                       <svg
                         width="16"
@@ -3355,61 +3364,93 @@ export default defineComponent({
     :style="contextMenuStyle"
     @click.stop
   >
-    <button
-      class="context-menu-item"
-      type="button"
-      @click="toggleContextMenuTrackPlayback"
-    >
-      {{
-        contextMenuTargetsCurrentTrack
-          ? isPlaying
-            ? "Pausar"
-            : "Reanudar"
-          : "Reproducir"
-      }}
-    </button>
-    <button
-      class="context-menu-item"
-      type="button"
-      @click="addContextMenuTrackToQueue"
-    >
-      Agregar a la fila de reproducción
-    </button>
-    <button
-      v-if="contextMenuPlaylistActions.length > 0"
-      class="context-menu-item with-chevron"
-      type="button"
-      @click="toggleContextMenuPlaylistPicker"
-    >
-      Agregar a una playlist
-    </button>
-    <button
-      v-if="contextMenuCanRemoveFromPlaylist && contextMenuActivePlaylist"
-      class="context-menu-item"
-      type="button"
-      @click="removeContextMenuTrackFromPlaylist"
-    >
-      Eliminar de {{ contextMenuActivePlaylist.name }}
-    </button>
-    <div
-      v-if="
-        contextMenuPlaylistActions.length > 0 ||
-        contextMenuCanRemoveFromPlaylist
-      "
-      class="context-menu-separator"
-    ></div>
-    <div
-      v-if="contextMenuCanRemoveFromQueue"
-      class="context-menu-separator"
-    ></div>
-    <button
-      v-if="contextMenuCanRemoveFromQueue"
-      class="context-menu-item"
-      type="button"
-      @click="removeContextMenuTrackFromQueue"
-    >
-      Quitar de la fila
-    </button>
+    <!-- Acciones para selección múltiple -->
+    <template v-if="multiSelectedLibraryTracks.length > 1">
+      <div class="context-menu-header">
+        Selección de {{ multiSelectedLibraryTracks.length }} canciones
+      </div>
+      <button
+        class="context-menu-item"
+        type="button"
+        @click="addSelectionToQueue"
+      >
+        Agregar selección a la fila
+      </button>
+      <button
+        class="context-menu-item with-chevron"
+        type="button"
+        @click="toggleContextMenuPlaylistPicker"
+      >
+        Agregar selección a una playlist
+      </button>
+      <button
+        v-if="contextMenuCanRemoveFromPlaylist && contextMenuActivePlaylist"
+        class="context-menu-item"
+        type="button"
+        @click="removeContextMenuTrackFromPlaylist()"
+      >
+        Eliminar selección de {{ contextMenuActivePlaylist.name }}
+      </button>
+    </template>
+
+    <!-- Acciones para un solo track (Legacy/Single) -->
+    <template v-else>
+      <button
+        class="context-menu-item"
+        type="button"
+        @click="toggleContextMenuTrackPlayback"
+      >
+        {{
+          contextMenuTargetsCurrentTrack
+            ? isPlaying
+              ? "Pausar"
+              : "Reanudar"
+            : "Reproducir"
+        }}
+      </button>
+      <button
+        class="context-menu-item"
+        type="button"
+        @click="addContextMenuTrackToQueue"
+      >
+        Agregar a la fila de reproducción
+      </button>
+      <button
+        v-if="contextMenuPlaylistActions.length > 0"
+        class="context-menu-item with-chevron"
+        type="button"
+        @click="toggleContextMenuPlaylistPicker"
+      >
+        Agregar a una playlist
+      </button>
+      <button
+        v-if="contextMenuCanRemoveFromPlaylist && contextMenuActivePlaylist"
+        class="context-menu-item"
+        type="button"
+        @click="removeContextMenuTrackFromPlaylist"
+      >
+        Eliminar de {{ contextMenuActivePlaylist.name }}
+      </button>
+      <div
+        v-if="
+          contextMenuPlaylistActions.length > 0 ||
+          contextMenuCanRemoveFromPlaylist
+        "
+        class="context-menu-separator"
+      ></div>
+      <div
+        v-if="contextMenuCanRemoveFromQueue"
+        class="context-menu-separator"
+      ></div>
+      <button
+        v-if="contextMenuCanRemoveFromQueue"
+        class="context-menu-item"
+        type="button"
+        @click="removeContextMenuTrackFromQueue"
+      >
+        Quitar de la fila
+      </button>
+    </template>
     <div class="context-menu-separator"></div>
     <button
       class="context-menu-item"
@@ -3598,10 +3639,23 @@ export default defineComponent({
           <label class="delete-files-checkbox">
             <input type="checkbox" v-model="deletePlaylistWithFiles" />
             <span class="checkbox-custom"></span>
-            <span class="checkbox-label">Eliminar también los archivos físicos descargados del PC</span>
+            <span class="checkbox-label">Eliminar la playlist <strong>{{ playlistPendingDeletion.name }}</strong> y sus canciones físicamente de tu PC</span>
           </label>
           <div v-if="deletePlaylistWithFiles" class="delete-files-hard-warning">
-            ⚠️ Esta acción es permanente y no se puede deshacer (los archivos no irán a la papelera).
+            <svg class="modal-warning-icon" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 8V12M12 16H12.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>
+              Solo se borrarán los archivos físicos de esta playlist. Si una
+              canción está en otra lista de reproducción, permanecerá guardada
+              en tu PC.
+            </span>
           </div>
         </div>
 
@@ -3619,6 +3673,82 @@ export default defineComponent({
             @click="confirmDeletePlaylist"
           >
             {{ deletePlaylistWithFiles ? 'Eliminar todo' : 'Eliminar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    v-if="trackPendingDeletion"
+    class="playlist-modal-backdrop"
+    @click.self="closeTrackDeleteModal"
+  >
+    <div class="playlist-modal delete-modal">
+      <div class="playlist-modal-copy">
+        <h2>
+          {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
+            ? `¿Quitar estas ${trackPendingDeletion.count} canciones?` 
+            : "¿Quitar esta canción de la playlist?" }}
+        </h2>
+        <p v-if="!trackPendingDeletion.count || trackPendingDeletion.count === 1">
+          Se quitará
+          <strong>{{ getTrackDisplayTitle(trackPendingDeletion.track) }}</strong>
+          de <strong>{{ trackPendingDeletion.playlistName }}</strong>.
+        </p>
+        <p v-else>
+          Se quitarán <strong>{{ trackPendingDeletion.count }} canciones</strong> 
+          de <strong>{{ trackPendingDeletion.playlistName }}</strong>.
+        </p>
+      </div>
+
+      <div class="playlist-modal-actions delete-playlist-actions-wrap">
+        <div v-if="trackPendingDeletion.isPhysical" class="delete-files-option">
+          <label class="delete-files-checkbox">
+            <input type="checkbox" v-model="deleteTrackWithFiles" />
+            <span class="checkbox-custom"></span>
+            <span class="checkbox-label">
+              {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
+                 ? "Eliminar también los archivos físicos del PC" 
+                 : "Eliminar también el archivo físico del PC" }}
+            </span>
+          </label>
+          <div v-if="deleteTrackWithFiles" class="delete-files-hard-warning">
+            <svg class="modal-warning-icon" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 8V12M12 16H12.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>
+              {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
+                 ? "Los archivos se eliminarán físicamente solo de la carpeta de la playlist" 
+                 : "El archivo se eliminará físicamente solo de la carpeta de la playlist" }}
+              <strong>{{ trackPendingDeletion.playlistName }}</strong>. Otras
+              copias en tu PC no se verán afectadas.
+            </span>
+          </div>
+        </div>
+
+        <div class="modal-footer-buttons">
+          <button
+            class="playlist-modal-btn ghost"
+            type="button"
+            @click="closeTrackDeleteModal"
+          >
+            Cancelar
+          </button>
+          <button
+            class="playlist-modal-btn danger"
+            type="button"
+            @click="confirmDeleteTrack"
+          >
+            {{
+              deleteTrackWithFiles ? "Eliminar del disco" : "Quitar de la lista"
+            }}
           </button>
         </div>
       </div>
@@ -3704,7 +3834,7 @@ export default defineComponent({
                 <button
                   class="spotify-sync-btn ghost mini"
                   type="button"
-                  @click="ignoreNewTracksSync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0].newTracks, pendingSpotifySyncs[0].remoteIds || [])"
+                  @click="ignoreNewTracksSync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0].newTracks)"
                   title="Ignorar permanentemente"
                 >
                   No mostrar
@@ -4319,5 +4449,47 @@ export default defineComponent({
 .spotify-sync-modal-leave-to {
   opacity: 0;
   backdrop-filter: blur(0px);
+}
+.delete-files-hard-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(255, 77, 77, 0.08);
+  border: 1px solid rgba(255, 77, 77, 0.2);
+  color: #ff4d4d;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-top: 12px;
+  animation: spotify-sync-fade-in 0.3s ease-out;
+}
+
+.modal-warning-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.track-row.selected {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.context-menu-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 800;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.playlist-sync-force-btn.is-success {
+  background: rgba(29, 185, 84, 0.1);
+  border-color: rgba(29, 185, 84, 0.3);
+  color: #1db954;
+  animation: spotify-sync-pop 0.3s ease;
 }
 </style>

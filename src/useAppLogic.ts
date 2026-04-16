@@ -1008,6 +1008,16 @@ export function useAppLogic() {
   const playlistPendingDeletionId = ref<number | null>(null);
   const deletePlaylistWithFiles = ref(false);
 
+  const trackPendingDeletion = ref<{
+    track: PlaylistTrack;
+    playlistId: number;
+    playlistName: string;
+    isPhysical: boolean;
+    count?: number;
+    tracks?: PlaylistTrack[];
+  } | null>(null);
+  const deleteTrackWithFiles = ref(false);
+
   const isContextMenuPlaylistPickerVisible = ref(false);
 
   const contextMenuPlaylistSearch = ref("");
@@ -1196,6 +1206,11 @@ export function useAppLogic() {
     deletePlaylistWithFiles.value = false;
   };
 
+  const closeTrackDeleteModal = () => {
+    trackPendingDeletion.value = null;
+    deleteTrackWithFiles.value = false;
+  };
+
   const addContextMenuTrackToQueue = () => {
     if (!contextMenu.value.track) return;
     addToQueue(contextMenu.value.track);
@@ -1321,47 +1336,152 @@ export function useAppLogic() {
     closeTrackContextMenu();
   };
 
-  const isLibraryTrackSelected = (track: PlaylistTrack, index?: number) => {
-    if (
-      !selectedLibraryTrack.value ||
-      selectedLibraryTrack.value.path !== track.path
-    ) {
-      return false;
-    }
+  const multiSelectedLibraryTracks = ref<{ path: string; index: number }[]>([]);
+  const lastSelectedTrackIndex = ref<number | null>(null);
 
-    if (
-      currentViewMode.value === "playlist" &&
-      activePlaylist.value &&
-      typeof index === "number" &&
-      displayedTracks.value[index]
-    ) {
-      return (
-        selectedLibraryTrack.value.playlistId === activePlaylist.value.id &&
-        selectedLibraryTrack.value.occurrenceIndex ===
-          getTrackOccurrenceIndex(displayedTracks.value, index, track.path)
-      );
-    }
-
-    return true;
+  const clearMultiSelection = () => {
+    multiSelectedLibraryTracks.value = [];
+    lastSelectedTrackIndex.value = null;
   };
 
-  const handleLibraryTrackPrimaryAction = (
-    _event: MouseEvent,
-    track: PlaylistTrack,
-    index?: number,
-  ) => {
+  const handleTrackPointerDown = (event: MouseEvent, track: PlaylistTrack, index: number) => {
+    // 1. Lógica de Selección (Multi-select)
+    if (event.button === 2) {
+      if (multiSelectedLibraryTracks.value.some(t => t.index === index)) {
+        return;
+      }
+    }
+
+    const isShift = event.shiftKey;
+    const isCtrl = event.ctrlKey || event.metaKey;
+
+    if (isShift && lastSelectedTrackIndex.value !== null) {
+      const start = Math.min(lastSelectedTrackIndex.value, index);
+      const end = Math.max(lastSelectedTrackIndex.value, index);
+      
+      const newSelection = [];
+      for (let i = start; i <= end; i++) {
+        const t = displayedTracks.value[i];
+        if (t) {
+          newSelection.push({ path: t.path, index: i });
+        }
+      }
+      multiSelectedLibraryTracks.value = newSelection;
+    } else if (isCtrl) {
+      const existing = multiSelectedLibraryTracks.value.findIndex(t => t.index === index);
+      if (existing !== -1) {
+        multiSelectedLibraryTracks.value.splice(existing, 1);
+      } else {
+        multiSelectedLibraryTracks.value.push({ path: track.path, index: index });
+        lastSelectedTrackIndex.value = index;
+      }
+    } else {
+      multiSelectedLibraryTracks.value = [{ path: track.path, index: index }];
+      lastSelectedTrackIndex.value = index;
+    }
+    
     selectLibraryTrack(track, index);
+
+    // 2. Lógica de Drag and Drop
+    if (event.button !== 0) return;
+
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.closest(
+        "button, input, textarea, select, a, .interactive-index, .track-actions",
+      )
+    ) {
+      return;
+    }
+
+    removePendingTrackPointerListeners();
+    pendingTrackPointerDrag = {
+      track,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+
+    window.addEventListener("mousemove", handlePendingTrackPointerMove);
+    window.addEventListener("mouseup", handlePendingTrackPointerUp);
   };
 
-  const openLibraryTrackMenu = (
+  const isLibraryTrackSelected = (track: PlaylistTrack, index?: number) => {
+    if (typeof index === 'number') {
+      return multiSelectedLibraryTracks.value.some(t => t.index === index);
+    }
+    return selectedLibraryTrack.value?.path === track.path;
+  };
+
+  const addSelectionToQueue = () => {
+    if (multiSelectedLibraryTracks.value.length === 0) return;
+    
+    // Obtener los tracks reales de la selección
+    const tracksToQueue = multiSelectedLibraryTracks.value
+      .map(s => displayedTracks.value[s.index])
+      .filter(t => !!t) as PlaylistTrack[];
+      
+    tracksToQueue.forEach(t => addToQueue(t));
+    closeTrackContextMenu();
+    clearMultiSelection();
+  };
+
+  const addSelectionToPlaylist = async (targetPlaylistId: number) => {
+    const paths = multiSelectedLibraryTracks.value.map(s => s.path);
+    if (paths.length === 0) return;
+
+    try {
+      for (const path of paths) {
+        await invoke("add_track_to_playlist", {
+          playlistId: targetPlaylistId,
+          trackPath: path,
+        });
+      }
+      await loadPlaylists();
+      closeTrackContextMenu();
+      clearMultiSelection();
+    } catch (err) {
+      console.error("Error al añadir selección a playlist:", err);
+    }
+  };
+
+  const removeSelectionFromPlaylist = async (deleteFiles: boolean = false) => {
+    if (contextMenu.value.playlistId == null) return;
+    const playlistId = contextMenu.value.playlistId;
+    
+    // Copia de la selección porque se va a limpiar
+    const selection = [...multiSelectedLibraryTracks.value].sort((a, b) => b.index - a.index);
+    
+    try {
+      for (const item of selection) {
+        await invoke("remove_track_from_playlist", {
+          playlistId,
+          trackPath: item.path,
+          deleteFiles,
+          occurrenceIndex: getTrackOccurrenceIndex(displayedTracks.value, item.index, item.path)
+        });
+      }
+      
+      await loadPlaylists();
+      closeTrackContextMenu();
+      closeTrackDeleteModal();
+      clearMultiSelection();
+    } catch (err) {
+      console.error("Error al eliminar selección de playlist:", err);
+    }
+  };
+
+  const openLibraryTrackContextMenu = (
     event: MouseEvent,
     track: PlaylistTrack,
     index?: number,
   ) => {
+    // Si el track no está en la selección múltiple, lo seleccionamos solo a él
+    if (typeof index === 'number' && !multiSelectedLibraryTracks.value.some(t => t.index === index)) {
+      handleTrackPointerDown(event, track, index);
+    }
+
     const isPlaylistTrack =
       currentViewMode.value === "playlist" && activePlaylist.value;
-
-    selectLibraryTrack(track, index);
 
     openTrackContextMenu(
       event,
@@ -2472,9 +2592,19 @@ export function useAppLogic() {
   };
 
   const addContextMenuTrackToPlaylist = async (playlistId: number) => {
-    if (!contextMenu.value.track) return;
-    await addTrackToPlaylist(playlistId, contextMenu.value.track);
+    const tracksToAdd = multiSelectedLibraryTracks.value.length > 1 
+      ? multiSelectedLibraryTracks.value.map(s => displayedTracks.value[s.index]).filter(t => !!t) as PlaylistTrack[]
+      : contextMenu.value.track ? [contextMenu.value.track] : [];
+
+    if (tracksToAdd.length === 0) return;
+
+    for (const track of tracksToAdd) {
+      await addTrackToPlaylist(playlistId, track);
+    }
+
+    await loadPlaylists();
     closeTrackContextMenu();
+    clearMultiSelection();
   };
 
   const confirmDuplicatePlaylistAdd = async () => {
@@ -2524,19 +2654,21 @@ export function useAppLogic() {
   };
 
   const removeTrackFromPlaylist = async (
-    playlistId: number,
+    playlist_id_param: number,
     track: PlaylistTrack,
+    deleteFiles: boolean = false,
   ) => {
     try {
       await invoke("remove_track_from_playlist", {
-        playlistId,
+        playlistId: playlist_id_param,
         trackPath: track.path,
+        deleteFiles,
       });
       await loadPlaylists();
 
       if (
         currentViewMode.value === "playlist" &&
-        activePlaylistViewId.value === playlistId
+        activePlaylistViewId.value === playlist_id_param
       ) {
         selectedLibraryTrack.value = null;
       }
@@ -2546,13 +2678,89 @@ export function useAppLogic() {
   };
 
   const removeContextMenuTrackFromPlaylist = async () => {
-    if (!contextMenu.value.track || contextMenu.value.playlistId == null)
-      return;
-    await removeTrackFromPlaylist(
-      contextMenu.value.playlistId,
-      contextMenu.value.track,
-    );
+    if (contextMenu.value.playlistId == null) return;
+    
+    const playlistId = contextMenu.value.playlistId;
+    const targetPlaylist = playlists.value.find((p) => p.id === playlistId);
+    const playlistName = targetPlaylist?.name || "";
+
+    const selection = multiSelectedLibraryTracks.value.length > 1
+      ? multiSelectedLibraryTracks.value.map(s => displayedTracks.value[s.index]).filter(t => !!t) as PlaylistTrack[]
+      : contextMenu.value.track ? [contextMenu.value.track] : [];
+
+    if (selection.length === 0) return;
+
+    let anyPhysical = false;
+    const processedTracks: PlaylistTrack[] = [];
+
+    for (let track of selection) {
+      try {
+        const reconciledPath = await invoke<string | null>("try_reconcile_physical_path", {
+          playlistId,
+          currentPath: track.path,
+        });
+        if (reconciledPath) {
+          track = { ...track, path: reconciledPath };
+        }
+      } catch (e) {
+        console.warn("Error reconciliando track:", track.path);
+      }
+
+      const normalizedPath = track.path.replace(/\\/g, "/");
+      const parts = normalizedPath.split("/");
+      if (parts.length >= 2) {
+        const parentFolder = parts[parts.length - 2].trim().toLowerCase();
+        const targetName = playlistName.trim().toLowerCase();
+        if (parentFolder === targetName) {
+          anyPhysical = true;
+        }
+      }
+      processedTracks.push(track);
+    }
+
+    trackPendingDeletion.value = {
+      track: processedTracks[0],
+      playlistId,
+      playlistName: playlistName || "esta playlist",
+      isPhysical: anyPhysical,
+      count: processedTracks.length,
+      tracks: processedTracks
+    };
     closeTrackContextMenu();
+  };
+
+  const confirmDeleteTrack = async () => {
+    if (!trackPendingDeletion.value) return;
+
+    const { playlistId, track, tracks, playlistName } = trackPendingDeletion.value;
+    const globalDeleteRequest = deleteTrackWithFiles.value;
+
+    const computeIsPhysical = (t: PlaylistTrack) => {
+      const normalizedPath = t.path.replace(/\\/g, "/");
+      const parts = normalizedPath.split("/");
+      if (parts.length >= 2) {
+        const parentFolder = parts[parts.length - 2].trim().toLowerCase();
+        const targetName = playlistName.trim().toLowerCase();
+        return parentFolder === targetName;
+      }
+      return false;
+    };
+
+    if (tracks && tracks.length > 0) {
+      for (const t of tracks) {
+        const actuallyPhysical = computeIsPhysical(t);
+        const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
+        await removeTrackFromPlaylist(playlistId, t, shouldDeleteFiles);
+      }
+    } else {
+      const actuallyPhysical = computeIsPhysical(track);
+      const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
+      await removeTrackFromPlaylist(playlistId, track, shouldDeleteFiles);
+    }
+
+    await loadPlaylists();
+    closeTrackDeleteModal();
+    clearMultiSelection();
   };
 
   const cleanupTrackDragState = () => {
@@ -2757,35 +2965,7 @@ export function useAppLogic() {
     window.removeEventListener("mouseup", handlePendingTrackPointerUp);
   };
 
-  const handleTrackPointerDown = (event: MouseEvent, track: PlaylistTrack) => {
-    if (event.button !== 0) return;
 
-    const target = event.target as HTMLElement | null;
-    if (
-      target?.closest(
-        "button, input, textarea, select, a, .interactive-index, .track-actions",
-      )
-    ) {
-      return;
-    }
-
-    removePendingTrackPointerListeners();
-    pendingTrackPointerDrag = {
-      track,
-      startX: event.clientX,
-      startY: event.clientY,
-    };
-
-    console.log("[playlist-dnd] pointerdown", {
-      trackPath: track.path,
-      title: getTrackDisplayTitle(track),
-      x: event.clientX,
-      y: event.clientY,
-    });
-
-    window.addEventListener("mousemove", handlePendingTrackPointerMove);
-    window.addEventListener("mouseup", handlePendingTrackPointerUp);
-  };
 
   function handlePendingTrackPointerMove(event: MouseEvent) {
     if (!pendingTrackPointerDrag) return;
@@ -5513,7 +5693,7 @@ export function useAppLogic() {
   const sessionDismissedNuevas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks nuevas descartadas
   const sessionDismissedBajas = ref<Record<number, string>>({});  // PlaylistId -> Hash de tracks eliminadas descartadas
   const isSyncDownloading = ref(false); // Indica si hay una descarga masiva en curso en el modal
-  const isSyncSuccess = ref(false); // Indica si acabamos de terminar con éxito
+  const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con éxito
   const isManualSyncing = ref<number | null>(null); // ID de la playlist que se está sincronizando manualmente
 
   // Obtiene el estado de sincronización de la playlist activa actualmente
@@ -5858,10 +6038,24 @@ export function useAppLogic() {
   const manualForceSync = async (playlistId: number) => {
     // Acción manual del usuario: Reseteamos descartes temporales para que el modal se vea sí o sí
     isManualSyncing.value = playlistId;
+    isSyncSuccess.value = null;
+
     delete sessionDismissedNuevas.value[playlistId];
     delete sessionDismissedBajas.value[playlistId];
     try {
       await checkSpecificSpotifyPlaylist(playlistId);
+      
+      const syncResult = pendingSpotifySyncs.value.find(s => s.playlistId === playlistId);
+      const hasChanges = syncResult && (syncResult.newTracks.length > 0 || syncResult.removedTracks.length > 0);
+
+      if (!hasChanges) {
+        isSyncSuccess.value = playlistId;
+        setTimeout(() => {
+          if (isSyncSuccess.value === playlistId) {
+            isSyncSuccess.value = null;
+          }
+        }, 3000);
+      }
     } finally {
       isManualSyncing.value = null;
     }
@@ -5921,7 +6115,7 @@ export function useAppLogic() {
     isSyncDownloading.value = false;
 
     // Si todo salió bien (al menos intentamos todo), mostramos éxito un momento
-    isSyncSuccess.value = true;
+    isSyncSuccess.value = playlistId;
 
     // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
@@ -5940,7 +6134,7 @@ export function useAppLogic() {
       
       // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
       await nextTick();
-      isSyncSuccess.value = false;
+      isSyncSuccess.value = null;
       await loadPlaylists();
     }, 1500);
   };
@@ -5962,7 +6156,7 @@ export function useAppLogic() {
     }
 
     // Al terminar, activamos el estado de éxito para el feedback visual
-    isSyncSuccess.value = true;
+    isSyncSuccess.value = playlistId;
 
     // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
@@ -5986,12 +6180,12 @@ export function useAppLogic() {
       }
       
       await nextTick();
-      isSyncSuccess.value = false;
+      isSyncSuccess.value = null;
       await loadPlaylists();
     }, 1500);
   };
 
-  const ignoreNewTracksSync = async (playlistId: number, tracks: any[], remoteIds: string[]) => {
+  const ignoreNewTracksSync = async (playlistId: number, tracks: any[]) => {
     try {
       const p = playlists.value.find(item => item.id === playlistId);
       if (!p) return;
@@ -7959,8 +8153,7 @@ export function useAppLogic() {
     goToContextMenuArtist,
     goToContextMenuAlbum,
     isLibraryTrackSelected,
-    handleLibraryTrackPrimaryAction,
-    openLibraryTrackMenu,
+
     playlist,
     playlists,
     queue,
@@ -8110,6 +8303,10 @@ export function useAppLogic() {
     closeEmptyPlaylistDiscovery,
     addTrackToActivePlaylist,
     removeTrackFromPlaylist,
+    trackPendingDeletion,
+    deleteTrackWithFiles,
+    confirmDeleteTrack,
+    closeTrackDeleteModal,
     removeContextMenuTrackFromPlaylist,
     cleanupTrackDragState,
     moveTrackDragPreview,
@@ -8371,5 +8568,9 @@ export function useAppLogic() {
     sessionDismissedBajas,
     discardSpotifySync,
     ignoreSpotifySync,
+    multiSelectedLibraryTracks,
+    addSelectionToQueue,
+    addSelectionToPlaylist,
+    openLibraryTrackContextMenu,
   };
 }

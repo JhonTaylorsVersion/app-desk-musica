@@ -1368,6 +1368,7 @@ fn add_track_to_playlist(
 fn remove_track_from_playlist(
     playlist_id: i64,
     track_path: String,
+    delete_files: bool,
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<(), String> {
     let mut conn = Connection::open(&cache_state.db_path)
@@ -1428,6 +1429,37 @@ fn remove_track_from_playlist(
     )
     .map_err(|e| e.to_string())?;
 
+    if delete_files {
+        // Physical deletion logic (Same as in delete_playlist)
+        // Check "Shared Count" across other playlists (path-specific)
+        let other_refs: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM playlist_tracks WHERE track_path = ?1 AND playlist_id != ?2",
+            params![track_path, playlist_id],
+            |row| row.get(0)
+        ).unwrap_or(0);
+
+        if other_refs == 0 {
+            let path = std::path::Path::new(&track_path);
+            
+            // Delete physical audio file
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
+
+            // Delete paired .lrc sidecar if present
+            let lrc_path = path.with_extension("lrc");
+            if lrc_path.exists() {
+                let _ = std::fs::remove_file(lrc_path);
+            }
+
+            // Remove library_cache entry only for tracks physically deleted
+            let _ = tx.execute(
+                "DELETE FROM library_cache WHERE path = ?1",
+                params![track_path],
+            );
+        }
+    }
+
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -1461,6 +1493,91 @@ fn rename_playlist(
         return Err("La playlist ya no existe.".to_string());
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+fn try_reconcile_physical_path(
+    playlist_id: i64,
+    current_path: String,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<Option<String>, String> {
+    let conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| e.to_string())?;
+
+    let playlist_name: String = conn.query_row(
+        "SELECT name FROM playlists WHERE id = ?1",
+        params![playlist_id],
+        |row| row.get(0)
+    ).map_err(|e| e.to_string())?;
+
+    let path = Path::new(&current_path);
+    let file_name = match path.file_name() {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+
+    println!("[Reconcile] Start checking track: {} for playlist: {}", current_path, playlist_name);
+
+    // Lista de directorios base para buscar la carpeta de la playlist
+    let mut search_roots = Vec::new();
+
+    // 1. El abuelo de la ubicación actual (si tiene)
+    if let Some(parent) = path.parent() {
+        if let Some(grandparent) = parent.parent() {
+            search_roots.push(grandparent.to_path_buf());
+        }
+    }
+
+    // 2. El directorio de música por defecto del sistema
+    search_roots.push(PathBuf::from(default_music_directory()));
+
+    // 3. Todos los directorios configurados por el usuario
+    if let Ok(mut stmt) = conn.prepare("SELECT path FROM music_directories") {
+        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+            for row in rows {
+                if let Ok(dir) = row {
+                    search_roots.push(PathBuf::from(dir));
+                }
+            }
+        }
+    }
+
+    // Eliminar duplicados para no buscar lo mismo varias veces
+    search_roots.sort();
+    search_roots.dedup();
+
+    for root in search_roots {
+        let candidate = root.join(&playlist_name).join(file_name);
+        println!("[Reconcile] Testing candidate: {:?}", candidate);
+
+        if candidate.exists() {
+            let new_path = candidate.to_string_lossy().to_string();
+            
+            // Comparación de rutas de forma normalizada (ignorando separadores y minúsculas)
+            let norm_current = current_path.replace("\\", "/").to_lowercase();
+            let norm_new = new_path.replace("\\", "/").to_lowercase();
+
+            if norm_current != norm_new {
+                update_playlist_track_path(&conn, playlist_id, &current_path, &new_path)?;
+                return Ok(Some(new_path));
+            } else {
+                println!("[Reconcile] Track is already physical (path matches).");
+                return Ok(Some(new_path));
+            }
+        }
+    }
+
+    println!("[Reconcile] No physical alternative found for {}", current_path);
+    Ok(None)
+}
+
+fn update_playlist_track_path(conn: &Connection, playlist_id: i64, old_path: &str, new_path: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE playlist_tracks SET track_path = ?1 WHERE playlist_id = ?2 AND track_path = ?3",
+        params![new_path, playlist_id, old_path]
+    ).map_err(|e| e.to_string())?;
+    println!("[Reconcile] DB Updated succesfully: {} -> {}", old_path, new_path);
     Ok(())
 }
 
@@ -3449,6 +3566,7 @@ pub fn run() {
             add_track_to_playlist,
             remove_track_from_playlist,
             rename_playlist,
+            try_reconcile_physical_path,
             delete_playlist,
             set_playlist_spotify_url,
             set_playlist_synced_ids, // <-- NUEVO
