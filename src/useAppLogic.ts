@@ -1019,6 +1019,7 @@ export function useAppLogic() {
     tracks?: PlaylistTrack[];
   } | null>(null);
   const deleteTrackWithFiles = ref(false);
+  const deleteSyncTracksWithFiles = ref(false);
 
   const isContextMenuPlaylistPickerVisible = ref(false);
 
@@ -2795,16 +2796,23 @@ export function useAppLogic() {
 
     if (tracks && tracks.length > 0) {
       for (const t of tracks) {
+        if (isLibraryTrackCurrent(t) && isPlaying.value) {
+          await playNextTrack();
+        }
         const actuallyPhysical = computeIsPhysical(t);
         const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
         await removeTrackFromPlaylist(playlistId, t, shouldDeleteFiles);
       }
     } else {
+      if (isLibraryTrackCurrent(track) && isPlaying.value) {
+        await playNextTrack();
+      }
       const actuallyPhysical = computeIsPhysical(track);
       const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
       await removeTrackFromPlaylist(playlistId, track, shouldDeleteFiles);
     }
 
+    await syncLibrary();
     await loadPlaylists();
     closeTrackDeleteModal();
     clearMultiSelection();
@@ -5135,6 +5143,7 @@ export function useAppLogic() {
       }
 
       if (
+        isAppBooting.value &&
         !hasPendingAppSessionRestore &&
         !isPlaying.value &&
         playlist.value.length > 0 &&
@@ -6078,6 +6087,7 @@ export function useAppLogic() {
         });
 
         if (result && result.file) {
+          (track as any).downloadedPath = result.file;
           await invoke("add_track_to_playlist", {
             playlistId: sync.playlistId,
             trackPath: result.file,
@@ -6105,8 +6115,33 @@ export function useAppLogic() {
       }
     }
 
-    // Recargar playlists al terminar
+    // 1. Sincronización oficial de la biblioteca
+    await syncLibrary();
+
+    // 2. Recargar estructura de la playlist para el fondo
     await loadPlaylists();
+    
+    // 3. Verificación reactiva
+    let integrityVerified = false;
+    let attempts = 0;
+    const downloadedPaths = (sync.newTracks as any[])
+      .filter(t => t.downloadedPath)
+      .map(t => t.downloadedPath);
+
+    if (downloadedPaths.length > 0) {
+      while (!integrityVerified && attempts < 20) {
+        const existingPaths = new Set(playlist.value.map(p => p.path));
+        integrityVerified = downloadedPaths.every(path => path && existingPaths.has(path));
+        if (!integrityVerified) {
+          await new Promise(r => setTimeout(r, 100));
+          attempts++;
+        }
+      }
+    }
+
+    // 3. Render final
+    await nextTick();
+    await waitForNextPaint();
   };
 
   const discardSpotifySync = (playlistId: number, syncObj: any) => {
@@ -6229,7 +6264,10 @@ export function useAppLogic() {
               paths: [result.file],
             });
           } catch (e) {}
-          track.status = "done";
+          
+          // Guardamos la ruta real para verificarla después de la sincronización
+          track.downloadedPath = result.file;
+          track.status = "finishing"; 
         } else {
           track.status = "error";
         }
@@ -6238,6 +6276,44 @@ export function useAppLogic() {
         track.status = "error";
       }
     }
+
+    // 1. Sincronización oficial de la biblioteca (Metadatos)
+    await syncLibrary();
+    
+    // 2. Recargar estructura de la playlist (Paths) para que el fondo se actualice YA
+    await loadPlaylists();
+    
+    // 3. VERIFICACIÓN DE INTEGRIDAD RECTIVA:
+    // No confiamos en el tiempo, comprobamos que los archivos estén realmente en memoria
+    let integrityVerified = false;
+    let attempts = 0;
+    while (!integrityVerified && attempts < 20) {
+      const pendingPaths = tracks
+        .filter(t => t.status === "finishing")
+        .map(t => t.downloadedPath);
+        
+      if (pendingPaths.length === 0) {
+        integrityVerified = true;
+        break;
+      }
+
+      // Verificamos si todos los paths descargados ya existen en playlist.value
+      const existingPaths = new Set(playlist.value.map(p => p.path));
+      integrityVerified = pendingPaths.every(path => path && existingPaths.has(path));
+
+      if (!integrityVerified) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+    }
+
+    // 3. Esperar al siguiente ciclo de pintura del navegador para asegurar el renderizado del cover
+    await nextTick();
+    await waitForNextPaint();
+    
+    tracks.forEach(t => {
+      if (t.status === "finishing") t.status = "done";
+    });
 
     isSyncDownloading.value = false;
 
@@ -6272,7 +6348,6 @@ export function useAppLogic() {
       // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
       await nextTick();
       isSyncSuccess.value = null;
-      await loadPlaylists();
     }, 1500);
   };
 
@@ -6284,20 +6359,65 @@ export function useAppLogic() {
     const p = playlists.value.find((item) => item.id === playlistId);
     if (!p) return;
 
+    const globalDeleteRequest = deleteSyncTracksWithFiles.value;
+    const playlistName = p.name;
+
     console.log(
-      `[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"...`,
+      `[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"... (Physical: ${globalDeleteRequest})`,
     );
+
     for (const path of trackPaths) {
       try {
+        let currentPath = path;
+
+        // NIVEL 2: RECONCILIACIÓN INTELIGENTE (BÚSQUEDA EN DISCO)
+        try {
+          const reconciledPath = await invoke<string | null>(
+            "try_reconcile_physical_path",
+            {
+              playlistId,
+              currentPath,
+            },
+          );
+          if (reconciledPath) {
+            currentPath = reconciledPath;
+          }
+        } catch (e) {
+          console.warn("[SpotifySync] Error reconciling track:", currentPath);
+        }
+
+        // Si la canción borrada es la que está sonando, saltamos a la siguiente
+        if (filePath.value === currentPath && isPlaying.value) {
+          await playNextTrack();
+        }
+
+        // NIVEL 1: CHEQUEO DE PERTENENCIA FÍSICA (FOLDER NAME)
+        let actuallyPhysical = false;
+        const normalizedPath = currentPath.replace(/\\/g, "/");
+        const parts = normalizedPath.split("/");
+        if (parts.length >= 2) {
+          const parentFolder = parts[parts.length - 2].trim().toLowerCase();
+          const targetName = playlistName.trim().toLowerCase();
+          if (parentFolder === targetName) {
+            actuallyPhysical = true;
+          }
+        }
+
+        // EJECUCIÓN DEL BORRADO CON LA LÓGICA INTELIGENTE APLICADA
+        const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
+
         await invoke("remove_track_from_playlist", {
           playlistId: playlistId,
-          trackPath: path,
-          deleteFiles: false,
+          trackPath: currentPath,
+          deleteFiles: shouldDeleteFiles,
         });
       } catch (e) {
         console.error(`[SpotifySync] Error removing ${path}`, e);
       }
     }
+
+    // Sincronización inmediata para que los cambios se vean al cerrar el modal
+    await syncLibrary();
 
     // Al terminar, activamos el estado de éxito para el feedback visual
     isSyncSuccess.value = playlistId;
@@ -6334,6 +6454,7 @@ export function useAppLogic() {
 
       await nextTick();
       isSyncSuccess.value = null;
+      deleteSyncTracksWithFiles.value = false;
       await loadPlaylists();
     }, 1500);
   };
@@ -8491,6 +8612,7 @@ export function useAppLogic() {
     removeTrackFromPlaylist,
     trackPendingDeletion,
     deleteTrackWithFiles,
+    deleteSyncTracksWithFiles,
     confirmDeleteTrack,
     closeTrackDeleteModal,
     removeContextMenuTrackFromPlaylist,

@@ -3858,9 +3858,11 @@ export default defineComponent({
                     <div class="spotify-sync-track-artist">{{ track.artists }}</div>
                   </div>
                   <!-- Estado de la descarga en la fila -->
-                  <div v-if="track.status" class="spotify-sync-track-status" :class="track.status">
-                    <div v-if="track.status === 'downloading'" class="spotify-sync-spinner-mini"></div>
-                    <span v-if="track.status === 'downloading'">Bajando...</span>
+                  <div v-if="track.status === 'downloading' || track.status === 'finishing'" class="spotify-sync-track-status downloading">
+                    <div class="spotify-sync-spinner-mini"></div>
+                    <span>Bajando...</span>
+                  </div>
+                  <div v-else-if="track.status" class="spotify-sync-track-status" :class="track.status">
                     <span v-if="track.status === 'done'">Listo</span>
                     <span v-if="track.status === 'error'">Error</span>
                   </div>
@@ -3941,33 +3943,46 @@ export default defineComponent({
               </div>
             </div>
 
-            <div class="spotify-sync-column-footer">
-              <div class="sync-actions-group">
+            <div class="spotify-sync-column-footer" style="flex-direction: column; align-items: stretch; gap: 12px;">
+              <!-- Nueva opción de borrado inteligente -->
+              <div v-if="selectedRemovedTracks.length > 0" class="delete-files-option sync-mini" style="margin: 0; padding: 10px; background: rgba(255, 77, 77, 0.05); border-radius: 12px; border: 1px solid rgba(255, 77, 77, 0.1);">
+                <label class="delete-files-checkbox" style="gap: 10px; cursor: pointer;">
+                  <input type="checkbox" v-model="deleteSyncTracksWithFiles" />
+                  <span class="checkbox-custom"></span>
+                  <span class="checkbox-label" style="font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.4;">
+                    Eliminar también archivos físicos si pertenecen a esta carpeta
+                  </span>
+                </label>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div class="sync-actions-group">
+                  <button
+                    class="spotify-sync-btn ghost mini"
+                    type="button"
+                    @click="sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')"
+                    title="Recordar luego"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
+                  </button>
+                  <button
+                    class="spotify-sync-btn ghost mini"
+                    type="button"
+                    @click="ignoreRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks)"
+                    title="Ignorar permanentemente"
+                  >
+                    Mantener
+                  </button>
+                </div>
                 <button
-                  class="spotify-sync-btn ghost mini"
+                  class="spotify-sync-btn danger mini"
                   type="button"
-                  @click="sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')"
-                  title="Recordar luego"
+                  :disabled="selectedRemovedTracks.length === 0"
+                  @click="applyRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks, pendingSpotifySyncs[0].remoteIds || [])"
                 >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
-                </button>
-                <button
-                  class="spotify-sync-btn ghost mini"
-                  type="button"
-                  @click="ignoreRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks)"
-                  title="Ignorar permanentemente"
-                >
-                  Mantener
+                  Quitar marcadas
                 </button>
               </div>
-              <button
-                class="spotify-sync-btn danger mini"
-                type="button"
-                :disabled="selectedRemovedTracks.length === 0"
-                @click="applyRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks, pendingSpotifySyncs[0].remoteIds || [])"
-              >
-                Quitar marcadas
-              </button>
             </div>
           </div>
         </div>
