@@ -2219,14 +2219,24 @@ export default defineComponent({
                   >
                     <div class="empty-playlist-discovery-head">
                       <h2>Encontremos contenido para tu playlist</h2>
-                      <button
-                        class="empty-playlist-close-btn"
-                        type="button"
-                        @click="closeEmptyPlaylistDiscovery"
-                        aria-label="Cerrar sugerencias"
-                      >
-                        ×
-                      </button>
+                      <div class="empty-playlist-header-actions">
+                        <button
+                          class="small-action-btn subtle refresh-suggestions-btn"
+                          type="button"
+                          @click="refreshPlaylistRecommendations"
+                          title="Obtener nuevas sugerencias"
+                        >
+                          Actualizar
+                        </button>
+                        <button
+                          class="empty-playlist-close-btn"
+                          type="button"
+                          @click="closeEmptyPlaylistDiscovery"
+                          aria-label="Cerrar sugerencias"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
 
                     <div class="search-input-wrapper empty-playlist-search">
@@ -2235,7 +2245,7 @@ export default defineComponent({
                         v-model="emptyPlaylistSearch"
                         type="text"
                         class="search-input empty-playlist-search-input"
-                        placeholder="Busca canciones o episodios"
+                        placeholder="Busca canciones o artistas para añadir"
                       />
 
                       <button
@@ -4568,5 +4578,19 @@ export default defineComponent({
 
 .track-heart-btn svg {
   transition: fill 0.2s ease, stroke 0.2s ease;
+}
+.empty-playlist-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.refresh-suggestions-btn {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 </style>

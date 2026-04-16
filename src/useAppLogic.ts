@@ -1604,6 +1604,11 @@ export function useAppLogic() {
   const connectState = ref<ConnectStateRecord | null>(null);
 
   const emptyPlaylistSearch = ref("");
+  const recommendationRefreshCounter = ref(0); // Nuevo para forzar re-calculo aleatorio
+
+  const refreshPlaylistRecommendations = () => {
+    recommendationRefreshCounter.value++;
+  };
 
   const isEmptyPlaylistDiscoveryVisible = ref(true);
 
@@ -3650,16 +3655,47 @@ export function useAppLogic() {
   });
 
   const emptyPlaylistSearchResults = computed(() => {
-    if (!activePlaylist.value) return [];
+    const activeP = activePlaylist.value;
+    if (!activeP) return [];
+    
+    // Accedemos al contador para que sea reactivo al botón "Refrescar"
+    void recommendationRefreshCounter.value;
+
+    // 1. Excluir tracks que ya están en la playlist activa
+    const currentPaths = new Set(activeP.trackPaths);
+    const availableTracks = playlist.value.filter(t => !currentPaths.has(t.path));
 
     const query = emptyPlaylistSearch.value.trim();
-    const trackCandidates = query
-      ? getTracksForSearchQuery(query)
-      : [...playlist.value].sort((a, b) =>
-          getTrackDisplayTitle(a).localeCompare(getTrackDisplayTitle(b)),
-        );
+    if (query) {
+      // Si hay búsqueda, devolvemos resultados de búsqueda filtrando los ya presentes
+      return getTracksForSearchQuery(query)
+        .filter(t => !currentPaths.has(t.path))
+        .slice(0, 10);
+    }
 
-    return trackCandidates.slice(0, 8);
+    // 2. Recomendaciones Inteligentes (si no hay búsqueda)
+    let recommendations: PlaylistTrack[] = [];
+
+    // A. Basado en Artistas ya presentes en la playlist
+    if (activeP.trackPaths.length > 0) {
+      const pTracks = activePlaylistTracks.value;
+      const playlistArtists = new Set(
+        pTracks.map(t => getLibraryTrackArtist(t).toLowerCase())
+      );
+      
+      recommendations = availableTracks.filter(t => 
+        playlistArtists.has(getLibraryTrackArtist(t).toLowerCase())
+      );
+    }
+
+    // B. Aleatorización para que no siempre salgan los mismos (Fallback)
+    // Usamos una semilla simple basada en el tiempo o solo shuffle
+    const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
+    
+    // Combinamos: primero artistas relacionados, luego aleatorios para rellenar
+    const finalResults = [...new Set([...recommendations, ...shuffled])];
+    
+    return finalResults.slice(0, 10);
   });
 
   // Función para reproducir el álbum completo desde la primera canción
@@ -8598,5 +8634,6 @@ export function useAppLogic() {
     likedSongsPlaylist,
     isLiked,
     toggleTrackLike,
+    refreshPlaylistRecommendations,
   };
 }
