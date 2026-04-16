@@ -1181,8 +1181,18 @@ export default defineComponent({
                 "
               >
                 <div class="left-library-item-cover">
+                  <!-- Caso especial: Tus Me Gusta -->
                   <div
-                    v-if="
+                    v-if="item.kind === 'playlist' && item.isSystem"
+                    class="playlist-cover-system liked-songs"
+                  >
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="white">
+                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                  </div>
+                  
+                  <div
+                    v-else-if="
                       item.kind === 'playlist' && item.coverTiles.length > 0
                     "
                     class="playlist-cover-grid"
@@ -2488,8 +2498,23 @@ export default defineComponent({
                     </div>
 
                     <div class="row-title-meta">
-                      <div class="track-name spotify-track-name">
-                        {{ getTrackDisplayTitle(track) }}
+                      <div class="track-row-title-container">
+                        <div class="track-name spotify-track-name">
+                          {{ getTrackDisplayTitle(track) }}
+                        </div>
+
+                        <button 
+                          v-if="likedSongsPlaylist"
+                          class="track-heart-btn"
+                          :class="{ active: isLiked(track.path) }"
+                          type="button"
+                          title="Me gusta"
+                          @click.stop="toggleTrackLike(track)"
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" :fill="isLiked(track.path) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                          </svg>
+                        </button>
                       </div>
                       <div class="track-path spotify-track-subtitle">
                         <span
@@ -3532,21 +3557,23 @@ export default defineComponent({
     >
       Agregar a la fila de reproduccion
     </button>
-    <div class="context-menu-separator"></div>
-    <button
-      class="context-menu-item"
-      type="button"
-      @click="openRenamePlaylistModal(activePlaylistContextMenuTarget.id)"
-    >
-      Editar datos
-    </button>
-    <button
-      class="context-menu-item danger"
-      type="button"
-      @click="requestDeletePlaylist(activePlaylistContextMenuTarget.id)"
-    >
-      Eliminar
-    </button>
+    <template v-if="!activePlaylistContextMenuTarget.isSystem">
+      <div class="context-menu-separator"></div>
+      <button
+        class="context-menu-item"
+        type="button"
+        @click="openRenamePlaylistModal(activePlaylistContextMenuTarget.id)"
+      >
+        Editar datos
+      </button>
+      <button
+        class="context-menu-item danger"
+        type="button"
+        @click="requestDeletePlaylist(activePlaylistContextMenuTarget.id)"
+      >
+        Eliminar
+      </button>
+    </template>
   </div>
 
   <div
@@ -4491,5 +4518,55 @@ export default defineComponent({
   border-color: rgba(29, 185, 84, 0.3);
   color: #1db954;
   animation: spotify-sync-pop 0.3s ease;
+}
+.playlist-cover-system.liked-songs {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #450af5, #c4efd9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+}
+.playlist-cover-system.liked-songs svg {
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.track-row-title-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.track-heart-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #b3b3b3;
+  transition: all 0.2s ease;
+  opacity: 0; /* Hidden until hover by default */
+}
+
+.track-row:hover .track-heart-btn,
+.track-heart-btn.active {
+  opacity: 1;
+}
+
+.track-heart-btn:hover {
+  transform: scale(1.15);
+  color: white;
+}
+
+.track-heart-btn.active {
+  color: #1db954;
+}
+
+.track-heart-btn svg {
+  transition: fill 0.2s ease, stroke 0.2s ease;
 }
 </style>

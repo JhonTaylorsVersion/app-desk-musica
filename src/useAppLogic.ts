@@ -110,6 +110,7 @@ export function useAppLogic() {
     trackPaths: string[];
     spotifyUrl?: string | null;
     spotifySyncedIds?: string | null; // <-- NUEVO
+    isSystem: number; // 1 para playlist protegida (ej: Tus Me Gusta)
   };
 
   type SidebarLibraryItem = {
@@ -122,6 +123,7 @@ export function useAppLogic() {
     playlistId: number | null;
     onClick: () => void;
     isActive: boolean;
+    isSystem?: boolean; // <--- NUEVO
   };
 
   type SidebarLibraryFilter = "all" | "playlists" | "albums" | "artists";
@@ -3420,9 +3422,29 @@ export function useAppLogic() {
         createdAt: 0,
         updatedAt: 0,
         trackPaths: [],
+        isSystem: 0,
       }
     );
   });
+
+  const likedSongsPlaylist = computed(() => {
+    return playlists.value.find((p) => p.isSystem === 1);
+  });
+
+  const isLiked = (trackPath: string) => {
+    return likedSongsPlaylist.value?.trackPaths.includes(trackPath) ?? false;
+  };
+
+  const toggleTrackLike = async (track: PlaylistTrack) => {
+    const p = likedSongsPlaylist.value;
+    if (!p) return;
+
+    if (isLiked(track.path)) {
+      await removeTrackFromPlaylist(p.id, track, false);
+    } else {
+      await addTrackToPlaylist(p.id, track);
+    }
+  };
 
   const activePlaylistTracks = computed(() => {
     const targetPlaylist = activePlaylist.value;
@@ -3509,6 +3531,7 @@ export function useAppLogic() {
       isActive:
         currentViewMode.value === "playlist" &&
         activePlaylistViewId.value === item.id,
+      isSystem: item.isSystem === 1,
     }));
 
     const albumItems = albumIndex.value.map((item) => ({
@@ -8572,5 +8595,8 @@ export function useAppLogic() {
     addSelectionToQueue,
     addSelectionToPlaylist,
     openLibraryTrackContextMenu,
+    likedSongsPlaylist,
+    isLiked,
+    toggleTrackLike,
   };
 }

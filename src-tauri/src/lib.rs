@@ -193,6 +193,7 @@ struct PlaylistSummary {
     track_paths: Vec<String>,
     spotify_url: Option<String>, 
     spotify_synced_ids: Option<String>, // <-- NUEVO: IDs ya conocidos (JSON)
+    is_system: i32, // <-- NUEVO: 1 para playlist del sistema (ej: Tus Me Gusta)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -339,6 +340,7 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         CREATE TABLE IF NOT EXISTS playlists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            is_system INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         );
@@ -398,7 +400,14 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     );
     let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN spotify_id TEXT", []);
     let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_url TEXT", []);
-    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT", []); // <-- NUEVO
+    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT", []);
+    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0", []); // <-- NUEVO
+    
+    // Asegurarnos de que "Tus Me Gusta" existe siempre como playlist del sistema
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO playlists (name, is_system) VALUES ('Tus Me Gusta', 1)",
+        [],
+    );
     let _ = conn.execute(
         "ALTER TABLE recent_global_searches ADD COLUMN artist_name TEXT",
         [],
@@ -1138,11 +1147,11 @@ fn get_playlists(
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count, p.spotify_url, p.spotify_synced_ids
+            SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_path) as track_count, p.spotify_url, p.spotify_synced_ids, p.is_system
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-            GROUP BY p.id, p.name, p.created_at, p.updated_at, p.spotify_url, p.spotify_synced_ids
-            ORDER BY p.updated_at DESC, p.id DESC
+            GROUP BY p.id, p.name, p.created_at, p.updated_at, p.spotify_url, p.spotify_synced_ids, p.is_system
+            ORDER BY p.is_system DESC, p.updated_at DESC, p.id DESC
             "#,
         )
         .map_err(|e| e.to_string())?;
@@ -1157,13 +1166,14 @@ fn get_playlists(
                 row.get::<_, i64>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, Option<String>>(6)?,
+                row.get::<_, i32>(7)?, // is_system
             ))
         })
         .map_err(|e| e.to_string())?;
 
     let mut playlists = Vec::new();
     for row in rows {
-        let (id, name, created_at, updated_at, track_count, spotify_url, spotify_synced_ids) =
+        let (id, name, created_at, updated_at, track_count, spotify_url, spotify_synced_ids, is_system) =
             row.map_err(|e| e.to_string())?;
 
         playlists.push(PlaylistSummary {
@@ -1175,6 +1185,7 @@ fn get_playlists(
             track_paths: load_playlist_track_paths(&conn, id)?,
             spotify_url,
             spotify_synced_ids,
+            is_system,
         });
     }
 
@@ -1196,8 +1207,8 @@ fn create_playlist(
 
     conn.execute(
         r#"
-        INSERT INTO playlists (name, created_at, updated_at)
-        VALUES (?1, strftime('%s','now'), strftime('%s','now'))
+        INSERT INTO playlists (name, is_system, created_at, updated_at)
+        VALUES (?1, 0, strftime('%s','now'), strftime('%s','now'))
         "#,
         params![trimmed],
     )
@@ -1214,6 +1225,7 @@ fn create_playlist(
         track_paths: Vec::new(),
         spotify_url: None,
         spotify_synced_ids: None,
+        is_system: 0,
     })
 }
 
