@@ -2398,13 +2398,23 @@ fn spotiflac_search_spotify_by_type(
     limit: Option<i32>,
     offset: Option<i32>,
 ) -> Result<serde_json::Value, String> {
-    run_spotiflac_bridge(
+        run_spotiflac_bridge(
         "search-spotify-by-type",
         serde_json::json!({
             "query": query,
             "search_type": search_type,
             "limit": limit.unwrap_or(50),
             "offset": offset.unwrap_or(0),
+        }),
+    )
+}
+
+#[tauri::command]
+fn spotiflac_get_preview_url(track_id: String) -> Result<serde_json::Value, String> {
+    run_spotiflac_bridge(
+        "get-preview-url",
+        serde_json::json!({
+            "track_id": track_id,
         }),
     )
 }
@@ -3430,6 +3440,7 @@ pub fn run() {
             spotiflac_check_track_availability,
             spotiflac_search_spotify,
             spotiflac_search_spotify_by_type,
+            spotiflac_get_preview_url,
             get_music_directories,
             save_music_directories,
             set_music_directories,

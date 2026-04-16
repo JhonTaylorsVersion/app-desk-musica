@@ -506,6 +506,14 @@ async function getDeezerISRC(deezerUrl: string): Promise<string> {
 }
 
 async function lookupSpotifyISRC(spotifyTrackID: string): Promise<string> {
+  try {
+    const result = await CheckTrackAvailability(spotifyTrackID);
+    const data = typeof result === "string" ? JSON.parse(result) : result;
+    if (data?.isrc) return data.isrc;
+  } catch (err) {
+    console.warn("Bridge ISRC lookup failed, trying direct fallback...", err);
+  }
+
   const response = await fetch(`https://open.spotify.com/embed/track/${spotifyTrackID}`);
   if (!response.ok) {
     throw new Error(`Spotify embed returned HTTP ${response.status}`);
@@ -1529,19 +1537,26 @@ export async function SkipDownloadItem(itemID: string, filePath = ""): Promise<v
 }
 
 export async function GetPreviewURL(trackID: string): Promise<string> {
-  const response = await fetch(`https://open.spotify.com/embed/track/${trackID}`);
-  if (!response.ok) {
-    throw new Error(`Spotify embed returned HTTP ${response.status}`);
-  }
+  try {
+    return await invokeHost<string>("getPreviewURL", { trackID });
+  } catch (err) {
+    console.error("Bridge GetPreviewURL failed, trying direct fallback...", err);
+    // Note: Direct fetch will likely still fail due to CORS in browser/webview environments
+    const response = await fetch(`https://open.spotify.com/embed/track/${trackID}`);
+    if (!response.ok) {
+      throw new Error(`Spotify embed returned HTTP ${response.status}`);
+    }
 
-  const html = await response.text();
-  const match = html.match(/https:\/\/p\.scdn\.co\/mp3-preview\/[a-zA-Z0-9]+/);
-  if (!match) {
-    throw new Error("Preview URL not found");
-  }
+    const html = await response.text();
+    const match = html.match(/https:\/\/p\.scdn\.co\/mp3-preview\/[a-zA-Z0-9]+/);
+    if (!match) {
+      throw new Error("Preview URL not found");
+    }
 
-  return match[0];
+    return match[0];
+  }
 }
+
 
 export async function GetConfigPath(): Promise<string> {
   const info = await getHostInfo();

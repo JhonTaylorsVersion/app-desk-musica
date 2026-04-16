@@ -80,6 +80,10 @@ type DeezerGenreRequest struct {
 	ISRC string `json:"isrc"`
 }
 
+type GetPreviewURLRequest struct {
+	SpotifyTrackID string `json:"track_id"`
+}
+
 func cleanupInvalidDownloadArtifacts(paths ...string) {
 	seen := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
@@ -657,6 +661,34 @@ func main() {
 		}
 
 		_ = json.NewEncoder(os.Stdout).Encode(results)
+	case "get-preview-url":
+		var req GetPreviewURLRequest
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   fmt.Sprintf("invalid request: %v", err),
+			})
+			os.Exit(1)
+		}
+
+		if strings.TrimSpace(req.SpotifyTrackID) == "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   "track_id is required",
+			})
+			os.Exit(1)
+		}
+
+		url, err := backend.GetPreviewURL(strings.TrimSpace(req.SpotifyTrackID))
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
+
+		_ = json.NewEncoder(os.Stdout).Encode(url)
 	default:
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"success": false,
