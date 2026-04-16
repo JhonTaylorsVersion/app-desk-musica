@@ -5613,6 +5613,8 @@ export function useAppLogic() {
           title: t.name || t.track_name || t.title || "Unknown Title",
           artists: t.artists || t.artist_name || "Unknown Artist",
           album: t.album_name || t.album || "Unknown Album",
+          cover: t.images || (t.album_images && t.album_images.length > 0 ? t.album_images[0].url : null),
+          release_date: t.release_date || null,
           isrc: t.isrc || (t.external_ids ? t.external_ids.isrc : null),
           url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`
         }));
@@ -5730,15 +5732,20 @@ export function useAppLogic() {
       try {
         const outputDir = mainMusicDir ? `${mainMusicDir}\\${sync.playlistName}` : "";
 
-        // Usamos los campos en snake_case exactos que Go espera (ver main.go del bridge)
+        // Petición completa con metadatos y flags de incrustación (según DownloadRequest en Go)
         const request = {
           item_id: `${track.id}_${Date.now()}`,
           spotify_id: track.id,
           track_name: track.title,
           artist_name: track.artists,
           album_name: track.album,
+          cover_url: track.cover,
+          release_date: track.release_date,
           output_dir: mainMusicDir,
           playlist_name: sync.playlistName,
+          audio_format: "LOSSLESS",
+          embed_lyrics: true,
+          embed_max_quality_cover: true,
           overwrite: true
         };
 
@@ -5750,6 +5757,15 @@ export function useAppLogic() {
             trackPath: result.file,
             position: null,
           });
+
+          // Forzar escaneo de metadatos para que el caché se actualice inmediatamente
+          try {
+            await invoke("get_library_metadata_batch", {
+              paths: [result.file]
+            });
+          } catch (e) {
+            console.warn("[SpotifySync] Error indexing metadata for", result.file, e);
+          }
         }
       } catch (e) {
         console.error(
