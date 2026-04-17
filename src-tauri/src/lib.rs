@@ -3530,6 +3530,9 @@ fn start_audio_thread(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let tauri_start = Instant::now();
+    println!("[Tauri][init:start] {:.1?}", tauri_start.elapsed());
+
     let (tx, rx) = unbounded::<AudioCommand>();
     let position_state = Arc::new(Mutex::new(0.0));
 
@@ -3558,7 +3561,9 @@ pub fn run() {
                 let _ = main_window.set_background_color(Some(background));
             }
 
+            println!("[Tauri][db:init:start] {:.1?}", tauri_start.elapsed());
             let db_path = init_library_cache_db(app.handle())?;
+            println!("[Tauri][db:init:end] {:.1?}", tauri_start.elapsed());
             app.manage(LibraryCacheState { db_path });
 
             // ==========================================

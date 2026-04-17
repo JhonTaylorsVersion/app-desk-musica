@@ -8251,12 +8251,19 @@ export function useAppLogic() {
   let unlistenDeviceChanged: UnlistenFn | null = null;
 
   onMounted(async () => {
+    const startBoot = performance.now();
+    console.log("[Boot] onMounted started");
+
     installSpotiFlacHost();
     // installPerformanceDiagnostics();
     updateSpotiFlacConnectivityStatus();
     await nextTick();
     await waitForNextPaint();
+
+    console.log("[Boot] Basic setup took:", performance.now() - startBoot);
+
     try {
+      const startListeners = performance.now();
       unlistenFsChanges = await listen("library-updated", () => {
         scheduleLibrarySync();
       });
@@ -8268,10 +8275,27 @@ export function useAppLogic() {
         void fetchOutputDeviceInfo();
       });
       // =======================
+      console.log(
+        "[Boot] Listeners took:",
+        performance.now() - startListeners,
+      );
 
+      const startHardware = performance.now();
       await fetchComputerName();
       await fetchOutputDeviceInfo();
+      console.log(
+        "[Boot] Hardware info took:",
+        performance.now() - startHardware,
+      );
+
+      const startPlaylists = performance.now();
       await loadPlaylists();
+      console.log(
+        "[Boot] Playlists took:",
+        performance.now() - startPlaylists,
+      );
+
+      const startSession = performance.now();
       const savedAppSession = await loadAppSession();
       hasPendingAppSessionRestore = Boolean(
         savedAppSession?.currentTrackPath || savedAppSession?.queue?.length,
@@ -8279,6 +8303,11 @@ export function useAppLogic() {
       recentGlobalSearches.value = normalizeRecentGlobalSearches(
         await loadRecentGlobalSearches(),
       );
+      console.log(
+        "[Boot] Session load took:",
+        performance.now() - startSession,
+      );
+
       if (
         recentGlobalSearches.value.length === 0 &&
         !hasMigratedLegacyRecentGlobalSearches()
@@ -8299,14 +8328,26 @@ export function useAppLogic() {
       }
 
       try {
+        const startDirs = performance.now();
         const savedDirectories = await invoke<string[]>(
           "get_music_directories",
         );
 
         musicDirectories.value = savedDirectories;
+        console.log(
+          "[Boot] Directories load took:",
+          performance.now() - startDirs,
+        );
 
         if (musicDirectories.value.length > 0) {
+          const startLibrary = performance.now();
+          console.log("[Boot] Starting library sync...");
           await syncLibrary();
+          console.log(
+            "[Boot] Library sync took:",
+            performance.now() - startLibrary,
+          );
+
           // ======== NUEVO ========
           void checkSpotifyPlaylistsForUpdates();
           // Revisar cada 15 minutos mientras la app está abierta
@@ -8325,8 +8366,14 @@ export function useAppLogic() {
         console.error("Error al cargar rutas guardadas:", error);
       }
 
+      const startRestore = performance.now();
       await restoreAppSession(savedAppSession);
       hasPendingAppSessionRestore = false;
+      console.log(
+        "[Boot] Restore session took:",
+        performance.now() - startRestore,
+      );
+
       await refreshConnectState();
       startConnectCommandPolling();
 
@@ -8339,6 +8386,10 @@ export function useAppLogic() {
     } finally {
       isAppBooting.value = false;
       window.dispatchEvent(new Event("app-ready"));
+      console.log(
+        "[Boot] Total onMounted time:",
+        performance.now() - startBoot,
+      );
     }
   });
 
