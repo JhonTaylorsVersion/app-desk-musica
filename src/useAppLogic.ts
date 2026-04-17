@@ -6087,6 +6087,7 @@ export function useAppLogic() {
         });
 
         if (result && result.file) {
+          console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
           (track as any).downloadedPath = result.file;
           await invoke("add_track_to_playlist", {
             playlistId: sync.playlistId,
@@ -6222,10 +6223,8 @@ export function useAppLogic() {
     if (!p) return;
 
     isSyncDownloading.value = true;
-    console.log(
-      `[SpotifySync] Downloading ${tracks.length} tracks for "${p.name}"...`,
-    );
     const mainMusicDir = musicDirectories.value[0] || "";
+    console.log("[DIAGNOSTICO] applyNewTracksSync: Start", { playlistId, tracksCount: tracks.length, mainMusicDir });
 
     for (const track of tracks) {
       if (track.status === "done") continue;
@@ -6242,17 +6241,24 @@ export function useAppLogic() {
           release_date: track.release_date,
           output_dir: mainMusicDir,
           playlist_name: p.name,
+          service: "auto",
+          allow_fallback: true,
           audio_format: "LOSSLESS",
           embed_lyrics: true,
           embed_max_quality_cover: true,
           overwrite: true,
         };
 
+        console.log(`[DIAGNOSTICO] Request for "${track.title}":`, JSON.stringify(request, null, 2));
+
         const result = await invoke<any>("spotiflac_download_track", {
           request,
         });
 
+        console.log(`[DIAGNOSTICO] Result for "${track.title}":`, JSON.stringify(result, null, 2));
+
         if (result && result.file) {
+          console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
           await invoke("add_track_to_playlist", {
             playlistId: playlistId,
             trackPath: result.file,
@@ -6265,14 +6271,14 @@ export function useAppLogic() {
             });
           } catch (e) {}
           
-          // Guardamos la ruta real para verificarla después de la sincronización
           track.downloadedPath = result.file;
           track.status = "finishing"; 
         } else {
+          console.error(`[DIAGNOSTICO] Download FAIL for "${track.title}". Full error result:`, result);
           track.status = "error";
         }
       } catch (e) {
-        console.error(`[SpotifySync] Error downloading ${track.title}`, e);
+        console.error(`[DIAGNOSTICO] CRITICAL EXCEPTION downloading ${track.title}:`, e);
         track.status = "error";
       }
     }
@@ -6315,10 +6321,19 @@ export function useAppLogic() {
       if (t.status === "finishing") t.status = "done";
     });
 
+    const successfulDownloads = tracks.filter(t => t.status === "done").length;
+    const failedDownloads = tracks.filter(t => t.status === "error").length;
+    
     isSyncDownloading.value = false;
 
+    console.log(`[DIAGNOSTICO] Sync finished. Success: ${successfulDownloads}, Failed: ${failedDownloads}, Integrity Verified: ${integrityVerified}`);
+
     // Si todo salió bien (al menos intentamos todo), mostramos éxito un momento
-    isSyncSuccess.value = playlistId;
+    if (failedDownloads === 0) {
+      isSyncSuccess.value = playlistId;
+    } else {
+      console.warn(`[DIAGNOSTICO] Sync had errors, NOT showing success checkmark.`);
+    }
 
     // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
