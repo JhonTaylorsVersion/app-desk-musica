@@ -6,5 +6,13 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5174,
+    watch: {
+      ignored: ['**/cargo-target-*/**', '**/src-tauri/target/**', '**/SpotiFLAC-main/**']
+    }
   },
+  build: {
+    rollupOptions: {
+      external: [/cargo-target-.*/, /src-tauri\/target.*/]
+    }
+  }
 })

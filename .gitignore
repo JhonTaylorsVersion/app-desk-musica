@@ -1,4 +1,4 @@
-# Logs
+﻿# Logs
 logs
 *.log
 npm-debug.log*
@@ -173,3 +173,12 @@ target/
 
 # Logs adicionales
 **/*.log
+
+# SpotiFLAC Bridge Build Artifacts
+SpotiFLAC-main/bridge/.gopath/
+SpotiFLAC-main/bridge/.gocache/
+SpotiFLAC-main/bridge/spotiflac-bridge.exe
+
+# Temp / Scrap
+temp_targets/
+scratch/

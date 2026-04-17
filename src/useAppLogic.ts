@@ -1456,32 +1456,32 @@ export function useAppLogic() {
     }
   };
 
-  const removeSelectionFromPlaylist = async (deleteFiles: boolean = false) => {
-    if (contextMenu.value.playlistId == null) return;
-    const playlistId = contextMenu.value.playlistId;
-
-    // Copia de la selección porque se va a limpiar
-    const selection = [...multiSelectedLibraryTracks.value].sort(
-      (a, b) => b.index - a.index,
-    );
-
-    try {
-      for (const item of selection) {
-        await invoke("remove_track_from_playlist", {
-          playlistId,
-          trackPath: item.path,
-          deleteFiles,
-        });
-      }
-
-      await loadPlaylists();
-      closeTrackContextMenu();
-      closeTrackDeleteModal();
-      clearMultiSelection();
-    } catch (err) {
-      console.error("Error al eliminar selección de playlist:", err);
-    }
-  };
+  // const removeSelectionFromPlaylist = async (deleteFiles: boolean = false) => {
+  //   if (contextMenu.value.playlistId == null) return;
+  //   const playlistId = contextMenu.value.playlistId;
+  //
+  //   // Copia de la selección porque se va a limpiar
+  //   const selection = [...multiSelectedLibraryTracks.value].sort(
+  //     (a, b) => b.index - a.index,
+  //   );
+  //
+  //   try {
+  //     for (const item of selection) {
+  //       await invoke("remove_track_from_playlist", {
+  //         playlistId,
+  //         trackPath: item.path,
+  //         deleteFiles,
+  //       });
+  //     }
+  //
+  //     await loadPlaylists();
+  //     closeTrackContextMenu();
+  //     closeTrackDeleteModal();
+  //     clearMultiSelection();
+  //   } catch (err) {
+  //     console.error("Error al eliminar selección de playlist:", err);
+  //   }
+  // };
 
   const openLibraryTrackContextMenu = (
     event: MouseEvent,
@@ -6074,7 +6074,7 @@ export function useAppLogic() {
           album_name: track.album,
           cover_url: track.cover,
           release_date: track.release_date,
-          output_dir: mainMusicDir,
+          output_dir: outputDir || mainMusicDir,
           playlist_name: sync.playlistName,
           audio_format: "LOSSLESS",
           embed_lyrics: true,
@@ -8255,6 +8255,7 @@ export function useAppLogic() {
     console.log("[Boot] onMounted started");
 
     installSpotiFlacHost();
+    installPerformanceDiagnostics();
     // installPerformanceDiagnostics();
     updateSpotiFlacConnectivityStatus();
     await nextTick();

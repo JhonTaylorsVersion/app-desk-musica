@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "app-desk-musica",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.jhonj.appdeskmusica",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5174",
@@ -26,7 +26,8 @@
         "enable": true,
         "scope": [
           "C:\\Users\\jhonj\\Videos\\CANVAS SPOT\\**",
-          "C:\\Users\\jhonj\\AppData\\Roaming\\com.tauri.dev\\covers\\**"
+          "C:\\Users\\jhonj\\AppData\\Roaming\\com.tauri.dev\\covers\\**",
+          "C:\\Users\\jhonj\\AppData\\Roaming\\com.jhonj.appdeskmusica\\covers\\**"
         ]
       }
     }
