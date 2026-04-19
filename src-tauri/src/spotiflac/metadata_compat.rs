@@ -193,29 +193,43 @@ impl MetadataCompatClient {
         variables: Value,
         sha256_hash: &str,
     ) -> CompatResult<Value> {
+        let url = "https://api-partner.spotify.com/pathfinder/v1/query";
+        let query_params = [
+            ("operationName", operation_name),
+            ("variables", &variables.to_string()),
+            (
+                "extensions",
+                &json!({
+                    "persistedQuery": {
+                        "version": 1,
+                        "sha256Hash": sha256_hash,
+                    }
+                })
+                .to_string(),
+            ),
+        ];
+
+        println!("[DEBUG][Rust][Spotify] Requesting {}...", operation_name);
+        println!("[DEBUG][Rust][Spotify]   URL: {}", url);
+        println!("[DEBUG][Rust][Spotify]   Params: {:?}", query_params);
+        println!("[DEBUG][Rust][Spotify]   Token (prefix): {}...", if self.token.len() > 10 { &self.token[0..10] } else { "too short" });
+
         let response = self
             .http
-            .get("https://api-partner.spotify.com/pathfinder/v1/query")
-            .query(&[
-                ("operationName", operation_name),
-                ("variables", &variables.to_string()),
-                (
-                    "extensions",
-                    &json!({
-                        "persistedQuery": {
-                            "version": 1,
-                            "sha256Hash": sha256_hash,
-                        }
-                    })
-                    .to_string(),
-                ),
-            ])
+            .get(url)
+            .query(&query_params)
             .header("Authorization", format!("Bearer {}", self.token))
             .send()
             .await
-            .map_err(|e| format!("query failed for {}: {}", operation_name, e))?
-            .error_for_status()
-            .map_err(|e| format!("non-success response for {}: {}", operation_name, e))?;
+            .map_err(|e| format!("query failed for {}: {}", operation_name, e))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_body = response.text().await.unwrap_or_else(|_| "Could not read error body".to_string());
+            let err_msg = format!("non-success response for {}: HTTP {} - Body: {}", operation_name, status, error_body);
+            println!("[DEBUG][Rust][Spotify] ERROR: {}", err_msg);
+            return Err(err_msg);
+        }
 
         response
             .json::<Value>()
@@ -281,7 +295,7 @@ async fn fetch_track_compat(
         resolved_track_node.and_then(|node| node.get("albumOfTrack"))
     });
 
-    let (mut track, first_artist_id, mut plays) = if let Some(node) = resolved_track_node {
+    let (mut track, _first_artist_id, mut plays) = if let Some(node) = resolved_track_node {
         metadata_client
             .parse_single_track_node(node, resolved_album_node.unwrap_or(&Value::Null))
             .map_err(|e| e.to_string())?
@@ -522,86 +536,119 @@ async fn fetch_playlist_compat(
     compat: &MetadataCompatClient,
     playlist_id: &str,
 ) -> CompatResult<PlaylistResponseCompat> {
-    let playlist: Value = compat
-        .query(
-            "fetchPlaylist",
-            json!({
-                "uri": format!("spotify:playlist:{}", playlist_id),
-                "offset": 0,
-                "limit": 300,
-            }),
-            "bb67e0af06e8d6f52b531f97468ee4acd44cd0f82b988e15c2ea47b1148efc77",
-        )
-        .await?;
-
-    let playlist_v2 = playlist
-        .pointer("/data/playlistV2")
-        .or_else(|| playlist.pointer("/data/playlist"))
-        .ok_or_else(|| "playlist payload not found".to_string())?;
-
-    let content_items = playlist_v2
-        .pointer("/content/items")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
+    let mut offset = 0;
+    let limit = 300;
     let mut track_list = Vec::new();
-    for item in content_items {
-        let status = json_pointer_string(&item, "/itemV2/data/status")
-            .or_else(|| json_pointer_string(&item, "/status"))
-            .map(ToOwned::to_owned);
-        let node = item
-            .pointer("/itemV2/data")
-            .or_else(|| item.pointer("/item/data"))
-            .or_else(|| item.get("track"))
-            .unwrap_or(&item);
+    let mut total_tracks = 0;
+    let mut playlist_info = None;
 
-        if let Some(track_id) = extract_id(node) {
-            track_list.push(fetch_track_compat(compat, &track_id, Some(node), None, status).await?);
+    loop {
+        println!("[DEBUG][Rust][Spotify] Fetching playlist page - Offset: {}, Limit: {}", offset, limit);
+        let playlist: Value = compat
+            .query(
+                "fetchPlaylist",
+                json!({
+                    "uri": format!("spotify:playlist:{}", playlist_id),
+                    "offset": offset,
+                    "limit": limit,
+                    "enableWatchFeedEntrypoint": true,
+                }),
+                "bb67e0af06e8d6f52b531f97468ee4acd44cd0f82b988e15c2ea47b1148efc77",
+            )
+            .await?;
+
+        let playlist_v2 = playlist
+            .pointer("/data/playlistV2")
+            .or_else(|| playlist.pointer("/data/playlist"))
+            .ok_or_else(|| "playlist payload not found".to_string())?;
+
+        // Initialize playlist info and total tracks from the first page
+        if playlist_info.is_none() {
+            total_tracks = json_pointer_u64(playlist_v2, "/content/totalCount")
+                .map(|v| v as usize)
+                .unwrap_or(0);
+
+            let owner_name = json_pointer_string(playlist_v2, "/ownerV2/data/name")
+                .or_else(|| json_pointer_string(playlist_v2, "/owner/name"))
+                .unwrap_or("Unknown")
+                .to_string();
+            let owner_avatar = first_image_url(
+                playlist_v2
+                    .pointer("/ownerV2/data/avatar/sources")
+                    .or_else(|| playlist_v2.pointer("/owner/images/items/0/sources"))
+                    .or_else(|| playlist_v2.pointer("/owner/images/sources")),
+            );
+
+            playlist_info = Some(PlaylistInfoCompat {
+                name: json_pointer_string(playlist_v2, "/name")
+                    .unwrap_or("Unknown Playlist")
+                    .to_string(),
+                tracks: PlaylistCountCompat { total: total_tracks },
+                followers: PlaylistCountCompat {
+                    total: json_pointer_u64(playlist_v2, "/followers")
+                        .or_else(|| json_pointer_u64(playlist_v2, "/followersCount"))
+                        .map(|v| v as usize)
+                        .unwrap_or(0),
+                },
+                owner: PlaylistOwnerCompat {
+                    display_name: owner_name.clone(),
+                    name: owner_name,
+                    images: owner_avatar,
+                },
+                cover: first_image_url(
+                    playlist_v2
+                        .pointer("/images/items/0/sources")
+                        .or_else(|| playlist_v2.pointer("/images/sources")),
+                ),
+                description: json_pointer_string(playlist_v2, "/description")
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+            
+            println!("[DEBUG][Rust][Spotify] Playlist: {}, Total tracks: {}", 
+                playlist_info.as_ref().unwrap().name, total_tracks);
+        }
+
+        let content_items = playlist_v2
+            .pointer("/content/items")
+            .and_then(Value::as_array);
+
+        if let Some(items) = content_items {
+            if items.is_empty() {
+                break;
+            }
+            
+            let page_len = items.len();
+            for item in items {
+                let status = json_pointer_string(item, "/itemV2/data/status")
+                    .or_else(|| json_pointer_string(item, "/status"))
+                    .map(ToOwned::to_owned);
+                let node = item
+                    .pointer("/itemV2/data")
+                    .or_else(|| item.pointer("/item/data"))
+                    .or_else(|| item.get("track"))
+                    .unwrap_or(item);
+
+                if let Some(track_id) = extract_id(node) {
+                    track_list.push(fetch_track_compat(compat, &track_id, Some(node), None, status).await?);
+                }
+            }
+            
+            offset += page_len;
+            
+            // Si ya tenemos todas las canciones o la página vino incompleta, terminamos
+            if offset >= total_tracks || page_len < limit {
+                break;
+            }
+        } else {
+            break;
         }
     }
 
-    let owner_name = json_pointer_string(playlist_v2, "/ownerV2/data/name")
-        .or_else(|| json_pointer_string(playlist_v2, "/owner/name"))
-        .unwrap_or("Unknown")
-        .to_string();
-    let owner_avatar = first_image_url(
-        playlist_v2
-            .pointer("/ownerV2/data/avatar/sources")
-            .or_else(|| playlist_v2.pointer("/owner/images/items/0/sources"))
-            .or_else(|| playlist_v2.pointer("/owner/images/sources")),
-    );
+    let info = playlist_info.ok_or_else(|| "Playlist info not found".to_string())?;
 
     Ok(PlaylistResponseCompat {
-        playlist_info: PlaylistInfoCompat {
-            name: json_pointer_string(playlist_v2, "/name")
-                .unwrap_or("Unknown Playlist")
-                .to_string(),
-            tracks: PlaylistCountCompat {
-                total: json_pointer_u64(playlist_v2, "/content/totalCount")
-                    .map(|v| v as usize)
-                    .unwrap_or(track_list.len()),
-            },
-            followers: PlaylistCountCompat {
-                total: json_pointer_u64(playlist_v2, "/followers")
-                    .or_else(|| json_pointer_u64(playlist_v2, "/followersCount"))
-                    .map(|v| v as usize)
-                    .unwrap_or(0),
-            },
-            owner: PlaylistOwnerCompat {
-                display_name: owner_name.clone(),
-                name: owner_name,
-                images: owner_avatar,
-            },
-            cover: first_image_url(
-                playlist_v2
-                    .pointer("/images/items/0/sources")
-                    .or_else(|| playlist_v2.pointer("/images/sources")),
-            ),
-            description: json_pointer_string(playlist_v2, "/description")
-                .unwrap_or_default()
-                .to_string(),
-        },
+        playlist_info: info,
         track_list,
     })
 }
@@ -654,7 +701,7 @@ async fn fetch_artist_discography_compat(
     let compat_clone = compat.clone();
     let artist_name_clone = artist_name.clone();
 
-    let mut album_results = futures::stream::iter(album_items.into_iter().filter_map(|item| {
+    let album_results = futures::stream::iter(album_items.into_iter().filter_map(|item| {
         let album_node = item
             .pointer("/releases/items/0")
             .or_else(|| item.get("item"))

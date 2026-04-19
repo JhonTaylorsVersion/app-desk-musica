@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::models::AudioQuality;
 use super::AudioProvider;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fs::File;
 use std::io::Write;
 use base64::{Engine as _, engine::general_purpose};

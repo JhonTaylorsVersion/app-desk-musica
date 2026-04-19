@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use reqwest::Client;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs;
 use std::io::Write;
 use crate::utils::filename::FilenameBuilder;

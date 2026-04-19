@@ -298,7 +298,7 @@ impl SpotiFLACEngine {
         Err(last_error)
     }
 
-    async fn perform_download_sequence(&self, dl_info: &str, file_id: &str, metadata: &TrackMetadata, config: &AppConfig, provider: &dyn AudioProvider) -> Result<PathBuf> {
+    async fn perform_download_sequence(&self, dl_info: &str, _file_id: &str, metadata: &TrackMetadata, config: &AppConfig, provider: &dyn AudioProvider) -> Result<PathBuf> {
         let mut final_metadata = metadata.clone();
         
         // --- MUSICBRAINZ ENRICHMENT ---

@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use reqwest::Client;
 use zip::ZipArchive;
 use tempfile::NamedTempFile;

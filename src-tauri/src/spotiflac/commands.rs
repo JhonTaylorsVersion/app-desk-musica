@@ -14,6 +14,13 @@ pub struct AppState {
     pub engine: SpotiFLACEngine,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotiFlacHostInfo {
+    pub default_download_path: String,
+    pub config_path: String,
+}
+
 pub struct TauriProgressHandler {
     app_handle: AppHandle,
 }
@@ -53,6 +60,7 @@ impl ProgressHandler for TauriProgressHandler {
 // REQUEST / RESPONSE TYPES
 // ======================================
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct LyricsDownloadRequest {
     pub spotify_id: String,
@@ -79,6 +87,7 @@ pub struct LyricsDownloadResponse {
     pub already_exists: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CoverDownloadRequest {
     pub cover_url: String,
@@ -125,6 +134,7 @@ pub struct AvatarDownloadRequest {
     pub output_dir: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct FileExistenceTrack {
     pub spotify_id: Option<String>,
@@ -145,6 +155,7 @@ pub struct FileExistenceResult {
     pub file_path: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct AddQueueRequest {
     pub id: String,
@@ -500,7 +511,7 @@ pub async fn decode_audio_for_analysis(path: String) -> Result<serde_json::Value
 #[tauri::command]
 pub async fn download_lyrics(
     request: LyricsDownloadRequest,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<LyricsDownloadResponse, String> {
     use spotiflac_core_rs::metadata::lyrics::LyricsClient;
     use spotiflac_core_rs::utils::filename::FilenameBuilder;
@@ -962,6 +973,21 @@ pub async fn get_default_download_path() -> Result<String, String> {
         .or_else(|| dirs::home_dir().map(|h| h.join("Music")))
         .ok_or_else(|| "Could not determine default music path".to_string())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_host_info() -> Result<SpotiFlacHostInfo, String> {
+    let default_download_path = get_default_download_path().await?;
+    let config_path = dirs::config_dir()
+        .ok_or_else(|| "Could not determine config directory".to_string())?
+        .join("spotiflac");
+
+    std::fs::create_dir_all(&config_path).map_err(|e| e.to_string())?;
+
+    Ok(SpotiFlacHostInfo {
+        default_download_path,
+        config_path: config_path.to_string_lossy().to_string(),
+    })
 }
 
 /// Opens the output folder in the system file manager

@@ -6,7 +6,7 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::prelude::Accessor;
 use lofty::read_from_path;
-use lofty::tag::{ItemKey, Tag, TagType};
+use lofty::tag::{ItemKey, Tag};
 use serde::{Deserialize, Serialize};
 // Asegúrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
@@ -101,11 +101,14 @@ struct LibraryWatcherState {
     watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
 }
 
+#[allow(dead_code)]
 struct SpotiFlacDownloadState {
     lock: tauri::async_runtime::Mutex<()>,
 }
 
+#[allow(dead_code)]
 static SPOTIFLAC_BRIDGE_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+#[allow(dead_code)]
 static SPOTIFLAC_DOWNLOADS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Serialize, Clone)]
@@ -1734,6 +1737,7 @@ fn get_computer_name() -> String {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct SpotiFlacHostInfo {
     default_download_path: String,
     config_path: String,
@@ -1752,6 +1756,7 @@ fn default_music_directory() -> String {
     ".".to_string()
 }
 
+#[allow(dead_code)]
 fn spotiflac_legacy_app_dir() -> Result<PathBuf, String> {
     if let Ok(user_profile) = std::env::var("USERPROFILE") {
         let path = PathBuf::from(user_profile).join(".spotiflac");
@@ -1765,6 +1770,7 @@ fn spotiflac_legacy_app_dir() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_get_host_info(_app_handle: AppHandle) -> Result<SpotiFlacHostInfo, String> {
     let config_path = spotiflac_legacy_app_dir()?;
     Ok(SpotiFlacHostInfo {
@@ -1774,6 +1780,7 @@ fn spotiflac_get_host_info(_app_handle: AppHandle) -> Result<SpotiFlacHostInfo, 
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_open_folder(path: String) -> Result<(), String> {
     if path.trim().is_empty() {
         return Err("Ruta vacia".to_string());
@@ -1817,6 +1824,7 @@ fn spotiflac_open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_write_text_file(path: String, contents: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if let Some(parent) = target.parent() {
@@ -1827,11 +1835,13 @@ fn spotiflac_write_text_file(path: String, contents: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_read_text_file(path: String) -> Result<String, String> {
     fs::read_to_string(PathBuf::from(path)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_write_binary_file(path: String, base64_data: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if let Some(parent) = target.parent() {
@@ -1845,11 +1855,13 @@ fn spotiflac_write_binary_file(path: String, base64_data: String) -> Result<(), 
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_file_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_get_file_size_mb(path: String) -> Result<f64, String> {
     let metadata = fs::metadata(&path)
         .map_err(|error| format!("No se pudo leer el tamaño de {}: {}", path, error))?;
@@ -1857,6 +1869,7 @@ fn spotiflac_get_file_size_mb(path: String) -> Result<f64, String> {
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 fn spotiflac_find_duplicate_candidates(
     directory: String,
     base_name: String,
@@ -1899,6 +1912,7 @@ fn spotiflac_find_duplicate_candidates(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_download_track(
     request: serde_json::Value,
     download_state: State<'_, SpotiFlacDownloadState>,
@@ -1914,6 +1928,7 @@ async fn spotiflac_download_track(
         .map_err(|error| format!("Fallo ejecutando descarga de SpotiFLAC: {}", error))?
 }
 
+#[allow(dead_code)]
 fn debug_spotiflac_written_tags(file_path: &str) {
     match read_from_path(file_path) {
         Ok(tagged_file) => {
@@ -1952,6 +1967,7 @@ fn debug_spotiflac_written_tags(file_path: &str) {
     }
 }
 
+#[allow(dead_code)]
 fn normalize_spotiflac_written_tags(
     file_path: &str,
     request_release_date: Option<&str>,
@@ -1990,6 +2006,7 @@ fn normalize_spotiflac_written_tags(
     Err(last_error.unwrap_or_else(|| "No se pudo normalizar metadata".to_string()))
 }
 
+#[allow(dead_code)]
 fn normalize_spotiflac_text_for_match(value: &str) -> String {
     value
         .chars()
@@ -2006,6 +2023,7 @@ fn normalize_spotiflac_text_for_match(value: &str) -> String {
         .join(" ")
 }
 
+#[allow(dead_code)]
 fn split_spotiflac_artist_candidates(value: &str) -> Vec<String> {
     let normalized = value
         .replace(" feat. ", ",")
@@ -2022,6 +2040,7 @@ fn split_spotiflac_artist_candidates(value: &str) -> Vec<String> {
         .collect()
 }
 
+#[allow(dead_code)]
 fn fetch_spotiflac_deezer_genres(isrc: &str) -> Result<Vec<String>, String> {
     let clean_isrc = isrc.trim();
     if clean_isrc.is_empty() {
@@ -2060,6 +2079,7 @@ fn fetch_spotiflac_deezer_genres(isrc: &str) -> Result<Vec<String>, String> {
     Ok(genres)
 }
 
+#[allow(dead_code)]
 fn fetch_spotiflac_artist_genres(artist_name: &str) -> Result<Vec<String>, String> {
     let search_query = artist_name.trim();
     if search_query.is_empty() {
@@ -2138,6 +2158,7 @@ fn fetch_spotiflac_artist_genres(artist_name: &str) -> Result<Vec<String>, Strin
     Ok(genres)
 }
 
+#[allow(dead_code)]
 fn fetch_spotiflac_fallback_genres(
     isrc: Option<&str>,
     primary_artist_name: Option<&str>,
@@ -2168,6 +2189,7 @@ fn fetch_spotiflac_fallback_genres(
     Ok(Vec::new())
 }
 
+#[allow(dead_code)]
 fn normalize_spotiflac_tag_fields(
     tag: &mut Tag,
     request_release_date: Option<&str>,
@@ -2233,6 +2255,7 @@ fn normalize_spotiflac_tag_fields(
     changed
 }
 
+#[allow(dead_code)]
 fn normalize_spotiflac_written_tags_once(
     file_path: &str,
     request_release_date: Option<&str>,
@@ -2294,6 +2317,7 @@ fn normalize_spotiflac_written_tags_once(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn run_spotiflac_bridge(
     command_name: &str,
     request: serde_json::Value,
@@ -2486,6 +2510,7 @@ fn run_spotiflac_bridge(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_get_spotify_metadata(
     url: String,
     batch: Option<bool>,
@@ -2510,6 +2535,7 @@ async fn spotiflac_get_spotify_metadata(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_get_streaming_urls(
     spotify_track_id: String,
     region: Option<String>,
@@ -2528,6 +2554,7 @@ async fn spotiflac_get_streaming_urls(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_check_track_availability(
     spotify_track_id: String,
 ) -> Result<serde_json::Value, String> {
@@ -2544,6 +2571,7 @@ async fn spotiflac_check_track_availability(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_search_spotify(
     query: String,
     limit: Option<i32>,
@@ -2562,6 +2590,7 @@ async fn spotiflac_search_spotify(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_search_spotify_by_type(
     query: String,
     search_type: String,
@@ -2584,6 +2613,7 @@ async fn spotiflac_search_spotify_by_type(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn spotiflac_get_preview_url(track_id: String) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         run_spotiflac_bridge(
@@ -3657,6 +3687,7 @@ pub fn run() {
             spotiflac::commands::download_gallery_image,
             spotiflac::commands::download_avatar,
             spotiflac::commands::select_folder,
+            spotiflac::commands::get_host_info,
             spotiflac::commands::open_config_folder,
             spotiflac::commands::get_default_download_path,
             spotiflac::commands::open_folder,

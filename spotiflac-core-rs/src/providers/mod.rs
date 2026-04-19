@@ -4,7 +4,7 @@ pub mod amazon;
 
 use async_trait::async_trait;
 use anyhow::Result;
-use crate::models::{TrackMetadata, AudioQuality};
+use crate::models::AudioQuality;
 
 use crate::progress::ProgressManager;
 use std::sync::Arc;

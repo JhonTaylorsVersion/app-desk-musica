@@ -1,8 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 use lofty::prelude::*;
-use lofty::file::AudioFile;
-use lofty::tag::{Accessor, TagType};
+use lofty::tag::Accessor;
 use crate::utils::filename::FilenameBuilder;
 use std::fs;
 

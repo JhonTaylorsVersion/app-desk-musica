@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use reqwest::Client;
 use std::time::Duration;
 use crate::models::CurrentIPInfo;

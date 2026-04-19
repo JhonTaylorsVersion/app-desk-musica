@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use num_bigint::BigUint;
-use num_traits::Num;
 
 pub fn parse_spotify_url(url: &str) -> Result<(String, String)> {
     if url.contains("track/") {

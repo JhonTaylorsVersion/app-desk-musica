@@ -251,6 +251,30 @@ export function useAppLogic() {
     configPath: string;
   };
 
+  type SpotiFlacAudioQuality = "Low" | "Lossless" | "HiRes";
+
+  type SpotiFlacAppConfig = {
+    output_dir: string;
+    download_quality: SpotiFlacAudioQuality;
+    filename_format: string;
+    embed_metadata: boolean;
+    embed_cover: boolean;
+    embed_genre: boolean;
+    use_single_genre: boolean;
+    redownload_with_suffix: boolean;
+    download_artist_images: boolean;
+    embed_lyrics: boolean;
+    save_lrc_file: boolean;
+    downloader: string;
+    auto_order: string[];
+    allow_resolver_fallback: boolean;
+    folder_structure: string;
+    separator: string;
+    use_first_artist_only: boolean;
+    use_album_track_number: boolean;
+    position_override: number | null;
+  };
+
   type SpotiFlacHostInvoke =
     | "getHostInfo"
     | "selectFolder"
@@ -320,6 +344,265 @@ export function useAppLogic() {
           : typeof request.itemId === "string"
             ? request.itemId
             : null,
+    };
+  };
+
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+
+  const asString = (value: unknown): string | null =>
+    typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+  const asBoolean = (value: unknown): boolean | null =>
+    typeof value === "boolean" ? value : null;
+
+  const asNumber = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  const asStringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+
+  const sanitizePathSegment = (value: string) =>
+    value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_").trim();
+
+  const joinPathSegments = (...segments: Array<string | null | undefined>) =>
+    segments
+      .filter((segment): segment is string => !!segment && segment.trim().length > 0)
+      .map((segment, index) =>
+        index === 0
+          ? segment.replace(/[\\/]+$/g, "")
+          : segment.replace(/^[\\/]+|[\\/]+$/g, ""),
+      )
+      .join("\\");
+
+  const buildSpotifyTrackUrl = (trackId: string) =>
+    `https://open.spotify.com/track/${trackId}`;
+
+  const resolveSpotifyTrackUrl = (payload: Record<string, unknown>) => {
+    const directUrl = asString(payload.url);
+    if (directUrl) return directUrl;
+
+    const spotifyTrackId =
+      asString(payload.spotifyTrackId) ??
+      asString(payload.spotify_id) ??
+      asString(payload.spotifyId);
+
+    return spotifyTrackId ? buildSpotifyTrackUrl(spotifyTrackId) : null;
+  };
+
+  const normalizeDownloadQuality = (value: unknown): SpotiFlacAudioQuality => {
+    const raw = asString(value)?.toLowerCase();
+    if (raw === "hires" || raw === "hi_res" || raw === "hi-res") {
+      return "HiRes";
+    }
+    if (raw === "low") {
+      return "Low";
+    }
+    return "Lossless";
+  };
+
+  const buildAutoOrder = (preferredDownloader: string, rawSettings: Record<string, unknown>) => {
+    const configured = asStringArray(rawSettings.auto_order);
+    if (configured.length > 0) {
+      return configured;
+    }
+
+    if (preferredDownloader && preferredDownloader !== "auto") {
+      return [preferredDownloader];
+    }
+
+    return ["tidal", "qobuz", "amazon"];
+  };
+
+  const loadNativeSpotiFlacSettings = async () => {
+    const [hostInfo, rawSettings] = await Promise.all([
+      invoke<SpotiFlacHostInfo>("get_host_info"),
+      invoke<unknown>("load_settings").catch(() => null),
+    ]);
+
+    console.log("[DEBUG][Sync] loadNativeSpotiFlacSettings resolved", {
+      hostInfo,
+      rawSettings,
+    });
+
+    return {
+      hostInfo,
+      rawSettings: asRecord(rawSettings),
+    };
+  };
+
+  const buildNativeSpotiFlacConfig = async (
+    payload: Record<string, unknown>,
+  ): Promise<SpotiFlacAppConfig> => {
+    const request =
+      payload && typeof payload.request === "object"
+        ? asRecord(payload.request)
+        : payload;
+    const { hostInfo, rawSettings } = await loadNativeSpotiFlacSettings();
+
+    const baseOutputDir =
+      asString(request.output_dir) ??
+      asString(rawSettings.output_dir) ??
+      asString(rawSettings.outputDir) ??
+      hostInfo.defaultDownloadPath;
+
+    const playlistFolder = asString(request.playlist_name);
+    const outputDir = playlistFolder
+      ? joinPathSegments(baseOutputDir, sanitizePathSegment(playlistFolder))
+      : baseOutputDir;
+
+    const preferredDownloader =
+      asString(request.service) ??
+      asString(rawSettings.downloader) ??
+      "auto";
+    const config = {
+      output_dir: outputDir,
+      download_quality: normalizeDownloadQuality(
+        request.audio_format ??
+          request.download_quality ??
+          rawSettings.download_quality ??
+          rawSettings.downloadQuality,
+      ),
+      filename_format:
+        asString(rawSettings.filename_format) ??
+        asString(rawSettings.filenameFormat) ??
+        "{track} - {title}",
+      embed_metadata:
+        asBoolean(rawSettings.embed_metadata) ??
+        asBoolean(rawSettings.embedMetadata) ??
+        true,
+      embed_cover:
+        asBoolean(request.embed_max_quality_cover) ??
+        asBoolean(rawSettings.embed_cover) ??
+        asBoolean(rawSettings.embedCover) ??
+        true,
+      embed_genre:
+        asBoolean(rawSettings.embed_genre) ??
+        asBoolean(rawSettings.embedGenre) ??
+        true,
+      use_single_genre:
+        asBoolean(rawSettings.use_single_genre) ??
+        asBoolean(rawSettings.useSingleGenre) ??
+        true,
+      redownload_with_suffix:
+        asBoolean(request.overwrite) === true
+          ? false
+          : (asBoolean(rawSettings.redownload_with_suffix) ??
+              asBoolean(rawSettings.redownloadWithSuffix) ??
+              false),
+      download_artist_images:
+        asBoolean(rawSettings.download_artist_images) ??
+        asBoolean(rawSettings.downloadArtistImages) ??
+        false,
+      embed_lyrics:
+        asBoolean(request.embed_lyrics) ??
+        asBoolean(rawSettings.embed_lyrics) ??
+        asBoolean(rawSettings.embedLyrics) ??
+        true,
+      save_lrc_file:
+        asBoolean(rawSettings.save_lrc_file) ??
+        asBoolean(rawSettings.saveLrcFile) ??
+        false,
+      downloader: preferredDownloader,
+      auto_order: buildAutoOrder(preferredDownloader, rawSettings),
+      allow_resolver_fallback:
+        asBoolean(request.allow_fallback) ??
+        asBoolean(rawSettings.allow_resolver_fallback) ??
+        asBoolean(rawSettings.allowResolverFallback) ??
+        true,
+      folder_structure: "flat",
+      separator:
+        asString(rawSettings.separator) ??
+        ";",
+      use_first_artist_only:
+        asBoolean(rawSettings.use_first_artist_only) ??
+        asBoolean(rawSettings.useFirstArtistOnly) ??
+        false,
+      use_album_track_number:
+        asBoolean(request.use_album_track_number) ??
+        asBoolean(rawSettings.use_album_track_number) ??
+        asBoolean(rawSettings.useAlbumTrackNumber) ??
+        true,
+      position_override:
+        asNumber(request.position_override) ??
+        asNumber(request.position) ??
+        asNumber(rawSettings.position_override) ??
+        asNumber(rawSettings.positionOverride) ??
+        null,
+    };
+
+    console.log("[DEBUG][Sync] buildNativeSpotiFlacConfig resolved", {
+      request,
+      baseOutputDir,
+      playlistFolder,
+      preferredDownloader,
+      config,
+    });
+
+    return config;
+  };
+
+  const fetchSpotifyMetadataNative = async (url: string) => {
+    console.log(`[DEBUG][Sync] fetchSpotifyMetadataNative called with URL: "${url}"`);
+    try {
+      const result = await invoke<any>("get_spotify_metadata", { url });
+      const rawTracks = result ? result.track_list || result.tracks : null;
+      console.log(`[DEBUG][Sync] fetchSpotifyMetadataNative SUCCESS for "${url}"`, result);
+      console.log("[DEBUG][Sync] fetchSpotifyMetadataNative summary", {
+        url,
+        hasTrackList: Array.isArray(result?.track_list),
+        hasTracks: Array.isArray(result?.tracks),
+        trackCount: Array.isArray(rawTracks) ? rawTracks.length : null,
+        keys: result && typeof result === "object" ? Object.keys(result) : [],
+      });
+      return result;
+    } catch (err) {
+      console.error(`[DEBUG][Sync] fetchSpotifyMetadataNative ERROR for "${url}":`, err);
+      throw err;
+    }
+  };
+
+  const downloadTrackNative = async (payload: Record<string, unknown>) => {
+    const request =
+      payload && typeof payload.request === "object"
+        ? asRecord(payload.request)
+        : payload;
+    const url =
+      asString(request.url) ??
+      (asString(request.spotify_id) ? buildSpotifyTrackUrl(asString(request.spotify_id)!) : null) ??
+      asString(request.spotifyUrl);
+
+    if (!url) {
+      throw new Error("No se pudo construir la URL del track para descargar.");
+    }
+
+    const config = await buildNativeSpotiFlacConfig(request);
+    console.log("[DEBUG][Sync] downloadTrackNative prepared request", {
+      request,
+      resolvedUrl: url,
+      config,
+      tidalIdOverride:
+        asString(request.tidal_id_override) ??
+        asString(request.tidalIdOverride) ??
+        null,
+    });
+    const downloadedPath = await invoke<string>("download_track", {
+      url,
+      config,
+      tidalIdOverride:
+        asString(request.tidal_id_override) ??
+        asString(request.tidalIdOverride) ??
+        null,
+    });
+
+    return {
+      file: downloadedPath,
+      used_service:
+        config.downloader === "auto" ? config.auto_order[0] ?? "auto" : config.downloader,
     };
   };
 
@@ -419,7 +702,7 @@ export function useAppLogic() {
       ) => {
         switch (method) {
           case "getHostInfo":
-            return await invoke<SpotiFlacHostInfo>("spotiflac_get_host_info");
+            return await invoke<SpotiFlacHostInfo>("get_host_info");
           case "selectFolder": {
             const selected = await open({
               directory: true,
@@ -440,14 +723,12 @@ export function useAppLogic() {
             const path =
               typeof payload.path === "string" ? payload.path.trim() : "";
             if (!path) return null;
-            await invoke("spotiflac_open_folder", { path });
+            await invoke("open_folder", { path });
             return null;
           }
           case "openConfigFolder": {
-            const info = await invoke<SpotiFlacHostInfo>(
-              "spotiflac_get_host_info",
-            );
-            await invoke("spotiflac_open_folder", { path: info.configPath });
+            const info = await invoke<SpotiFlacHostInfo>("get_host_info");
+            await invoke("open_config_folder");
             return info.configPath;
           }
           case "writeTextFile": {
@@ -522,9 +803,7 @@ export function useAppLogic() {
                 pending: spotiFlacDownloadsInFlight,
                 ...summarizeSpotiFlacDownloadRequest(payload),
               });
-              const response = await invoke("spotiflac_download_track", {
-                request,
-              });
+              const response = await downloadTrackNative(asRecord(request));
               console.log("[SpotiFLAC][download:end]", {
                 traceId,
                 pending: spotiFlacDownloadsInFlight,
@@ -553,33 +832,33 @@ export function useAppLogic() {
             }
           }
           case "getStreamingURLs":
-            return await invoke("spotiflac_get_streaming_urls", {
-              spotifyTrackId: payload.spotifyTrackId,
+            return await invoke("get_streaming_urls", {
+              url: resolveSpotifyTrackUrl(payload),
               region:
                 typeof payload.region === "string" ? payload.region : undefined,
             });
           case "checkTrackAvailability":
-            return await invoke("spotiflac_check_track_availability", {
-              spotifyTrackId: payload.spotifyTrackId,
+            return await invoke("check_track_availability", {
+              url: resolveSpotifyTrackUrl(payload),
             });
           case "searchSpotify":
-            return await invoke("spotiflac_search_spotify", {
+            return await invoke("search_spotify", {
               query: payload.query,
-              limit:
-                typeof payload.limit === "number" ? payload.limit : undefined,
+              limit: typeof payload.limit === "number" ? payload.limit : 10,
             });
           case "searchSpotifyByType":
-            return await invoke("spotiflac_search_spotify_by_type", {
+            return await invoke("search_spotify_by_type", {
               query: payload.query,
               searchType: payload.searchType,
-              limit:
-                typeof payload.limit === "number" ? payload.limit : undefined,
-              offset:
-                typeof payload.offset === "number" ? payload.offset : undefined,
+              limit: typeof payload.limit === "number" ? payload.limit : 10,
+              offset: typeof payload.offset === "number" ? payload.offset : 0,
             });
           case "getPreviewURL":
-            return await invoke("spotiflac_get_preview_url", {
-              trackId: payload.trackID,
+            return await invoke("get_preview_url", {
+              trackId:
+                asString(payload.trackId) ??
+                asString(payload.trackID) ??
+                asString(payload.spotifyTrackId),
             });
           case "getSpotifyMetadata": {
             const url =
@@ -592,13 +871,19 @@ export function useAppLogic() {
                 url,
               );
             }
-            return await invoke("spotiflac_get_spotify_metadata", {
-              url,
-              batch: payload.batch,
-              delay: payload.delay,
-              timeout: payload.timeout,
-              separator: payload.separator,
+            console.log(`[DEBUG][Host][getSpotifyMetadata] URL: "${url}"`, { 
+              batch: payload.batch, 
+              delay: payload.delay, 
+              timeout: payload.timeout, 
+              separator: payload.separator 
             });
+            if (!url) {
+              console.error("[DEBUG][Host][getSpotifyMetadata] ERROR: No URL provided");
+              throw new Error("URL de Spotify requerida.");
+            }
+            const result = await fetchSpotifyMetadataNative(url);
+            console.log(`[DEBUG][Host][getSpotifyMetadata] SUCCESS for "${url}"`);
+            return result;
           }
           case "syncDownloadedPlaylist": {
             const name =
@@ -2367,9 +2652,7 @@ export function useAppLogic() {
         console.log(
           `[SpotifySync][Link] Fetching current Spotify IDs to initialize sync state...`,
         );
-        const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", {
-          url: options.spotifyUrl,
-        });
+        const remoteData = await fetchSpotifyMetadataNative(options.spotifyUrl);
 
         // Soporta tanto 'tracks' como 'track_list' (el formato de SpotiFLAC)
         const rawTracks = remoteData
@@ -5896,7 +6179,10 @@ export function useAppLogic() {
       if (forceState) console.log(`[DEBUG][Sync] START Manual sync for ID: ${playlistId}`);
       else console.log(`[DEBUG][Sync] START Automatic background check for ID: ${playlistId}`);
 
-      const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", { url: p.spotifyUrl });
+      console.log(`[DEBUG][Sync] Fetching metadata for playlist "${p.name}" (ID: ${playlistId}) from URL: "${p.spotifyUrl}"`);
+      const remoteData = await fetchSpotifyMetadataNative(p.spotifyUrl);
+      console.log(`[DEBUG][Sync] Metadata received for "${p.name}":`, remoteData);
+
       
       // PAUSA TÁCTICA Y VALIDACIÓN DE MUERTE INTEGRAL
       await new Promise(resolve => setTimeout(resolve, 0));
@@ -5904,7 +6190,16 @@ export function useAppLogic() {
       if (!forceState && activePlaylistViewId.value !== playlistId) return false;
 
       const rawTracks = remoteData ? remoteData.track_list || remoteData.tracks : null;
-      if (!Array.isArray(rawTracks)) return false;
+      console.log(`[DEBUG][Sync] Tracks Info: Received=${rawTracks?.length || 0}, Total in Spotify=${remoteData.playlist_info?.tracks?.total}`);
+      if (!Array.isArray(rawTracks)) {
+        console.warn("[DEBUG][Sync] Playlist metadata did not contain a track array", {
+          playlistId,
+          playlistName: p.name,
+          spotifyUrl: p.spotifyUrl,
+          remoteData,
+        });
+        return false;
+      }
 
       const getTrackId = (t: any) => t.id || t.spotify_id || t.track_id;
       const remoteIds = rawTracks.map(getTrackId).filter((id) => !!id);
@@ -5924,6 +6219,19 @@ export function useAppLogic() {
         const parsed = JSON.parse(p.spotifySyncedIds || "[]");
         if (Array.isArray(parsed)) syncState.synced = parsed; else syncState = parsed;
       } catch (e) {}
+
+      console.log("[DEBUG][Sync] Playlist sync comparison snapshot", {
+        playlistId,
+        playlistName: p.name,
+        spotifyUrl: p.spotifyUrl,
+        rawTrackCount: rawTracks.length,
+        remoteIdsCount: remoteIds.length,
+        localTrackPathsCount: p.trackPaths.length,
+        localTracksWithMetaCount: localTracksWithMeta.length,
+        localTrackIdsCount: localTrackIds.length,
+        syncedIdsCount: (syncState.synced || []).length,
+        ignoredRemovalsCount: (syncState.ignoredRemovals || []).length,
+      });
 
       const syncedIds = syncState.synced || [];
       const ignoredRemovals = syncState.ignoredRemovals || [];
@@ -5950,6 +6258,15 @@ export function useAppLogic() {
         .map((x) => ({
           id: x.meta.spotify_id || "", title: x.meta.title || "Unknown Title", artists: x.meta.artist || "Unknown Artist", path: x.path, cover: x.meta.cover_art?.data_url || null,
         }));
+
+      console.log("[DEBUG][Sync] Playlist diff computed", {
+        playlistId,
+        playlistName: p.name,
+        newTracksCount: newTracks.length,
+        removedTracksCount: removedTracks.length,
+        sampleNewTracks: newTracks.slice(0, 3),
+        sampleRemovedTracks: removedTracks.slice(0, 3),
+      });
 
       const isUpToDate = remoteIds.length === syncedIds.length && remoteIds.every((id) => syncedIdSet.has(id));
 
@@ -5979,6 +6296,16 @@ export function useAppLogic() {
       return true;
     } catch (e) {
       console.error(`[SpotifySync] Error checking ${p.name}:`, e);
+      console.error("[DEBUG][Sync] Error context for checkSpecificSpotifyPlaylist", {
+        playlistId,
+        playlistName: p.name,
+        spotifyUrl: p.spotifyUrl,
+        forceState,
+        currentActiveSyncId,
+        activePlaylistViewId: activePlaylistViewId.value,
+        spotifySyncedIds: p.spotifySyncedIds,
+        localTrackPathsCount: p.trackPaths.length,
+      });
       return false;
     } finally {
       if (forceState && currentActiveSyncId === thisSessionToken) currentActiveSyncId = null;
@@ -6074,9 +6401,14 @@ export function useAppLogic() {
           overwrite: true,
         };
 
-        const result = await invoke<any>("spotiflac_download_track", {
+        console.log("[DEBUG][Sync] applySpotifySync track request", {
+          playlistId,
+          playlistName,
+          track,
           request,
         });
+
+        const result = await downloadTrackNative(request);
 
         if (result && result.file) {
           console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
@@ -6251,10 +6583,14 @@ export function useAppLogic() {
         };
 
         console.log(`[DIAGNOSTICO] Request for "${track.title}":`, JSON.stringify(request, null, 2));
-
-        const result = await invoke<any>("spotiflac_download_track", {
+        console.log("[DEBUG][Sync] applyNewTracksSync track request", {
+          playlistId,
+          playlistName: p.name,
+          track,
           request,
         });
+
+        const result = await downloadTrackNative(request);
 
         console.log(`[DIAGNOSTICO] Result for "${track.title}":`, JSON.stringify(result, null, 2));
 

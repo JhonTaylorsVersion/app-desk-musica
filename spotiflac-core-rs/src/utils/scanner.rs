@@ -29,7 +29,7 @@ impl AudioScanner {
                     continue;
                 }
 
-                if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                if path.file_name().and_then(|s| s.to_str()).is_some() {
                     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
                     
                     if !audio_exts.contains(&ext.as_str()) {

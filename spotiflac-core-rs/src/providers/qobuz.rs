@@ -259,7 +259,6 @@ impl QobuzProvider {
                 .header("Connection", "keep-alive")
                 .send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    let status = resp.status();
                     let body_bytes = resp.bytes().await?;
                     
                     // Try parsing as JSON first (mirrors Go logic)

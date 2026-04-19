@@ -119,7 +119,7 @@ impl MusicBrainzClient {
             if let Some(tx) = in_flight.get(&cache_key) {
                 Some(tx.subscribe())
             } else {
-                let (tx, rx) = tokio::sync::broadcast::channel(1);
+                let (tx, _rx) = tokio::sync::broadcast::channel(1);
                 in_flight.insert(cache_key.clone(), tx);
                 None // None means we need to execute the fetch
             }

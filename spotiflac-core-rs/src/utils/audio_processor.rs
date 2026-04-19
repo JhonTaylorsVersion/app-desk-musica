@@ -44,7 +44,6 @@ impl AudioProcessor {
 
             let handle = task::spawn(async move {
                 let input_path = Path::new(&input_file);
-                let ext = input_path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
                 let parent = input_path.parent().unwrap_or_else(|| Path::new("."));
                 
@@ -169,7 +168,6 @@ impl AudioProcessor {
 
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
 
@@ -229,7 +227,7 @@ impl AudioProcessor {
             let _ = h.await;
         }
 
-        let mut res = results.lock().await.clone();
+        let res = results.lock().await.clone();
         res
     }
 
@@ -259,7 +257,6 @@ impl AudioProcessor {
 
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
 
