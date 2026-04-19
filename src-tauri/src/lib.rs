@@ -2293,7 +2293,9 @@ fn run_spotiflac_bridge(
 ) -> Result<serde_json::Value, String> {
     let trace_id = SPOTIFLAC_BRIDGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
     let started_at = Instant::now();
-    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    println!("[BACKEND] Using workspace root: {:?}", workspace_root);
+    let workspace_root = workspace_root
         .parent()
         .ok_or_else(|| "No se pudo resolver el workspace root".to_string())?
         .to_path_buf();
@@ -2354,12 +2356,14 @@ fn run_spotiflac_bridge(
     let mut child = Command::new(&bridge_path)
         .arg(command_name)
         .current_dir(workspace_root.join("SpotiFLAC-main"))
+        /*
         .env_remove("HTTP_PROXY")
         .env_remove("HTTPS_PROXY")
-        .env_remove("ALL_PROXY")
         .env_remove("http_proxy")
         .env_remove("https_proxy")
+        .env_remove("ALL_PROXY")
         .env_remove("all_proxy")
+        */
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

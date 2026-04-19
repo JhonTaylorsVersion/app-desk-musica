@@ -49,12 +49,13 @@ type TidalBTSManifest struct {
 }
 
 func NewTidalDownloader(apiURL string) *TidalDownloader {
+	const defaultTimeout = 60 * time.Second
 	if apiURL == "" {
 		downloader := &TidalDownloader{
 			client: &http.Client{
-				Timeout: 5 * time.Second,
+				Timeout: defaultTimeout,
 			},
-			timeout:    5 * time.Second,
+			timeout:    defaultTimeout,
 			maxRetries: 3,
 			apiURL:     "",
 		}
@@ -67,9 +68,9 @@ func NewTidalDownloader(apiURL string) *TidalDownloader {
 
 	return &TidalDownloader{
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: defaultTimeout,
 		},
-		timeout:    5 * time.Second,
+		timeout:    defaultTimeout,
 		maxRetries: 3,
 		apiURL:     apiURL,
 	}

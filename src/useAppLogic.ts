@@ -6039,32 +6039,22 @@ export function useAppLogic() {
       `[SpotifySync] Downloading ${sync.newTracks.length} tracks for "${playlistName}"...`,
     );
 
-    // Obtenemos todos los IDs actuales de Spotify para marcarlos como "vistos"
+    // Obtenemos todos los IDs actuales de Spotify para marcarlos como "vistos" solo al final si todo va bien
+    let successIds: string[] = [];
     try {
       const p = playlists.value.find((item) => item.id === playlistId);
       if (p && p.spotifyUrl) {
-        const remoteData = await invoke<any>("spotiflac_get_spotify_metadata", {
-          url: p.spotifyUrl,
-        });
-        if (remoteData && Array.isArray(remoteData.tracks)) {
-          await acknowledgeSpotifySync(
-            playlistId,
-            remoteData.tracks.map((t: any) => t.id),
-          );
-        }
+         // No marcamos como visto aquí todavía para permitir re-intentos si falla la descarga
+         console.log("[SpotifySync] Mass sync prepared.");
       }
     } catch (e) {
-      console.warn("[SpotifySync] Non-critical error updating sync IDs", e);
+      console.warn("[SpotifySync] Non-critical error during sync preparation", e);
     }
 
     const mainMusicDir = musicDirectories.value[0] || "";
 
     for (const track of sync.newTracks) {
       try {
-        const outputDir = mainMusicDir
-          ? `${mainMusicDir}\\${sync.playlistName}`
-          : "";
-
         // Petición completa con metadatos y flags de incrustación (según DownloadRequest en Go)
         const request = {
           item_id: `${track.id}_${Date.now()}`,
@@ -6074,8 +6064,10 @@ export function useAppLogic() {
           album_name: track.album,
           cover_url: track.cover,
           release_date: track.release_date,
-          output_dir: outputDir || mainMusicDir,
+          output_dir: mainMusicDir, // Pasamos la raíz, el bridge unirá con playlist_name solo si se le pasa
           playlist_name: sync.playlistName,
+          service: "auto",
+          allow_fallback: true,
           audio_format: "LOSSLESS",
           embed_lyrics: true,
           embed_max_quality_cover: true,
@@ -6089,6 +6081,8 @@ export function useAppLogic() {
         if (result && result.file) {
           console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
           (track as any).downloadedPath = result.file;
+          successIds.push(track.id);
+          
           await invoke("add_track_to_playlist", {
             playlistId: sync.playlistId,
             trackPath: result.file,
@@ -6107,6 +6101,8 @@ export function useAppLogic() {
               e,
             );
           }
+        } else {
+           console.error(`[SpotifySync] Download failed for ${track.title}:`, result);
         }
       } catch (e) {
         console.error(
@@ -6114,6 +6110,11 @@ export function useAppLogic() {
           e,
         );
       }
+    }
+
+    // Al finalizar el bucle, marcamos como sincronizados los IDs remotos si hubo éxito parcial o total
+    if (sync.remoteIds && sync.remoteIds.length > 0) {
+       await acknowledgeSpotifySync(playlistId, { synced: sync.remoteIds });
     }
 
     // 1. Sincronización oficial de la biblioteca
