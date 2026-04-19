@@ -1,4 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
+mod spotiflac;
+
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
@@ -30,6 +32,11 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use tauri::{webview::Color, AppHandle, Emitter};
 use walkdir::WalkDir;
+
+// === IMPORTACIONES SPOTIFLAC NATUVO ===
+use spotiflac::commands::{AppState as SpotiAppState, TauriProgressHandler};
+use spotiflac_core_rs::engine::SpotiFLACEngine;
+
 
 // === NUEVAS DEPENDENCIAS PRO ===
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -3551,10 +3558,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(player_state)
-        .manage(SpotiFlacDownloadState {
-            lock: tauri::async_runtime::Mutex::new(()),
-        })
         .manage(LibraryWatcherState {
             watcher: std::sync::Mutex::new(None),
         })
@@ -3576,6 +3581,18 @@ pub fn run() {
             let app_handle = app.handle().clone();
             start_audio_thread(rx, position_state, app_handle);
             // ==========================================
+
+            // === INICIALIZACIÓN MOTOR SPOTIFLAC NATUVO ===
+            let db_path = app.path().app_data_dir()
+                .map(|p| p.join("spotiflac.db"))
+                .ok();
+            
+            let engine = SpotiFLACEngine::new(db_path);
+            let progress_handler = Box::new(TauriProgressHandler::new(app.handle().clone()));
+            engine.progress.set_handler(progress_handler);
+
+            app.manage(SpotiAppState { engine });
+            // =============================================
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -3602,21 +3619,66 @@ pub fn run() {
             get_library_metadata_batch,
             get_output_device_info,
             get_computer_name,
-            spotiflac_get_host_info,
-            spotiflac_open_folder,
-            spotiflac_write_text_file,
-            spotiflac_read_text_file,
-            spotiflac_write_binary_file,
-            spotiflac_file_exists,
-            spotiflac_get_file_size_mb,
-            spotiflac_find_duplicate_candidates,
-            spotiflac_download_track,
-            spotiflac_get_spotify_metadata,
-            spotiflac_get_streaming_urls,
-            spotiflac_check_track_availability,
-            spotiflac_search_spotify,
-            spotiflac_search_spotify_by_type,
-            spotiflac_get_preview_url,
+            // === COMANDOS SPOTIFLAC NATUVO ===
+            spotiflac::commands::download_track,
+            spotiflac::commands::get_spotify_metadata,
+            spotiflac::commands::check_track_availability,
+            spotiflac::commands::check_api_status,
+            spotiflac::commands::fetch_unified_api_status,
+            spotiflac::commands::get_preview_url,
+            spotiflac::commands::get_track_isrc,
+            spotiflac::commands::search_spotify,
+            spotiflac::commands::search_spotify_by_type,
+            spotiflac::commands::get_current_ip_info,
+            spotiflac::commands::get_streaming_urls,
+            spotiflac::commands::add_fetch_history,
+            spotiflac::commands::get_download_history,
+            spotiflac::commands::delete_download_history_item,
+            spotiflac::commands::clear_download_history,
+            spotiflac::commands::get_fetch_history,
+            spotiflac::commands::delete_fetch_history_item,
+            spotiflac::commands::clear_fetch_history_by_type,
+            spotiflac::commands::check_files_existence,
+            spotiflac::commands::add_to_download_queue,
+            spotiflac::commands::skip_download_item,
+            spotiflac::commands::mark_download_item_failed,
+            spotiflac::commands::cancel_all_queued_items,
+            spotiflac::commands::get_download_progress,
+            spotiflac::commands::get_download_queue,
+            spotiflac::commands::clear_completed_downloads,
+            spotiflac::commands::clear_all_downloads,
+            spotiflac::commands::export_failed_downloads,
+            spotiflac::commands::create_m3u8_file,
+            spotiflac::commands::read_file_as_base64,
+            spotiflac::commands::decode_audio_for_analysis,
+            spotiflac::commands::download_lyrics,
+            spotiflac::commands::download_cover,
+            spotiflac::commands::download_header,
+            spotiflac::commands::download_gallery_image,
+            spotiflac::commands::download_avatar,
+            spotiflac::commands::select_folder,
+            spotiflac::commands::open_config_folder,
+            spotiflac::commands::get_default_download_path,
+            spotiflac::commands::open_folder,
+            spotiflac::commands::open_url,
+            spotiflac::commands::load_settings,
+            spotiflac::commands::save_settings,
+            spotiflac::commands::check_ffmpeg_installed,
+            spotiflac::commands::download_ffmpeg,
+            spotiflac::commands::convert_audio_batch,
+            spotiflac::commands::resample_audio_batch,
+            spotiflac::commands::list_audio_files,
+            spotiflac::commands::list_directory_items,
+            spotiflac::commands::preview_rename_files,
+            spotiflac::commands::rename_files_by_metadata,
+            spotiflac::commands::read_file_metadata,
+            spotiflac::commands::read_text_file,
+            spotiflac::commands::rename_file_to,
+            spotiflac::commands::read_image_as_base64,
+            spotiflac::commands::get_platform,
+            spotiflac::commands::get_app_version,
+            // =================================
+
             get_music_directories,
             save_music_directories,
             set_music_directories,

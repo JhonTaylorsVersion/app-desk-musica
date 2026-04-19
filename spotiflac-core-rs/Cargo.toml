@@ -1,0 +1,43 @@
+[package]
+name = "spotiflac-core-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Motor Async y Red
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "stream", "system-proxy"] }
+futures-util = "0.3"
+async-trait = "0.1"
+
+# Serialización (JSON/XML)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+quick-xml = { version = "0.36", features = ["serialize"] }
+
+# Música y Metadatos
+lofty = "0.21"           # El mejor tagger para Rust
+base64 = "0.22"
+totp-rs = "5.5"
+
+# Utilidades
+anyhow = "1.0"           # Manejo de errores simplificado
+chrono = "0.4"           # Fechas
+regex = "1.10"
+image = "0.25"           # Para procesar portadas
+url = "2.5"
+urlencoding = "2.1"
+num-bigint = "0.4"
+num-traits = "0.2"
+md5 = "0.7"
+sled = "0.34"
+lazy_static = "1.4"
+log = "0.4"
+
+# Para Tauri
+thiserror = "1.0"        # Errores personalizados compatibles con Tauri
+zip = "8.5.1"
+tempfile = "3.27.0"
+dirs = "6.0.0"
+xz2 = "0.1.7"
+tar = "0.4.45"

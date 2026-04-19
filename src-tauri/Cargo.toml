@@ -23,6 +23,7 @@ tauri = { version = "2.10.3", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-fs = "2.4.5"
+tauri-plugin-shell = "2"
 
 # LOFTY
 lofty = "0.23.3"
@@ -41,3 +42,11 @@ crossbeam-channel = "0.5"
 # BIBLIOTECA
 walkdir = "2.3"
 notify = "6.1"
+
+# === INTEGRACIÓN SPOTIFLAC NATUVO ===
+spotiflac-core-rs = { path = "../spotiflac-core-rs" }
+dirs = "5"
+chrono = "0.4"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures = "0.3"
+windows = { version = "0.61.3", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi"] }

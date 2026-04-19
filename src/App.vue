@@ -1,9 +1,15 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { useAppLogic } from "./useAppLogic";
+import SpotiFlacEmbeddedView from "./modules/spotiflac/SpotiFlacEmbeddedView.vue";
+import { Toaster } from "vue-sonner";
 
 export default defineComponent({
   name: "App",
+  components: {
+    SpotiFlacEmbeddedView,
+    Toaster,
+  },
   setup: useAppLogic,
 });
 </script>
@@ -1250,74 +1256,7 @@ export default defineComponent({
 
           <div class="library-panel glass-panel-inner">
             <template v-if="currentViewMode === 'spotiflac'">
-              <div class="spotiflac-view">
-                <div class="spotiflac-hero">
-                  <div class="spotiflac-hero-left">
-                    <h2 class="spotiflac-title">SpotiFLAC</h2>
-                    <div class="spotiflac-kicker">Herramientas de descarga</div>
-                    <div
-                      v-if="isSpotiFlacOffline"
-                      class="spotiflac-connection-badge"
-                    >
-                      Sin internet. Necesitas conexion para usar esta funcion.
-                    </div>
-                  </div>
-
-                  <button
-                    class="small-action-btn spotiflac-refresh-btn"
-                    type="button"
-                    @click="reloadSpotiFlacFrame"
-                  >
-                    Recargar
-                  </button>
-                </div>
-
-                <div class="spotiflac-embed-shell">
-                  <iframe
-                    v-if="isSpotiFlacReady"
-                    ref="spotiflacFrame"
-                    class="spotiflac-embed"
-                    :src="spotiFlacUrl"
-                    title="SpotiFLAC"
-                  ></iframe>
-                  <div v-else class="spotiflac-offline-state">
-                    <div class="spotiflac-offline-icon">SF</div>
-                    <div class="spotiflac-offline-title">
-                      {{
-                        isSpotiFlacOffline
-                          ? "Sin conexion a internet"
-                          : "SpotiFLAC aun no esta listo"
-                      }}
-                    </div>
-                    <div class="spotiflac-offline-copy">
-                      {{ spotiFlacStatusMessage }}
-                    </div>
-                    <div class="spotiflac-offline-steps">
-                      <template v-if="isSpotiFlacOffline">
-                        Conectate a internet y vuelve a intentarlo para usar
-                        SpotiFLAC dentro de la app.
-                      </template>
-                      <template v-else>
-                      La interfaz ya vive dentro de esta app en
-                      <span>public/spotiflac</span>. Si no carga, recompila el
-                      modulo embebido de SpotiFLAC.
-                      </template>
-                    </div>
-                    <button
-                      class="small-action-btn"
-                      type="button"
-                      :disabled="isSpotiFlacChecking"
-                      @click="reloadSpotiFlacFrame"
-                    >
-                      {{
-                        isSpotiFlacChecking
-                          ? "Comprobando..."
-                          : "Comprobar otra vez"
-                      }}
-                    </button>
-                  </div>
-                </div>
-              </div>
+               <SpotiFlacEmbeddedView />
             </template>
 
             <template v-else-if="isSearchViewActive">
@@ -4036,6 +3975,14 @@ export default defineComponent({
       </div>
     </div>
   </transition>
+
+  <Toaster
+    v-if="currentViewMode !== 'spotiflac'"
+    position="top-right"
+    expand
+    richColors
+    closeButton
+  />
 </template>
 
 <style>

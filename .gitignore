@@ -160,6 +160,8 @@ cargo-target-spotiflac-bridge*/
 cargo-target-*/
 cargo-target-*
 target/
+target-check*/
+**/target-check*/
 
 # Node builds dentro de subproyectos
 **/node_modules/
