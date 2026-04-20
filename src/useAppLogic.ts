@@ -6433,7 +6433,7 @@ export function useAppLogic() {
 
   const getTrackFingerprint = (title: string, artist: string) => {
     const artistStr = Array.isArray(artist) ? artist.join(", ") : artist;
-    return `${normalizeTrackSearch(title)}_${normalizeTrackSearch(artistStr)}`;
+    return `${normalizeTrackSearch(formatMetadataListValue(title))}_${normalizeTrackSearch(formatMetadataListValue(artistStr))}`;
   };
 
   const pendingSpotifySyncs = ref<
@@ -8001,11 +8001,13 @@ export function useAppLogic() {
   };
 
   const getLibraryTrackArtist = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.artist || "Artista desconocido";
+    const artist = getLibraryTrackMetadata(track)?.artist;
+    return formatMetadataListValue(artist) || "Artista desconocido";
   };
 
   const getLibraryTrackAlbum = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.album || "—";
+    const album = getLibraryTrackMetadata(track)?.album;
+    return formatMetadataListValue(album) || "—";
   };
 
   const formatMetadataListValue = (value?: string | null) => {
