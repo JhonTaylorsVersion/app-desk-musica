@@ -141,8 +141,8 @@ export default defineComponent({
               v-if="globalSearch"
               class="topbar-icon-btn"
               type="button"
-              aria-label="Limpiar bÃºsqueda global"
-              title="Limpiar bÃºsqueda global"
+              aria-label="Limpiar búsqueda global"
+              title="Limpiar búsqueda global"
               @click="globalSearch = ''"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -193,7 +193,7 @@ export default defineComponent({
               <div class="global-search-popover glass-panel-inner">
                 <template v-if="!globalSearch.trim()">
                   <div class="global-search-section-title">
-                    BÃºsquedas recientes
+                    Búsquedas recientes
                   </div>
 
                   <div
@@ -264,7 +264,7 @@ export default defineComponent({
                         v-if="item.kind === 'song'"
                         class="global-search-item-subtitle recent-search-subtitle"
                       >
-                        <span class="recent-search-type">Cancion</span>
+                        <span class="recent-search-type">Canción</span>
                         <span class="recent-search-separator">&bull;</span>
                         <button
                           class="recent-search-inline-link"
@@ -291,8 +291,8 @@ export default defineComponent({
                     <button
                       class="recent-search-remove-btn"
                       type="button"
-                      aria-label="Quitar de bÃºsquedas recientes"
-                      title="Quitar de bÃºsquedas recientes"
+                      aria-label="Quitar de búsquedas recientes"
+                      title="Quitar de búsquedas recientes"
                       @click.stop="removeRecentGlobalSearch(item)"
                     >
                       &times;
@@ -303,7 +303,7 @@ export default defineComponent({
                     v-if="recentGlobalSearches.length === 0"
                     class="global-search-empty-state"
                   >
-                    Tus bÃºsquedas recientes aparecerÃ¡n aquÃ­.
+                    Tus búsquedas recientes aparecerán aquí.
                   </div>
                 </template>
 
@@ -346,7 +346,7 @@ export default defineComponent({
                     <div class="global-search-actions">
                       <div class="global-search-kbd-hint">
                         <span class="topbar-shortcut-key">&crarr;</span>
-                        <span>Ingresar bÃºsqueda</span>
+                        <span>Ingresar búsqueda</span>
                       </div>
 
                       <button
@@ -668,7 +668,7 @@ export default defineComponent({
                     v-if="!hasQuickSearchResults"
                     class="global-search-empty-state"
                   >
-                    No encontrÃ© coincidencias rÃ¡pidas para "{{
+                    No encontré coincidencias rápidas para "{{
                       globalSearch.trim()
                     }}".
                   </div>
@@ -685,7 +685,7 @@ export default defineComponent({
       >
         <div class="global-search-popover glass-panel-inner">
           <template v-if="!globalSearch.trim()">
-            <div class="global-search-section-title">BÃºsquedas recientes</div>
+            <div class="global-search-section-title">Búsquedas recientes</div>
 
             <button
               v-for="item in recentGlobalSearches"
@@ -714,7 +714,7 @@ export default defineComponent({
               v-if="recentGlobalSearches.length === 0"
               class="global-search-empty-state"
             >
-              Tus bÃºsquedas recientes aparecerÃ¡n aquÃ­.
+              Tus búsquedas recientes aparecerán aquí.
             </div>
           </template>
 
@@ -738,7 +738,7 @@ export default defineComponent({
             <div class="global-search-popover-topbar">
               <div class="global-search-kbd-hint">
                 <span class="topbar-shortcut-key">&crarr;</span>
-                <span>Ingresar bÃºsqueda</span>
+                <span>Ingresar búsqueda</span>
               </div>
 
               <button
@@ -797,7 +797,7 @@ export default defineComponent({
                     {{ getTrackDisplayTitle(track) }}
                   </div>
                   <div class="global-search-item-subtitle">
-                    CanciÃ³n &bull; {{ getLibraryTrackArtist(track) }}
+                    Canción &bull; {{ getLibraryTrackArtist(track) }}
                   </div>
                 </div>
               </button>
@@ -807,7 +807,7 @@ export default defineComponent({
               v-if="!hasQuickSearchResults"
               class="global-search-empty-state"
             >
-              No encontrÃ© coincidencias rÃ¡pidas para "{{
+              No encontré coincidencias rápidas para "{{
                 globalSearch.trim()
               }}".
             </div>
@@ -823,7 +823,7 @@ export default defineComponent({
         <div class="routes-modal glass-panel">
           <div class="routes-modal-header">
             <div>
-              <div class="panel-title">Rutas de musica</div>
+              <div class="panel-title">Rutas de música</div>
               <div class="panel-subtitle">
                 {{ musicDirectories.length }} ruta(s) configurada(s)
               </div>
@@ -842,9 +842,9 @@ export default defineComponent({
             <button
               class="glass-button"
               type="button"
-              @click="anadirRutaMusica"
+              @click="añadirRutaMusica"
             >
-              Anadir ruta
+              Añadir ruta
             </button>
 
             <button
@@ -879,19 +879,19 @@ export default defineComponent({
           </div>
 
           <div v-else class="routes-empty glass-panel-inner">
-            <div class="routes-empty-title">Aun no tienes rutas guardadas</div>
+            <div class="routes-empty-title">Aún no tienes rutas guardadas</div>
             <div class="routes-empty-copy">
-              Usa "Anadir ruta" para registrar una o varias carpetas de musica.
+              Usa "Añadir ruta" para registrar una o varias carpetas de música.
             </div>
           </div>
 
-          <!-- SECCIÃ“N DE GESTIÃ“N DE ACTIVOS -->
+          <!-- SECCIÓN DE GESTIÓN DE ACTIVOS -->
           <div class="asset-manager-section">
             <div class="panel-divider"></div>
             <div class="asset-manager-header">
               <div class="panel-title">Almacenamiento de Activos</div>
               <div class="panel-subtitle">
-                Elige dÃ³nde buscar letras, canvas y carÃ¡tulas
+                Elige dónde buscar letras, canvas y carátulas
               </div>
             </div>
 
@@ -903,7 +903,7 @@ export default defineComponent({
                 @click="assetStorageMode = 'unified'"
               >
                 Unificado
-                <span class="mode-desc">Junto a la mÃºsica</span>
+                <span class="mode-desc">Junto a la música</span>
               </button>
               <button
                 class="mode-toggle-btn"
@@ -912,7 +912,7 @@ export default defineComponent({
                 @click="assetStorageMode = 'custom'"
               >
                 Personalizado
-                <span class="mode-desc">Carpetas especÃ­ficas</span>
+                <span class="mode-desc">Carpetas específicas</span>
               </button>
             </div>
 
@@ -951,7 +951,7 @@ export default defineComponent({
 
               <div class="custom-path-item glass-panel-inner">
                 <div class="path-info">
-                  <div class="path-label">Carpeta de CarÃ¡tulas</div>
+                  <div class="path-label">Carpeta de Carátulas</div>
                   <div class="path-value">
                     {{ customCoversPath || "Predeterminada" }}
                   </div>
@@ -1144,7 +1144,7 @@ export default defineComponent({
                 type="button"
                 @click="toggleSidebarLibraryFilter('albums')"
               >
-                Ãlbumes
+                Álbumes
               </button>
               <button
                 class="library-pill"
@@ -1294,7 +1294,7 @@ export default defineComponent({
                 class="left-library-empty"
               >
                 <div class="left-library-empty-title">
-                  No encontrÃ© resultados
+                  No encontré resultados
                 </div>
                 <div class="left-library-empty-copy">
                   Prueba con otro filtro o crea una playlist nueva.
@@ -1354,7 +1354,7 @@ export default defineComponent({
                     @click="addAllFilteredToQueue"
                     :disabled="displayedTracks.length === 0"
                   >
-                    AÃ±adir visibles a la fila
+                    Añadir visibles a la fila
                   </button>
                 </div>
               </div>
@@ -1459,7 +1459,7 @@ export default defineComponent({
                     @click="addPlaylistToQueue(activePlaylist.id)"
                     :disabled="activePlaylist.trackCount === 0"
                   >
-                    AÃ±adir a la fila
+                    Añadir a la fila
                   </button>
                 </div>
               </div>
@@ -1677,7 +1677,7 @@ export default defineComponent({
                   <template v-if="coverUrl">
                     <img
                       :src="coverUrl"
-                      alt="CarÃ¡tula"
+                      alt="Carátula"
                       class="cover-image glass-shadow"
                     />
                   </template>
@@ -1705,39 +1705,39 @@ export default defineComponent({
                     <div class="meta-card-title">Propiedades del Archivo</div>
                     <div class="meta-grid">
                       <div class="meta-item">
-                        <span class="meta-label">TÃ­tulo</span>
+                        <span class="meta-label">Título</span>
                         <span class="meta-value">{{
-                          metadata?.title || "â€”"
+                          metadata?.title || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
                         <span class="meta-label">Artista</span>
                         <span class="meta-value">{{
-                          metadata?.artist || "â€”"
+                          metadata?.artist || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
-                        <span class="meta-label">Ãlbum</span>
+                        <span class="meta-label">Álbum</span>
                         <span class="meta-value">{{
-                          metadata?.album || "â€”"
+                          metadata?.album || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
-                        <span class="meta-label">Artista del Ã¡lbum</span>
+                        <span class="meta-label">Artista del álbum</span>
                         <span class="meta-value">{{
-                          metadata?.album_artist || "â€”"
+                          metadata?.album_artist || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
-                        <span class="meta-label">GÃ©nero</span>
+                        <span class="meta-label">Género</span>
                         <span class="meta-value">{{
-                          metadata?.genre || "â€”"
+                          metadata?.genre || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
                         <span class="meta-label">Compositor</span>
                         <span class="meta-value">{{
-                          formatMetadataListValue(metadata?.composer) || "â€”"
+                          formatMetadataListValue(metadata?.composer) || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
@@ -1749,13 +1749,13 @@ export default defineComponent({
                         <span class="meta-value">{{ discLabel }}</span>
                       </div>
                       <div class="meta-item">
-                        <span class="meta-label">AÃ±o</span>
+                        <span class="meta-label">Año</span>
                         <span class="meta-value">{{
-                          metadata?.year || "â€”"
+                          metadata?.year || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
-                        <span class="meta-label">DuraciÃ³n</span>
+                        <span class="meta-label">Duración</span>
                         <span class="meta-value">{{
                           metadata?.duration_formatted || formatTime(duration)
                         }}</span>
@@ -1765,13 +1765,13 @@ export default defineComponent({
                         <span class="meta-value">{{
                           metadata?.audio_bitrate
                             ? `${metadata.audio_bitrate} kbps`
-                            : "â€”"
+                            : "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
                         <span class="meta-label">Formato</span>
                         <span class="meta-value uppercase">{{
-                          fileExtension || "â€”"
+                          fileExtension || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
@@ -1779,7 +1779,7 @@ export default defineComponent({
                         <span class="meta-value">{{
                           metadata?.sample_rate
                             ? `${metadata.sample_rate} Hz`
-                            : "â€”"
+                            : "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
@@ -1787,13 +1787,13 @@ export default defineComponent({
                         <span class="meta-value">{{
                           metadata?.bit_depth
                             ? `${metadata.bit_depth} bits`
-                            : "â€”"
+                            : "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
                         <span class="meta-label">Canales</span>
                         <span class="meta-value">{{
-                          metadata?.channels || "â€”"
+                          metadata?.channels || "—"
                         }}</span>
                       </div>
                     </div>
@@ -1887,17 +1887,17 @@ export default defineComponent({
           >
             <div class="no-lyrics-msg">
               <div class="sad-mic">??</div>
-              No hay letra sincronizada ni embebida para esta canciÃ³n.
+              No hay letra sincronizada ni embebida para esta canción.
             </div>
           </div>
         </div>
 
         <div v-else class="empty-state glass-panel-inner">
           <div class="empty-icon">??</div>
-          <div class="empty-title">Tu mÃºsica, a tu manera</div>
+          <div class="empty-title">Tu música, a tu manera</div>
           <div class="empty-subtitle">
-            AÃ±ade una o varias carpetas para ver toda tu biblioteca, buscar y
-            crear tu fila de reproducciÃ³n.
+            Añade una o varias carpetas para ver toda tu biblioteca, buscar y
+            crear tu fila de reproducción.
           </div>
         </div>
       </div>
@@ -2273,7 +2273,7 @@ export default defineComponent({
                   d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"
                 ></path>
               </svg>
-              <span>Reproduciendo a travÃ©s de</span>
+              <span>Reproduciendo a través de</span>
             </div>
 
             <div class="sbp-device-name">
@@ -2317,24 +2317,24 @@ export default defineComponent({
     :style="contextMenuStyle"
     @click.stop
   >
-    <!-- Acciones para selecciÃ³n mÃºltiple -->
+    <!-- Acciones para selección múltiple -->
     <template v-if="multiSelectedLibraryTracks.length > 1">
       <div class="context-menu-header">
-        SelecciÃ³n de {{ multiSelectedLibraryTracks.length }} canciones
+        Selección de {{ multiSelectedLibraryTracks.length }} canciones
       </div>
       <button
         class="context-menu-item"
         type="button"
         @click="addSelectionToQueue"
       >
-        Agregar selecciÃ³n a la fila
+        Agregar selección a la fila
       </button>
       <button
         class="context-menu-item with-chevron"
         type="button"
         @click="toggleContextMenuPlaylistPicker"
       >
-        Agregar selecciÃ³n a una playlist
+        Agregar selección a una playlist
       </button>
       <button
         v-if="contextMenuCanRemoveFromPlaylist && contextMenuActivePlaylist"
@@ -2342,7 +2342,7 @@ export default defineComponent({
         type="button"
         @click="removeContextMenuTrackFromPlaylist()"
       >
-        Eliminar selecciÃ³n de {{ contextMenuActivePlaylist.name }}
+        Eliminar selección de {{ contextMenuActivePlaylist.name }}
       </button>
     </template>
 
@@ -2366,7 +2366,7 @@ export default defineComponent({
         type="button"
         @click="addContextMenuTrackToQueue"
       >
-        Agregar a la fila de reproducciÃ³n
+        Agregar a la fila de reproducción
       </button>
       <button
         v-if="contextMenuPlaylistActions.length > 0"
@@ -2417,7 +2417,7 @@ export default defineComponent({
       type="button"
       @click="goToContextMenuAlbum"
     >
-      Ir al Ã¡lbum
+      Ir al álbum
     </button>
   </div>
 
@@ -2513,7 +2513,7 @@ export default defineComponent({
       <div class="playlist-modal-copy">
         <h2>Canciones ya agregadas</h2>
         <p>
-          Esta canciÃ³n ya estÃ¡ en tu playlist "{{
+          Esta canción ya está en tu playlist "{{
             duplicatePlaylistModal.playlistName
           }}".
         </p>
@@ -2585,7 +2585,7 @@ export default defineComponent({
   >
     <div class="playlist-modal delete-modal">
       <div class="playlist-modal-copy">
-        <h2>Â¿Quieres eliminar este elemento de Tu biblioteca?</h2>
+        <h2>¿Quieres eliminar este elemento de Tu biblioteca?</h2>
         <p>Se eliminara {{ playlistPendingDeletion.name }} de Tu biblioteca.</p>
       </div>
 
@@ -2597,7 +2597,7 @@ export default defineComponent({
             <span class="checkbox-label"
               >Eliminar la playlist
               <strong>{{ playlistPendingDeletion.name }}</strong> y sus
-              canciones fÃ­sicamente de tu PC</span
+              canciones físicamente de tu PC</span
             >
           </label>
           <div v-if="deletePlaylistWithFiles" class="delete-files-hard-warning">
@@ -2611,8 +2611,8 @@ export default defineComponent({
               />
             </svg>
             <span>
-              Solo se borrarÃ¡n los archivos fÃ­sicos de esta playlist. Si una
-              canciÃ³n estÃ¡ en otra lista de reproducciÃ³n, permanecerÃ¡ guardada
+              Solo se borrarán los archivos físicos de esta playlist. Si una
+              canción está en otra lista de reproducción, permanecerá guardada
               en tu PC.
             </span>
           </div>
@@ -2648,14 +2648,14 @@ export default defineComponent({
         <h2>
           {{
             trackPendingDeletion.count && trackPendingDeletion.count > 1
-              ? `Â¿Quitar estas ${trackPendingDeletion.count} canciones?`
-              : "Â¿Quitar esta canciÃ³n de la playlist?"
+              ? `¿Quitar estas ${trackPendingDeletion.count} canciones?`
+              : "¿Quitar esta canción de la playlist?"
           }}
         </h2>
         <p
           v-if="!trackPendingDeletion.count || trackPendingDeletion.count === 1"
         >
-          Se quitarÃ¡
+          Se quitará
           <strong>{{
             getTrackDisplayTitle(trackPendingDeletion.track)
           }}</strong>
@@ -2663,7 +2663,7 @@ export default defineComponent({
           >.
         </p>
         <p v-else>
-          Se quitarÃ¡n
+          Se quitarán
           <strong>{{ trackPendingDeletion.count }} canciones</strong> de
           <strong>{{ trackPendingDeletion.playlistName }}</strong
           >.
@@ -2678,8 +2678,8 @@ export default defineComponent({
             <span class="checkbox-label">
               {{
                 trackPendingDeletion.count && trackPendingDeletion.count > 1
-                  ? "Eliminar tambiÃ©n los archivos fÃ­sicos del PC"
-                  : "Eliminar tambiÃ©n el archivo fÃ­sico del PC"
+                  ? "Eliminar también los archivos físicos del PC"
+                  : "Eliminar también el archivo físico del PC"
               }}
             </span>
           </label>
@@ -2696,11 +2696,11 @@ export default defineComponent({
             <span>
               {{
                 trackPendingDeletion.count && trackPendingDeletion.count > 1
-                  ? "Los archivos se eliminarÃ¡n fÃ­sicamente solo de la carpeta de la playlist"
-                  : "El archivo se eliminarÃ¡ fÃ­sicamente solo de la carpeta de la playlist"
+                  ? "Los archivos se eliminarán físicamente solo de la carpeta de la playlist"
+                  : "El archivo se eliminará físicamente solo de la carpeta de la playlist"
               }}
               <strong>{{ trackPendingDeletion.playlistName }}</strong
-              >. Otras copias en tu PC no se verÃ¡n afectadas.
+              >. Otras copias en tu PC no se verán afectadas.
             </span>
           </div>
         </div>
@@ -2727,7 +2727,7 @@ export default defineComponent({
     </div>
   </div>
 
-  <!-- Modal de SincronizaciÃ³n de Spotify (Premium Redesign) -->
+  <!-- Modal de Sincronización de Spotify (Premium Redesign) -->
   <transition name="spotify-sync-modal">
     <div
       v-if="pendingSpotifySyncs.length > 0"
@@ -2751,10 +2751,10 @@ export default defineComponent({
             {{
               pendingSpotifySyncs[0].isScanning
                 ? "Sincronizando..."
-                : "SincronizaciÃ³n de Spotify"
+                : "Sincronización de Spotify"
             }}
           </h2>
-          <h2 v-else>Â¡Todo listo!</h2>
+          <h2 v-else>¡Todo listo!</h2>
         </div>
 
         <div v-if="isSyncSuccess" class="spotify-sync-success-view">
@@ -2765,7 +2765,7 @@ export default defineComponent({
               />
             </svg>
           </div>
-          <p>SincronizaciÃ³n completada con Ã©xito</p>
+          <p>Sincronización completada con éxito</p>
         </div>
 
         <div v-else class="spotify-sync-sections">
@@ -3180,7 +3180,7 @@ export default defineComponent({
               class="spotify-sync-column-footer"
               style="flex-direction: column; align-items: stretch; gap: 12px"
             >
-              <!-- Nueva opciÃ³n de borrado inteligente -->
+              <!-- Nueva opción de borrado inteligente -->
               <div
                 v-if="selectedRemovedTracks.length > 0"
                 class="delete-files-option sync-mini"
@@ -3206,7 +3206,7 @@ export default defineComponent({
                       line-height: 1.4;
                     "
                   >
-                    Eliminar tambiÃ©n archivos fÃ­sicos si pertenecen a esta
+                    Eliminar también archivos físicos si pertenecen a esta
                     carpeta
                   </span>
                 </label>
@@ -3277,7 +3277,7 @@ export default defineComponent({
           </div>
         </div>
 
-        <!-- Cierre automÃƒÂ¡tico si ambos estados coinciden con los descartados -->
+        <!-- Cierre automático si ambos estados coinciden con los descartados -->
         <div
           v-if="
             (pendingSpotifySyncs[0].newTracks.length === 0 ||
@@ -3323,10 +3323,10 @@ export default defineComponent({
       </div>
       <div class="playlist-add-toast-copy">
         <div class="playlist-add-toast-title">
-          Se agregÃ³ a {{ playlistAddToast.playlistName }}
+          Se agregó a {{ playlistAddToast.playlistName }}
         </div>
         <div class="playlist-add-toast-subtitle">
-          {{ playlistAddToast.trackTitle }} Â· {{ playlistAddToast.artist }}
+          {{ playlistAddToast.trackTitle }} · {{ playlistAddToast.artist }}
         </div>
       </div>
     </div>
@@ -3338,9 +3338,9 @@ export default defineComponent({
         <div class="boot-overlay-spinner" aria-hidden="true"></div>
         <div class="boot-overlay-copy">
           <p class="boot-overlay-eyebrow">Iniciando</p>
-          <h2>Preparando tu mÃºsica</h2>
+          <h2>Preparando tu música</h2>
           <p>
-            Cargando biblioteca, recuperando sesiÃ³n y conectando la salida de
+            Cargando biblioteca, recuperando sesión y conectando la salida de
             audio.
           </p>
         </div>

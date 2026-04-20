@@ -362,7 +362,7 @@ textarea,
 
   width: 100%;
 
-  max-width: 100%; /* Ignoramos el lÃ­mite de 1600px para que se estire a los lados */
+  max-width: 100%; /* Ignoramos el límite de 1600px para que se estire a los lados */
 
   height: 100dvh;
 
@@ -1336,7 +1336,7 @@ textarea,
 
 /* ============================
 
-   CONFIGURACIÃN GENERAL VISTAS
+   CONFIGURACIÓN GENERAL VISTAS
 
    ============================ */
 
@@ -2797,7 +2797,7 @@ textarea,
 
   width: 100%;
 
-  height: 75vh; /* Define quÃ© tan alto es el video inicialmente */
+  height: 75vh; /* Define qué tan alto es el video inicialmente */
 
   object-fit: cover;
 
@@ -2821,50 +2821,50 @@ textarea,
 
   gap: 20px;
 
-  padding: 0; /* Sin padding cuando es la carÃ¡tula normal */
+  padding: 0; /* Sin padding cuando es la carátula normal */
 }
 
 /* ========================================================
 
-   ESTILOS ESPECÃFICOS CUANDO HAY VIDEO (Canvas Spotify) 
+   ESTILOS ESPECÍFICOS CUANDO HAY VIDEO (Canvas Spotify) 
 
    ======================================================== */
 
 .panel-content-overlay.glass-overlay {
-  position: relative; /* Vuelve a ser relativo para hacer scroll con toda la pÃ¡gina */
+  position: relative; /* Vuelve a ser relativo para hacer scroll con toda la página */
 
   z-index: 1;
 
   width: 100%;
 
-  /* ESTA ES LA CLAVE: Hala el contenedor hacia arriba montÃ¡ndolo sobre el video */
+  /* ESTA ES LA CLAVE: Hala el contenedor hacia arriba montándolo sobre el video */
 
   margin-top: -38vh;
 
-  /* Eliminamos los lÃ­mites de altura y scroll interno */
+  /* Eliminamos los límites de altura y scroll interno */
 
   max-height: none;
 
   overflow-y: visible;
 
-  /* Padding alto para que el texto empiece despuÃ©s del difuminado */
+  /* Padding alto para que el texto empiece después del difuminado */
 
   padding: 120px 24px 24px 24px;
 
-  /* Degradado: Completamente sÃ³lido en la metadata, difuminado donde estÃ¡ el tÃ­tulo */
+  /* Degradado: Completamente sólido en la metadata, difuminado donde está el título */
 
   background: linear-gradient(
     to top,
 
     rgba(15, 17, 21, 1) 0%,
 
-    /* Fondo oscuro sÃ³lido abajo */ rgba(15, 17, 21, 1) 65%,
+    /* Fondo oscuro sólido abajo */ rgba(15, 17, 21, 1) 65%,
 
-    /* Se mantiene sÃ³lido para tapar lo que sobra del video */
+    /* Se mantiene sólido para tapar lo que sobra del video */
     rgba(15, 17, 21, 0.5) 85%,
 
     /* Se difumina suavemente */ transparent 100%
-      /* Transparente en la parte mÃ¡s alta */
+      /* Transparente en la parte más alta */
   );
 
   border-bottom-left-radius: 16px;
@@ -2940,7 +2940,7 @@ textarea,
 
   position: relative;
 
-  /* AÃ±adimos una transiciÃ³n suave para que el cambio de cuadrado a rectÃ¡ngulo se vea elegante */
+  /* Añadimos una transición suave para que el cambio de cuadrado a rectángulo se vea elegante */
 
   transition:
     max-width 0.4s cubic-bezier(0.25, 1, 0.5, 1),
@@ -2952,13 +2952,13 @@ textarea,
 .cover-container.is-canvas {
   aspect-ratio: 9 / 16;
 
-  max-width: 260px; /* Lo hacemos un poco mÃ¡s angosto para que el alto no desborde la pantalla */
+  max-width: 260px; /* Lo hacemos un poco más angosto para que el alto no desborde la pantalla */
 }
 
-/* OPCIONAL: Si tus videos no son perfectamente 9:16 y no quieres que se recorte NI UN PÃXEL, usa contain solo para el video */
+/* OPCIONAL: Si tus videos no son perfectamente 9:16 y no quieres que se recorte NI UN PÍXEL, usa contain solo para el video */
 
 video.cover-image {
-  object-fit: cover; /* Cambia a "contain" si notas algÃºn recorte indeseado */
+  object-fit: cover; /* Cambia a "contain" si notas algún recorte indeseado */
 
   background-color: #000; /* Fondo negro por si usas contain */
 }
@@ -5640,9 +5640,9 @@ content: "\2022\2022\2022";
 
   text-align: left;
 
-  background: rgba(15, 17, 21, 0.18); /* ð mÃ¡s transparente */
+  background: rgba(15, 17, 21, 0.18); /* ð más transparente */
 
-  backdrop-filter: blur(18px); /* ð mÃ¡s blur */
+  backdrop-filter: blur(18px); /* ð más blur */
 
   -webkit-backdrop-filter: blur(18px);
 
@@ -6464,7 +6464,7 @@ content: "\203A";
   color: #fff;
 }
 
-/* ====== ESTILOS DE NAVEGACIÃN ARTISTA/ÃLBUM ====== */
+/* ====== ESTILOS DE NAVEGACIÓN ARTISTA/ÁLBUM ====== */
 
 .hoverable-link {
   cursor: pointer;
@@ -6585,7 +6585,7 @@ content: "\203A";
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* ====== VISTA DE ÃLBUM (ESTILO LIQUID GLASS) ====== */
+/* ====== VISTA DE ÁLBUM (ESTILO LIQUID GLASS) ====== */
 
 .spotify-album-hero {
   position: relative;
@@ -6618,7 +6618,7 @@ content: "\203A";
 
   height: 232px;
 
-  border-radius: 12px; /* Ligeramente mÃ¡s curvo para hacer match con tu app */
+  border-radius: 12px; /* Ligeramente más curvo para hacer match con tu app */
 
   object-fit: cover;
 }

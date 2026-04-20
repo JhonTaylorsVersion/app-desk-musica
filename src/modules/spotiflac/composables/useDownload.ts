@@ -1,4 +1,4 @@
-﻿import { ref } from 'vue';
+import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toastWithSound as toast } from '../utils/toast-with-sound';
 import { useSettings } from './useSettings';
@@ -108,7 +108,7 @@ export function useDownload() {
         (value || '')
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
-            .replace(/['â€™`Â´]/g, '')
+            .replace(/['’`´]/g, '')
             .replace(/[^\p{L}\p{N}]+/gu, ' ')
             .trim()
             .toLowerCase();

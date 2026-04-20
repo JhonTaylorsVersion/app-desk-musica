@@ -1,4 +1,4 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { parseTemplate, type TemplateData } from "../types/settings";
 
 export type FontFamily =
@@ -395,9 +395,9 @@ export function applyTheme(theme: string): void {
   document.documentElement.setAttribute("data-theme", theme);
   const currentAttr = document.documentElement.getAttribute("data-theme");
   if (currentAttr !== theme) {
-    // console.error(`[ThemeEngine] Error: FallÃ³ la aplicaciÃ³n del atributo data-theme [${theme}]`);
+    // console.error(`[ThemeEngine] Error: Falló la aplicación del atributo data-theme [${theme}]`);
   } else {
-    // console.log(`[ThemeEngine] âœ“ Atributo data-theme establecido correctamente a: ${theme}`);
+    // console.log(`[ThemeEngine] ✓ Atributo data-theme establecido correctamente a: ${theme}`);
   }
 }
 

@@ -1,4 +1,4 @@
-﻿import {
+import {
   computed,
   onBeforeUnmount,
   onMounted,
@@ -368,7 +368,7 @@ export function useAppLogic() {
     (value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .replace(/['â€™`Â´]/g, "")
+      .replace(/['’`´]/g, "")
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim()
       .toLowerCase();
@@ -783,13 +783,13 @@ export function useAppLogic() {
         return;
       }
 
-      // âœ… CORRECCIÃ“N AQUÃ: Primero declaramos 'method' extrayÃ©ndolo del payload
+      // ✅ CORRECCIÓN AQUÍ: Primero declaramos 'method' extrayéndolo del payload
       const method =
         typeof payload.method === "string"
           ? (payload.method as SpotiFlacHostInvoke)
           : null;
 
-      // âœ… AHORA SÃ lo podemos imprimir en la consola sin errores
+      // ✅ AHORA SÍ lo podemos imprimir en la consola sin errores
       // console.log(`[Bridge][Invoke] Method: ${method}`, payload);
 
       const replyTarget = event.source;
@@ -820,7 +820,7 @@ export function useAppLogic() {
         postResponse({
           type: "result",
           ok: false,
-          error: "Metodo de SpotiFLAC no valido",
+          error: "Método de SpotiFLAC no válido",
         });
         return;
       }
@@ -1209,7 +1209,7 @@ export function useAppLogic() {
       if (!Array.isArray(items)) return [];
       return items.filter(isRecentSearchItem);
     } catch (error) {
-      // console.warn("No se pudo cargar el historial de busqueda global:", error);
+      // console.warn("No se pudo cargar el historial de búsqueda global:", error);
       return [];
     }
   };
@@ -1284,7 +1284,7 @@ export function useAppLogic() {
     }
   };
 
-  // FunciÃ³n para preguntarle a Rust quÃ© dispositivo se estÃ¡ usando
+  // Función para preguntarle a Rust qué dispositivo se está usando
   const fetchOutputDeviceInfo = async () => {
     try {
       outputDeviceInfo.value = await invoke<OutputDeviceInfo>(
@@ -1308,10 +1308,10 @@ export function useAppLogic() {
   // 1. Crea una variable reactiva para el Canvas
   const canvasUrl = ref<string | null>(null);
 
-  // 2. Crea una funciÃ³n para manejar el error si el video no existe
+  // 2. Crea una función para manejar el error si el video no existe
   const handleCanvasError = () => {
     pauseCanvas();
-    canvasUrl.value = null; // Si falla, lo anulamos y Vue mostrarÃ¡ la carÃ¡tula normal
+    canvasUrl.value = null; // Si falla, lo anulamos y Vue mostrará la carátula normal
   };
 
   const libraryMetadataMap = ref<Record<string, LibraryTrackMetadata>>({});
@@ -1810,7 +1810,7 @@ export function useAppLogic() {
   const goToContextMenuAlbum = () => {
     if (!contextMenu.value.track) return;
     const album = getLibraryTrackAlbum(contextMenu.value.track);
-    if (!album || album === "â€”") return;
+    if (!album || album === "—") return;
     goToAlbum(album, getAlbumArtistForTrack(contextMenu.value.track));
     closeTrackContextMenu();
   };
@@ -1828,7 +1828,7 @@ export function useAppLogic() {
     track: PlaylistTrack,
     index: number,
   ) => {
-    // 1. LÃ³gica de SelecciÃ³n (Multi-select)
+    // 1. Lógica de Selección (Multi-select)
     if (event.button === 2) {
       if (multiSelectedLibraryTracks.value.some((t) => t.index === index)) {
         return;
@@ -1870,7 +1870,7 @@ export function useAppLogic() {
 
     selectLibraryTrack(track, index);
 
-    // 2. LÃ³gica de Drag and Drop
+    // 2. Lógica de Drag and Drop
     if (event.button !== 0) return;
 
     const target = event.target as HTMLElement | null;
@@ -1903,7 +1903,7 @@ export function useAppLogic() {
   const addSelectionToQueue = () => {
     if (multiSelectedLibraryTracks.value.length === 0) return;
 
-    // Obtener los tracks reales de la selecciÃ³n
+    // Obtener los tracks reales de la selección
     const tracksToQueue = multiSelectedLibraryTracks.value
       .map((s) => displayedTracks.value[s.index])
       .filter((t) => !!t) as PlaylistTrack[];
@@ -1928,7 +1928,7 @@ export function useAppLogic() {
       closeTrackContextMenu();
       clearMultiSelection();
     } catch (err) {
-      // console.error("Error al aÃ±adir selecciÃ³n a playlist:", err);
+      // console.error("Error al añadir selección a playlist:", err);
     }
   };
 
@@ -1936,7 +1936,7 @@ export function useAppLogic() {
   //   if (contextMenu.value.playlistId == null) return;
   //   const playlistId = contextMenu.value.playlistId;
   //
-  //   // Copia de la selecciÃ³n porque se va a limpiar
+  //   // Copia de la selección porque se va a limpiar
   //   const selection = [...multiSelectedLibraryTracks.value].sort(
   //     (a, b) => b.index - a.index,
   //   );
@@ -1955,7 +1955,7 @@ export function useAppLogic() {
   //     closeTrackDeleteModal();
   //     clearMultiSelection();
   //   } catch (err) {
-  //     console.error("Error al eliminar selecciÃ³n de playlist:", err);
+  //     console.error("Error al eliminar selección de playlist:", err);
   //   }
   // };
 
@@ -1964,7 +1964,7 @@ export function useAppLogic() {
     track: PlaylistTrack,
     index?: number,
   ) => {
-    // Si el track no estÃ¡ en la selecciÃ³n mÃºltiple, lo seleccionamos solo a Ã©l
+    // Si el track no está en la selección múltiple, lo seleccionamos solo a él
     if (
       typeof index === "number" &&
       !multiSelectedLibraryTracks.value.some((t) => t.index === index)
@@ -2138,7 +2138,7 @@ export function useAppLogic() {
     const isInteractiveElement =
       Boolean(interactiveContainer) || isTypingElement;
 
-    // Ctrl/Cmd + F => enfocar bÃºsqueda
+    // Ctrl/Cmd + F => enfocar búsqueda
     const isGlobalSearchShortcut =
       (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l";
 
@@ -2166,7 +2166,7 @@ export function useAppLogic() {
     }
 
     // Espacio => play / pause
-    // Solo si NO estÃ¡ interactuando con un control de la UI
+    // Solo si NO está interactuando con un control de la UI
     const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
 
     if (isSpace && !isInteractiveElement) {
@@ -2368,7 +2368,7 @@ export function useAppLogic() {
 
   const loopTooltip = computed(() => {
     if (loopMode.value === "off") return "Habilitar repetir";
-    if (loopMode.value === "all") return "Repetir una canciÃ³n";
+    if (loopMode.value === "all") return "Repetir una canción";
     return "Desactivar repetir";
   });
 
@@ -2414,7 +2414,7 @@ export function useAppLogic() {
 
   let unlistenFsChanges: UnlistenFn | null = null;
 
-  // ====== BIBLIOTECA / BÃšSQUEDA / PANEL ======
+  // ====== BIBLIOTECA / BÚSQUEDA / PANEL ======
   const librarySearch = ref("");
 
   const globalSearch = ref("");
@@ -2431,7 +2431,7 @@ export function useAppLogic() {
   const customLyricsPath = ref<string | null>(null);
   const customCoversPath = ref<string | null>(null);
 
-  // ====== NAVEGACIÃ“N ARTISTA / ÃLBUM ======
+  // ====== NAVEGACIÓN ARTISTA / ÁLBUM ======
   type ViewMode =
     | "library"
     | "artist"
@@ -2662,7 +2662,7 @@ export function useAppLogic() {
   };
 
   const getQueuePlaybackContext = (): PlaybackContext => {
-    return createPlaybackContext("queue", "Fila de reproducciÃ³n");
+    return createPlaybackContext("queue", "Fila de reproducción");
   };
 
   // Ir a la vista de Artista
@@ -2679,9 +2679,9 @@ export function useAppLogic() {
     });
   };
 
-  // Ir a la vista de Ãlbum
+  // Ir a la vista de Álbum
   const goToAlbum = (album: string, artist?: string | null) => {
-    if (!album || album === "â€”") return;
+    if (!album || album === "—") return;
     navigateToView({
       mode: "album",
       artist: artist ?? activeArtistView.value,
@@ -2693,7 +2693,7 @@ export function useAppLogic() {
     });
   };
 
-  // ====== NUEVO: FunciÃ³n para dividir artistas por punto y coma ======
+  // ====== NUEVO: Función para dividir artistas por punto y coma ======
   const goToPlaylist = (playlistId: number) => {
     // console.log(
     //   `[SpotifySync][Flow] goToPlaylist called for ID: ${playlistId}`,
@@ -2722,7 +2722,7 @@ export function useAppLogic() {
     // `[DEBUG][Nav] Switched to Playlist ID: ${playlistId}. activePlaylistViewId is now: ${activePlaylistViewId.value}`,
     // );
 
-    // ======== OPTIMIZACIÃ“N DE SINCRONIZACIÃ“N ========
+    // ======== OPTIMIZACIÓN DE SINCRONIZACIÓN ========
     // 1. Cancelamos estados de carga y procesos en vuelo INMEDIATAMENTE
     // console.log(
     //   `[DEBUG][Sync] Navigation clean-up. Reseting manualSync and currentActiveSyncId.`,
@@ -2901,7 +2901,7 @@ export function useAppLogic() {
         });
         // console.log(`[SpotifySync][Link] URL saved successfully.`);
 
-        // TambiÃ©n obtenemos los IDs actuales para que no los marque como "nuevos" justo despuÃ©s de descargar
+        // También obtenemos los IDs actuales para que no los marque como "nuevos" justo después de descargar
         // console.log(
         //   `[SpotifySync][Link] Fetching current Spotify IDs to initialize sync state...`,
         // );
@@ -3240,7 +3240,7 @@ export function useAppLogic() {
         showPlaylistAddToast(playlistId, targetPlaylist.name, track);
       }
     } catch (error) {
-      //console.error("No se pudo agregar la canciÃ³n a la playlist:", error);
+      //console.error("No se pudo agregar la canción a la playlist:", error);
     }
   };
 
@@ -3331,7 +3331,7 @@ export function useAppLogic() {
         selectedLibraryTrack.value = null;
       }
     } catch (error) {
-      // console.error("No se pudo quitar la canciÃ³n de la playlist:", error);
+      // console.error("No se pudo quitar la canción de la playlist:", error);
     }
   };
 
@@ -3561,7 +3561,7 @@ export function useAppLogic() {
         fontSize: "18px",
         color: "rgba(255, 255, 255, 0.92)",
       } satisfies Partial<CSSStyleDeclaration>);
-      coverWrap.textContent = "â™ª";
+      coverWrap.textContent = "♪";
     }
 
     const textWrap = document.createElement("div");
@@ -4019,7 +4019,7 @@ export function useAppLogic() {
 
     playlist.value.forEach((track) => {
       const album = getLibraryTrackAlbum(track);
-      if (!album || album === "â€”") return;
+      if (!album || album === "—") return;
 
       const artist =
         getLibraryTrackMetadata(track)?.album_artist ||
@@ -4054,17 +4054,17 @@ export function useAppLogic() {
     return playlist.value.filter((t) => {
       // Obtenemos los artistas de la pista y los dividimos en un arreglo
       const trackArtists = splitArtists(getLibraryTrackArtist(t));
-      // Retornamos true si el artista que estamos viendo ESTÃ INCLUIDO en ese arreglo
+      // Retornamos true si el artista que estamos viendo ESTÁ INCLUIDO en ese arreglo
       return trackArtists.includes(activeArtistView.value!);
     });
   });
 
-  // Computado: Ãlbumes Ãºnicos del artista actual con su carÃ¡tula
+  // Computado: Álbumes únicos del artista actual con su carátula
   const activeArtistAlbums = computed(() => {
     const albumsMap = new Map<string, string | null>();
     activeArtistTracks.value.forEach((t) => {
       const al = getLibraryTrackAlbum(t);
-      if (al && al !== "â€”" && !albumsMap.has(al)) {
+      if (al && al !== "—" && !albumsMap.has(al)) {
         albumsMap.set(al, getLibraryTrackCover(t));
       }
     });
@@ -4074,7 +4074,7 @@ export function useAppLogic() {
     }));
   });
 
-  // Computado: Canciones del Ã¡lbum actual
+  // Computado: Canciones del álbum actual
   const activePlaylist = computed(() => {
     if (activePlaylistViewId.value == null) return null;
     return (
@@ -4116,8 +4116,8 @@ export function useAppLogic() {
     }
   };
 
-  // CACHÃ‰ DE ALTO RENDIMIENTO: Mapa indexado de toda la biblioteca por ruta
-  // Esto hace que las bÃºsquedas pasen de O(N) a O(1), eliminando el lag en listas grandes.
+  // CACHÉ DE ALTO RENDIMIENTO: Mapa indexado de toda la biblioteca por ruta
+  // Esto hace que las búsquedas pasen de O(N) a O(1), eliminando el lag en listas grandes.
   const libraryTrackMap = computed(() => {
     const map = new Map<string, PlaylistTrack>();
     for (const t of playlist.value) {
@@ -4267,19 +4267,19 @@ export function useAppLogic() {
     const albumArtist =
       activeAlbumArtistView.value?.trim().toLowerCase() ?? null;
 
-    // 1. Filtramos las canciones que pertenecen a este Ã¡lbum
+    // 1. Filtramos las canciones que pertenecen a este álbum
     const tracks = playlist.value.filter((t) => {
       if (getLibraryTrackAlbum(t) !== activeAlbumView.value) return false;
       if (!albumArtist) return true;
       return getAlbumArtistForTrack(t).trim().toLowerCase() === albumArtist;
     });
 
-    // 2. Ordenamos por el nÃºmero de pista
+    // 2. Ordenamos por el número de pista
     return tracks.sort((a, b) => {
       const metaA = getLibraryTrackMetadata(a);
       const metaB = getLibraryTrackMetadata(b);
 
-      // Si alguna canciÃ³n no tiene metadata o track_number, la mandamos al final (9999)
+      // Si alguna canción no tiene metadata o track_number, la mandamos al final (9999)
       const numA = metaA?.track_number ?? 9999;
       const numB = metaB?.track_number ?? 9999;
 
@@ -4287,7 +4287,7 @@ export function useAppLogic() {
     });
   });
 
-  // ====== METADATA PARA LA VISTA DE ÃLBUM TIPO SPOTIFY ======
+  // ====== METADATA PARA LA VISTA DE ÁLBUM TIPO SPOTIFY ======
   const activeAlbumCover = computed(() => {
     if (!activeAlbumTracks.value.length) return null;
     return getLibraryTrackCover(activeAlbumTracks.value[0]);
@@ -4333,10 +4333,10 @@ export function useAppLogic() {
     const activeP = activePlaylist.value;
     if (!activeP) return [];
 
-    // Accedemos al contador para que sea reactivo al botÃ³n "Refrescar"
+    // Accedemos al contador para que sea reactivo al botón "Refrescar"
     void recommendationRefreshCounter.value;
 
-    // 1. Excluir tracks que ya estÃ¡n en la playlist activa
+    // 1. Excluir tracks que ya están en la playlist activa
     const currentPaths = new Set(activeP.trackPaths);
     const availableTracks = playlist.value.filter(
       (t) => !currentPaths.has(t.path),
@@ -4344,13 +4344,13 @@ export function useAppLogic() {
 
     const query = emptyPlaylistSearch.value.trim();
     if (query) {
-      // Si hay bÃºsqueda, devolvemos resultados de bÃºsqueda filtrando los ya presentes
+      // Si hay búsqueda, devolvemos resultados de búsqueda filtrando los ya presentes
       return getTracksForSearchQuery(query)
         .filter((t) => !currentPaths.has(t.path))
         .slice(0, 10);
     }
 
-    // 2. Recomendaciones Inteligentes (si no hay bÃºsqueda)
+    // 2. Recomendaciones Inteligentes (si no hay búsqueda)
     let recommendations: PlaylistTrack[] = [];
 
     // A. Basado en Artistas ya presentes en la playlist
@@ -4365,7 +4365,7 @@ export function useAppLogic() {
       );
     }
 
-    // B. AleatorizaciÃ³n para que no siempre salgan los mismos (Fallback)
+    // B. Aleatorización para que no siempre salgan los mismos (Fallback)
     // Usamos una semilla simple basada en el tiempo o solo shuffle
     const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
 
@@ -4375,7 +4375,7 @@ export function useAppLogic() {
     return finalResults.slice(0, 10);
   });
 
-  // FunciÃ³n para reproducir el Ã¡lbum completo desde la primera canciÃ³n
+  // Función para reproducir el álbum completo desde la primera canción
   const playAlbum = async () => {
     if (!activeAlbumTracks.value.length) return;
 
@@ -4625,7 +4625,7 @@ export function useAppLogic() {
     return false;
   };
 
-  // ESTE ES EL COMPUTADO MÃGICO: ReemplazarÃ¡ a `filteredPlaylist` en tu v-for del template
+  // ESTE ES EL COMPUTADO MÁGICO: Reemplazará a `filteredPlaylist` en tu v-for del template
   const displayedTracks = computed(() => {
     let tracks = [];
     if (currentViewMode.value === "artist") tracks = activeArtistTracks.value;
@@ -4635,7 +4635,7 @@ export function useAppLogic() {
       tracks = activePlaylistTracks.value;
     else tracks = filteredPlaylist.value;
 
-    // Aplicar bÃºsqueda incluso dentro de la vista de artista o Ã¡lbum
+    // Aplicar búsqueda incluso dentro de la vista de artista o álbum
     if (normalizedLibrarySearch.value) {
       return tracks.filter((track) => {
         const base = normalizeSearchValue(
@@ -4653,7 +4653,7 @@ export function useAppLogic() {
     }
 
     if (currentViewMode.value === "album" && activeAlbumView.value) {
-      return `Buscar en el Ã¡lbum ${activeAlbumView.value}...`;
+      return `Buscar en el álbum ${activeAlbumView.value}...`;
     }
 
     if (currentViewMode.value === "playlist" && activePlaylist.value) {
@@ -4765,7 +4765,7 @@ export function useAppLogic() {
     }
   };
 
-  // ====== ESTADO Y LÃ“GICA PARA LETRAS ======
+  // ====== ESTADO Y LÓGICA PARA LETRAS ======
   const isLyricsMode = ref(false);
 
   const parsedLyrics = ref<ParsedLyric[]>([]);
@@ -4817,7 +4817,7 @@ export function useAppLogic() {
     (value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .replace(/['â€™`Â´]/g, "")
+      .replace(/['’`´]/g, "")
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim()
       .toLowerCase();
@@ -5039,7 +5039,7 @@ export function useAppLogic() {
     return {
       query,
       title: query,
-      subtitle: "Busqueda reciente",
+      subtitle: "Búsqueda reciente",
       cover: null,
       kind: "song",
       entityKey: `query:${query.toLowerCase()}`,
@@ -5281,7 +5281,7 @@ export function useAppLogic() {
   };
 
   const goToRecentSearchAlbum = (album: string, artist?: string | null) => {
-    if (!album || album === "â€”") return;
+    if (!album || album === "—") return;
     closeGlobalSearchPopover();
     clearGlobalSearchState();
     navigateToView({
@@ -5436,7 +5436,7 @@ export function useAppLogic() {
         getLibraryTrackArtist(track),
         getLibraryTrackAlbum(track),
       ].forEach((value) => {
-        if (!value || value === "â€”") return;
+        if (!value || value === "—") return;
         const lower = value.toLowerCase();
         if (lower.includes(normalized)) {
           options.add(value);
@@ -5672,7 +5672,7 @@ export function useAppLogic() {
     return {
       title: row.title || "Sin título",
       artist: row.artist || "Artista desconocido",
-      album: row.album || "â€”",
+      album: row.album || "—",
       album_artist: row.album_artist || row.artist || "Artista desconocido",
       year: row.year || null,
       duration_seconds: Number(row.duration_seconds || 0),
@@ -5686,11 +5686,11 @@ export function useAppLogic() {
   const createFallbackLibraryMetadata = (
     track: PlaylistTrack,
   ): LibraryTrackMetadata => ({
-    title: track.fileName || "Sin tÃ­tulo",
+    title: track.fileName || "Sin título",
     artist: "Artista desconocido",
-    album: "â€”",
+    album: "—",
     duration_seconds: 0,
-    duration_formatted: "â€”",
+    duration_formatted: "—",
     cover_art: null,
   });
 
@@ -5833,7 +5833,7 @@ export function useAppLogic() {
     }, delay);
   };
 
-  const anadirRutaMusica = async () => {
+  const añadirRutaMusica = async () => {
     try {
       const selected = await open({
         multiple: true,
@@ -5910,7 +5910,7 @@ export function useAppLogic() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Seleccionar Carpeta para CarÃ¡tulas",
+      title: "Seleccionar Carpeta para Carátulas",
     });
     if (selected) {
       customCoversPath.value = selected as string;
@@ -6148,14 +6148,14 @@ export function useAppLogic() {
     const n = metadata.value?.track_number?.trim();
     const total = metadata.value?.track_total?.trim();
     if (n && total) return `${n}/${total}`;
-    return n || total || "â€”";
+    return n || total || "—";
   });
 
   const discLabel = computed(() => {
     const n = metadata.value?.disc_number?.trim();
     const total = metadata.value?.disc_total?.trim();
     if (n && total) return `${n}/${total}`;
-    return n || total || "â€”";
+    return n || total || "—";
   });
 
   const visibleCurrentTime = computed(() => {
@@ -6427,7 +6427,7 @@ export function useAppLogic() {
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // Quitar tildes
-      .replace(/[^a-z0-9]/g, "") // Solo alfanumÃ©rico
+      .replace(/[^a-z0-9]/g, "") // Solo alfanumérico
       .trim();
   };
 
@@ -6462,16 +6462,16 @@ export function useAppLogic() {
   const isBulkSelectingRemovedTracks = ref(false);
   const sessionDismissedNuevas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks nuevas descartadas
   const sessionDismissedBajas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks eliminadas descartadas
-  const spotifySyncLastChecked = ref<Record<number, number>>({}); // PlaylistId -> Timestamp de Ãºltimo chequeo exitoso
-  let syncCheckTimeout: any = null; // Timer para el debounce de navegaciÃ³n
-  let currentActiveSyncId: number | null = null; // ID ÃšNICO para cancelar procesos en vuelo instantÃ¡neamente
+  const spotifySyncLastChecked = ref<Record<number, number>>({}); // PlaylistId -> Timestamp de último chequeo exitoso
+  let syncCheckTimeout: any = null; // Timer para el debounce de navegación
+  let currentActiveSyncId: number | null = null; // ID ÚNICO para cancelar procesos en vuelo instantáneamente
 
   const isSyncDownloading = ref(false); // Indica si hay una descarga masiva en curso en el modal
-  const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con Ã©xito
-  const isManualSyncing = ref<number | null>(null); // ID de la playlist que se estÃ¡ sincronizando manualmente
-  const isSpotifyOrdering = ref<number | null>(null); // ID de la playlist que se estÃ¡ reordenando manualmente
+  const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con éxito
+  const isManualSyncing = ref<number | null>(null); // ID de la playlist que se está sincronizando manualmente
+  const isSpotifyOrdering = ref<number | null>(null); // ID de la playlist que se está reordenando manualmente
 
-  // Obtiene el estado de sincronizaciÃ³n de la playlist activa actualmente
+  // Obtiene el estado de sincronización de la playlist activa actualmente
   const activePlaylistSync = computed(() => {
     if (!activePlaylist.value) return null;
     return (
@@ -6895,7 +6895,7 @@ export function useAppLogic() {
     // );
 
     for (const p of syncedPlaylists) {
-      // Si el usuario estÃ¡ sincronizando algo manualmente, pausamos el loop global para dar prioridad
+      // Si el usuario está sincronizando algo manualmente, pausamos el loop global para dar prioridad
       if (isManualSyncing.value !== null) {
         // console.log(
         //   `[DEBUG][Sync] Global loop paused: manual sync in progress.`,
@@ -6903,11 +6903,11 @@ export function useAppLogic() {
         break;
       }
 
-      // OPTIMIZACIÃ“N: Dejamos un respiro de 200ms entre cada playlist para no saturar el canal de Tauri
+      // OPTIMIZACIÓN: Dejamos un respiro de 200ms entre cada playlist para no saturar el canal de Tauri
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Si el usuario navegÃ³ a otra playlist, abortamos el loop global para no causar lag
-      // El loop se retomarÃ¡ en el prÃ³ximo ciclo automÃ¡tico.
+      // Si el usuario navegó a otra playlist, abortamos el loop global para no causar lag
+      // El loop se retomará en el próximo ciclo automático.
       await checkSpecificSpotifyPlaylist(p.id, false);
     }
     isSpotifyCheckInFlight = false;
@@ -6923,7 +6923,7 @@ export function useAppLogic() {
     const p = playlists.value.find((item) => item.id === playlistId);
     if (!p || !p.spotifyUrl) return false;
 
-    // Token de sesiÃ³n local para este cierre (clousure) especÃ­fico
+    // Token de sesión local para este cierre (clousure) específico
     const thisSessionToken = playlistId;
     if (forceState) currentActiveSyncId = thisSessionToken;
 
@@ -6955,7 +6955,7 @@ export function useAppLogic() {
       // remoteData,
       // );
 
-      // PAUSA TÃCTICA Y VALIDACIÃ“N DE MUERTE INTEGRAL
+      // PAUSA TÁCTICA Y VALIDACIÓN DE MUERTE INTEGRAL
       await new Promise((resolve) => setTimeout(resolve, 0));
       if (forceState && currentActiveSyncId !== thisSessionToken) return false;
       if (!forceState && activePlaylistViewId.value !== playlistId)
@@ -7078,8 +7078,8 @@ export function useAppLogic() {
 
           // Es nueva solo si:
           // 1. No la tenemos por ID
-          // 2. No la tenemos por "huella digital" (TÃ­tulo + Artista)
-          // 3. Y (es modo Deep o no la hemos sincronizado antes en esta sesiÃ³n)
+          // 2. No la tenemos por "huella digital" (Título + Artista)
+          // 3. Y (es modo Deep o no la hemos sincronizado antes en esta sesión)
           return (
             tid &&
             !localIdSet.has(tid) &&
@@ -7250,7 +7250,7 @@ export function useAppLogic() {
           // console.error(`[SpotifySync] Error removing ${path}`, e);
         }
       }
-      // Limpiamos selecciÃ³n
+      // Limpiamos selección
       selectedRemovedTracks.value = [];
     }
 
@@ -7263,7 +7263,7 @@ export function useAppLogic() {
     try {
       const p = playlists.value.find((item) => item.id === playlistId);
       if (p && p.spotifyUrl) {
-        // No marcamos como visto aquÃ­ todavÃ­a para permitir re-intentos si falla la descarga
+        // No marcamos como visto aquí todavía para permitir re-intentos si falla la descarga
         // console.log("[SpotifySync] Mass sync prepared.");
       }
     } catch (e) {
@@ -7277,7 +7277,7 @@ export function useAppLogic() {
 
     for (const track of sync.newTracks) {
       try {
-        // PeticiÃ³n completa con metadatos y flags de incrustaciÃ³n (segÃºn DownloadRequest en Go)
+        // Petición completa con metadatos y flags de incrustación (según DownloadRequest en Go)
         const request = {
           item_id: `${track.id}_${Date.now()}`,
           spotify_id: track.id,
@@ -7286,7 +7286,7 @@ export function useAppLogic() {
           album_name: track.album,
           cover_url: track.cover,
           release_date: track.release_date,
-          output_dir: mainMusicDir, // Pasamos la raÃ­z, el bridge unirÃ¡ con playlist_name solo si se le pasa
+          output_dir: mainMusicDir, // Pasamos la raíz, el bridge unirá con playlist_name solo si se le pasa
           playlist_name: sync.playlistName,
           service: "auto",
           allow_fallback: true,
@@ -7321,7 +7321,7 @@ export function useAppLogic() {
                 : null,
           });
 
-          // Forzar escaneo de metadatos para que el cachÃ© se actualice inmediatamente
+          // Forzar escaneo de metadatos para que el caché se actualice inmediatamente
           try {
             await invoke("get_library_metadata_batch", {
               paths: [result.file],
@@ -7347,7 +7347,7 @@ export function useAppLogic() {
       }
     }
 
-    // Al finalizar el bucle, marcamos como sincronizados los IDs remotos si hubo Ã©xito parcial o total
+    // Al finalizar el bucle, marcamos como sincronizados los IDs remotos si hubo éxito parcial o total
     if (sync.remoteInstanceKeys && sync.remoteInstanceKeys.length > 0) {
       await acknowledgeSpotifySync(playlistId, {
         synced: sync.remoteInstanceKeys,
@@ -7355,13 +7355,13 @@ export function useAppLogic() {
       });
     }
 
-    // 1. SincronizaciÃ³n oficial de la biblioteca
+    // 1. Sincronización oficial de la biblioteca
     await syncLibrary();
 
     // 2. Recargar estructura de la playlist para el fondo
     await loadPlaylists();
 
-    // 3. VerificaciÃ³n reactiva
+    // 3. Verificación reactiva
     let integrityVerified = false;
     let attempts = 0;
     const downloadedPaths = (sync.newTracks as any[])
@@ -7387,7 +7387,7 @@ export function useAppLogic() {
   };
 
   const discardSpotifySync = (playlistId: number, syncObj: any) => {
-    // ESTO ES UN DESCARTAR REAL: Silenciamos por el resto de la sesiÃ³n para este hash exacto
+    // ESTO ES UN DESCARTAR REAL: Silenciamos por el resto de la sesión para este hash exacto
     const newHash = (syncObj.newTracks || [])
       .map((t: any) => t.id)
       .sort()
@@ -7407,7 +7407,7 @@ export function useAppLogic() {
 
   const closeSyncModalSoft = (playlistId: number) => {
     // ESTO ES UN CERRAR SUAVE: No guardamos el hash, solo lo quitamos de la vista actual
-    // Al volver a entrar a la playlist o realizar un nuevo escaneo, el modal volverÃ¡ a saltar
+    // Al volver a entrar a la playlist o realizar un nuevo escaneo, el modal volverá a saltar
     pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
       (s) => s.playlistId !== playlistId,
     );
@@ -7421,7 +7421,7 @@ export function useAppLogic() {
     // console.log(
     //   `[DEBUG][Sync] USER CLICKED Sync Button for ID: ${playlistId}. Setting state...`,
     // );
-    // AcciÃ³n manual del usuario: Reseteamos descartes temporales para que el modal se vea sÃ­ o sÃ­
+    // Acción manual del usuario: Reseteamos descartes temporales para que el modal se vea sí o sí
     isManualSyncing.value = playlistId;
     isSyncSuccess.value = null;
 
@@ -7439,7 +7439,7 @@ export function useAppLogic() {
       //   `[DEBUG][Sync] manualForceSync: Internal check finished for ID: ${playlistId}. Success=${success}`,
       // );
 
-      // VERIFICACIÃ“N DE CANCELACIÃ“N ABSOLUTA:
+      // VERIFICACIÓN DE CANCELACIÓN ABSOLUTA:
       if (!success || activePlaylistViewId.value !== playlistId) {
         // console.warn(
         //   `[DEBUG][Sync] manualForceSync ABORT: User navigated away or process was cancelled. (Success=${success}, CurrentView=${activePlaylistViewId.value})`,
@@ -7663,14 +7663,14 @@ export function useAppLogic() {
       }
     }
 
-    // 1. SincronizaciÃ³n oficial de la biblioteca (Metadatos)
+    // 1. Sincronización oficial de la biblioteca (Metadatos)
     await syncLibrary();
 
     // 2. Recargar estructura de la playlist (Paths) para que el fondo se actualice YA
     await loadPlaylists();
 
-    // 3. VERIFICACIÃ“N DE INTEGRIDAD RECTIVA:
-    // No confiamos en el tiempo, comprobamos que los archivos estÃ©n realmente en memoria
+    // 3. VERIFICACIÓN DE INTEGRIDAD RECTIVA:
+    // No confiamos en el tiempo, comprobamos que los archivos estén realmente en memoria
     let integrityVerified = false;
     let attempts = 0;
     while (!integrityVerified && attempts < 20) {
@@ -7714,7 +7714,7 @@ export function useAppLogic() {
     // `[DIAGNOSTICO] Sync finished. Success: ${successfulDownloads}, Failed: ${failedDownloads}, Integrity Verified: ${integrityVerified}`,
     // );
 
-    // Si todo saliÃ³ bien (al menos intentamos todo), mostramos Ã©xito un momento
+    // Si todo salió bien (al menos intentamos todo), mostramos éxito un momento
     if (failedDownloads === 0) {
       isSyncSuccess.value = playlistId;
     } else {
@@ -7723,7 +7723,7 @@ export function useAppLogic() {
       // );
     }
 
-    // Esperamos 1.5 segundos para que el usuario vea el Ã©xito
+    // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
       // Al terminar, primero actualizamos el sync de esta playlist en el modal
       const syncIdx = pendingSpotifySyncs.value.findIndex(
@@ -7748,7 +7748,7 @@ export function useAppLogic() {
         }
       }
 
-      // SOLO AL FINAL, y tras un brevÃ­simo respiro para que vue procese el cierre, reseteamos el Ã©xito
+      // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
       await nextTick();
       isSyncSuccess.value = null;
     }, 1500);
@@ -7773,7 +7773,7 @@ export function useAppLogic() {
       try {
         let currentPath = path;
 
-        // NIVEL 2: RECONCILIACIÃ“N INTELIGENTE (BÃšSQUEDA EN DISCO)
+        // NIVEL 2: RECONCILIACIÓN INTELIGENTE (BÚSQUEDA EN DISCO)
         try {
           const reconciledPath = await invoke<string | null>(
             "try_reconcile_physical_path",
@@ -7789,12 +7789,12 @@ export function useAppLogic() {
           // console.warn("[SpotifySync] Error reconciling track:", currentPath);
         }
 
-        // Si la canciÃ³n borrada es la que estÃ¡ sonando, saltamos a la siguiente
+        // Si la canción borrada es la que está sonando, saltamos a la siguiente
         if (filePath.value === currentPath && isPlaying.value) {
           await playNextTrack();
         }
 
-        // NIVEL 1: CHEQUEO DE PERTENENCIA FÃSICA (FOLDER NAME)
+        // NIVEL 1: CHEQUEO DE PERTENENCIA FÍSICA (FOLDER NAME)
         let actuallyPhysical = false;
         const normalizedPath = currentPath.replace(/\\/g, "/");
         const parts = normalizedPath.split("/");
@@ -7806,7 +7806,7 @@ export function useAppLogic() {
           }
         }
 
-        // EJECUCIÃ“N DEL BORRADO CON LA LÃ“GICA INTELIGENTE APLICADA
+        // EJECUCIÓN DEL BORRADO CON LA LÓGICA INTELIGENTE APLICADA
         const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
 
         await invoke("remove_track_from_playlist", {
@@ -7819,13 +7819,13 @@ export function useAppLogic() {
       }
     }
 
-    // SincronizaciÃ³n inmediata para que los cambios se vean al cerrar el modal
+    // Sincronización inmediata para que los cambios se vean al cerrar el modal
     await syncLibrary();
 
-    // Al terminar, activamos el estado de Ã©xito para el feedback visual
+    // Al terminar, activamos el estado de éxito para el feedback visual
     isSyncSuccess.value = playlistId;
 
-    // Esperamos 1.5 segundos para que el usuario vea el Ã©xito
+    // Esperamos 1.5 segundos para que el usuario vea el éxito
     setTimeout(async () => {
       const syncIdx = pendingSpotifySyncs.value.findIndex(
         (s) => s.playlistId === playlistId,
@@ -7887,7 +7887,7 @@ export function useAppLogic() {
         }
       } catch (e) {}
 
-      // Marcamos TODOS los tracks remotos actuales como "vistos" (usando sus claves Ãºnicas de instancia)
+      // Marcamos TODOS los tracks remotos actuales como "vistos" (usando sus claves únicas de instancia)
       // y guardamos el snapshot actual de Spotify
       await acknowledgeSpotifySync(playlistId, {
         synced: syncObj.remoteInstanceKeys || [],
@@ -7946,7 +7946,7 @@ export function useAppLogic() {
       });
       const ignoredIds = metadata.map((m) => m.spotify_id).filter((id) => !!id);
 
-      // Los aÃ±adimos a la lista de "ignorados para borrado"
+      // Los añadimos a la lista de "ignorados para borrado"
       const updatedIgnored = [
         ...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds]),
       ];
@@ -8005,7 +8005,7 @@ export function useAppLogic() {
   };
 
   const getLibraryTrackAlbum = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.album || "â€”";
+    return getLibraryTrackMetadata(track)?.album || "—";
   };
 
   const formatMetadataListValue = (value?: string | null) => {
@@ -8021,7 +8021,7 @@ export function useAppLogic() {
   };
 
   const getLibraryTrackDuration = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.duration_formatted || "â€”";
+    return getLibraryTrackMetadata(track)?.duration_formatted || "—";
   };
 
   const getLibraryTrackCover = (track: PlaylistTrack) => {
@@ -8073,7 +8073,7 @@ export function useAppLogic() {
         };
 
         for (const row of rows) {
-          // --- MAGIA AQUÃ: Convertimos la ruta local del disco duro a una URL web de Tauri ---
+          // --- MAGIA AQUÍ: Convertimos la ruta local del disco duro a una URL web de Tauri ---
           let coverUrl = null;
           if (row.cover_path) {
             coverUrl = convertFileSrc(row.cover_path);
@@ -8083,7 +8083,7 @@ export function useAppLogic() {
           nextMap[row.path] = {
             title: row.title || "Sin título",
             artist: row.artist || "Artista desconocido",
-            album: row.album || "â€”",
+            album: row.album || "—",
             album_artist:
               row.album_artist || row.artist || "Artista desconocido",
             year: row.year || null,
@@ -8092,7 +8092,7 @@ export function useAppLogic() {
               row.duration_formatted ||
               formatTime(Number(row.duration_seconds || 0)),
 
-            // Asignamos la URL nativa sÃºper rÃ¡pida en lugar de anularla a null
+            // Asignamos la URL nativa súper rápida en lugar de anularla a null
             cover_art: coverUrl ? { data_url: coverUrl } : null,
 
             track_number: row.track_number ?? null,
@@ -8124,9 +8124,9 @@ export function useAppLogic() {
         fallbackMap[track.path] = {
           title: track.fileName || "Sin título",
           artist: "Artista desconocido",
-          album: "â€”",
+          album: "—",
           duration_seconds: 0,
-          duration_formatted: "â€”",
+          duration_formatted: "—",
           cover_art: null,
         };
       }
@@ -8186,7 +8186,7 @@ export function useAppLogic() {
         }
       }
     } catch (error) {
-      // console.error("Error al sincronizar posiciÃ³n:", error);
+      // console.error("Error al sincronizar posición:", error);
     }
   };
 
@@ -8284,10 +8284,10 @@ export function useAppLogic() {
 
     resetCanvas();
 
-    // RESOLUCIÃ“N DE CANVAS (UNIFICADO VS PERSONALIZADO)
+    // RESOLUCIÓN DE CANVAS (UNIFICADO VS PERSONALIZADO)
     let videoPath = "";
     if (assetStorageMode.value === "unified" && track.path) {
-      // En la misma carpeta que la canciÃ³n
+      // En la misma carpeta que la canción
       const trackDir = track.path.substring(
         0,
         track.path.lastIndexOf("\\") + 1,
@@ -8510,7 +8510,7 @@ export function useAppLogic() {
       );
     }
 
-    // Ahora la canciÃ³n seleccionada quedÃ³ en la posiciÃ³n 0
+    // Ahora la canción seleccionada quedó en la posición 0
     await loadTrack({
       source: "queue",
       index: 0,
@@ -8659,7 +8659,7 @@ export function useAppLogic() {
       startProgress();
       await playCanvas();
     } catch (error) {
-      // console.error("Error al cambiar estado de reproducciÃ³n:", error);
+      // console.error("Error al cambiar estado de reproducción:", error);
     }
   };
 
@@ -9270,13 +9270,13 @@ export function useAppLogic() {
 
   const mobileConnectTitle = computed(() => {
     const track = mobileConnectTrack.value;
-    if (!track) return "Movil";
+    if (!track) return "Móvil";
     return getTrackDisplayTitle(track);
   });
 
   const connectPlaybackDeviceLabel = computed(() =>
     isMobileConnectActive.value
-      ? "Telefono"
+      ? "Teléfono"
       : (outputDeviceInfo.value?.device_name ?? desktopDeviceName.value),
   );
 
@@ -9526,7 +9526,7 @@ export function useAppLogic() {
       closeGlobalSearchPopover();
     }
 
-    // Si el click NO estÃ¡ dentro de una fila â†’ deseleccionar
+    // Si el click NO está dentro de una fila → deseleccionar
     if (!target.closest(".spotify-row") && !target.closest(".queue-row")) {
       selectedLibraryTrack.value = null;
     }
@@ -9689,9 +9689,9 @@ export function useAppLogic() {
       });
 
       // ======== NUEVO ========
-      // Escuchamos el evento desde Rust cuando el dispositivo cambia automÃ¡ticamente
+      // Escuchamos el evento desde Rust cuando el dispositivo cambia automáticamente
       unlistenDeviceChanged = await listen("audio-device-changed", () => {
-        // console.log("ðŸ”„ Dispositivo de audio cambiado. Actualizando UI...");
+        // console.log("🔄 Dispositivo de audio cambiado. Actualizando UI...");
         void fetchOutputDeviceInfo();
       });
       // =======================
@@ -9773,7 +9773,7 @@ export function useAppLogic() {
 
           // ======== NUEVO ========
           void checkSpotifyPlaylistsForUpdates();
-          // Revisar cada 15 minutos mientras la app estÃ¡ abierta
+          // Revisar cada 15 minutos mientras la app está abierta
           setInterval(
             () => {
               void checkSpotifyPlaylistsForUpdates();
@@ -10251,7 +10251,7 @@ export function useAppLogic() {
     seekAndSync,
     parseLrc,
     syncLibrary,
-    anadirRutaMusica,
+    añadirRutaMusica,
     persistMusicDirectories,
     removeMusicDirectory,
     clearMusicDirectories,
