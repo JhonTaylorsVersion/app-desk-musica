@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from "vue";
+﻿import { ref, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { SPOTIFY_PREVIEW_VOLUME } from "../utils/preview";
 import { toast } from "vue-sonner";
@@ -66,7 +66,7 @@ export function usePreview() {
             await audio.play();
         }
         catch (error: any) {
-            console.error("Preview error:", error);
+            // console.error("Preview error:", error);
             toast.error("Preview not available", {
                 description: error?.message || `Could not load preview for "${trackName}"`,
             });

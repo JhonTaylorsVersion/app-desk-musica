@@ -1,9 +1,9 @@
+use futures::StreamExt;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
 use spotiflac_core_rs::isrc::{spotify_id, LinkResolver};
 use spotiflac_core_rs::metadata::spotify::SpotifyMetadataClient;
-use futures::StreamExt;
 
 type CompatResult<T> = std::result::Result<T, String>;
 
@@ -59,8 +59,10 @@ struct TrackMetadataCompat {
     #[serde(skip_serializing_if = "Option::is_none")]
     preview_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<String>,
-    is_explicit: bool,
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<String>,
+    pub is_explicit: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,7 +112,9 @@ struct PlaylistInfoCompat {
     #[serde(skip_serializing_if = "String::is_empty")]
     cover: String,
     #[serde(skip_serializing_if = "String::is_empty")]
-    description: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,10 +213,10 @@ impl MetadataCompatClient {
             ),
         ];
 
-        println!("[DEBUG][Rust][Spotify] Requesting {}...", operation_name);
-        println!("[DEBUG][Rust][Spotify]   URL: {}", url);
-        println!("[DEBUG][Rust][Spotify]   Params: {:?}", query_params);
-        println!("[DEBUG][Rust][Spotify]   Token (prefix): {}...", if self.token.len() > 10 { &self.token[0..10] } else { "too short" });
+        // println!("[DEBUG][Rust][Spotify] Requesting {}...", operation_name);
+        // println!("[DEBUG][Rust][Spotify]   URL: {}", url);
+        // println!("[DEBUG][Rust][Spotify]   Params: {:?}", query_params);
+        // println!("[DEBUG][Rust][Spotify]   Token (prefix): {}...", if self.token.len() > 10 { &self.token[0..10] } else { "too short" });
 
         let response = self
             .http
@@ -225,9 +229,15 @@ impl MetadataCompatClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_body = response.text().await.unwrap_or_else(|_| "Could not read error body".to_string());
-            let err_msg = format!("non-success response for {}: HTTP {} - Body: {}", operation_name, status, error_body);
-            println!("[DEBUG][Rust][Spotify] ERROR: {}", err_msg);
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Could not read error body".to_string());
+            let err_msg = format!(
+                "non-success response for {}: HTTP {} - Body: {}",
+                operation_name, status, error_body
+            );
+            // println!("[DEBUG][Rust][Spotify] ERROR: {}", err_msg);
             return Err(err_msg);
         }
 
@@ -244,7 +254,7 @@ pub async fn get_spotify_metadata_compat(url: &str) -> Result<Value, String> {
 
     let value = match entity {
         SpotifyEntity::Track(track_id) => serde_json::to_value(TrackResponseCompat {
-            track: fetch_track_compat(&compat, &track_id, None, None, None).await?,
+            track: fetch_track_compat(&compat, &track_id, None, None, None, None).await?,
         }),
         SpotifyEntity::Album(album_id) => {
             serde_json::to_value(fetch_album_compat(&compat, &album_id).await?)
@@ -267,6 +277,7 @@ async fn fetch_track_compat(
     pre_fetched_node: Option<&Value>,
     fallback_album: Option<&Value>,
     status: Option<String>,
+    added_at: Option<String>,
 ) -> CompatResult<TrackMetadataCompat> {
     let metadata_client = SpotifyMetadataClient::new();
 
@@ -291,9 +302,8 @@ async fn fetch_track_compat(
             .as_ref()
             .and_then(|payload| payload.pointer("/data/trackUnion"))
     });
-    let resolved_album_node = fallback_album.or_else(|| {
-        resolved_track_node.and_then(|node| node.get("albumOfTrack"))
-    });
+    let resolved_album_node =
+        fallback_album.or_else(|| resolved_track_node.and_then(|node| node.get("albumOfTrack")));
 
     let (mut track, _first_artist_id, mut plays) = if let Some(node) = resolved_track_node {
         metadata_client
@@ -374,7 +384,9 @@ async fn fetch_track_compat(
 
     let album_name = if track.album.is_empty() || track.album == "Unknown Album" {
         resolved_album_node
-            .and_then(|v| json_pointer_string(v, "/name").or_else(|| v.get("name").and_then(Value::as_str)))
+            .and_then(|v| {
+                json_pointer_string(v, "/name").or_else(|| v.get("name").and_then(Value::as_str))
+            })
             .unwrap_or("Unknown Album")
             .to_string()
     } else {
@@ -433,7 +445,8 @@ async fn fetch_track_compat(
                 .or_else(|| json_pointer_string(album, "/albumType"))
                 .map(ToOwned::to_owned)
         }),
-        spotify_id: track.id,
+        spotify_id: track_id.to_string(),
+        added_at,
         album_id,
         album_url,
         artist_id,
@@ -445,8 +458,6 @@ async fn fetch_track_compat(
         publisher: track.label,
         composer: track.composer,
         plays,
-        // Match the original app behavior: preview URLs are resolved lazily
-        // only when the user presses Play, not during metadata fetch.
         preview_url: None,
         status,
         is_explicit: track.is_explicit,
@@ -511,7 +522,10 @@ async fn fetch_album_compat(
             .or_else(|| item.get("item"))
             .unwrap_or(&item);
         if let Some(track_id) = extract_id(node) {
-            tracks.push(fetch_track_compat(compat, &track_id, Some(node), Some(album_union), None).await?);
+            tracks.push(
+                fetch_track_compat(compat, &track_id, Some(node), Some(album_union), None, None)
+                    .await?,
+            );
         }
     }
 
@@ -543,7 +557,7 @@ async fn fetch_playlist_compat(
     let mut playlist_info = None;
 
     loop {
-        println!("[DEBUG][Rust][Spotify] Fetching playlist page - Offset: {}, Limit: {}", offset, limit);
+        // println!("[DEBUG][Rust][Spotify] Fetching playlist page - Offset: {}, Limit: {}", offset, limit);
         let playlist: Value = compat
             .query(
                 "fetchPlaylist",
@@ -583,7 +597,9 @@ async fn fetch_playlist_compat(
                 name: json_pointer_string(playlist_v2, "/name")
                     .unwrap_or("Unknown Playlist")
                     .to_string(),
-                tracks: PlaylistCountCompat { total: total_tracks },
+                tracks: PlaylistCountCompat {
+                    total: total_tracks,
+                },
                 followers: PlaylistCountCompat {
                     total: json_pointer_u64(playlist_v2, "/followers")
                         .or_else(|| json_pointer_u64(playlist_v2, "/followersCount"))
@@ -603,10 +619,8 @@ async fn fetch_playlist_compat(
                 description: json_pointer_string(playlist_v2, "/description")
                     .unwrap_or_default()
                     .to_string(),
+                snapshot_id: json_pointer_string(playlist_v2, "/revision").map(ToOwned::to_owned),
             });
-            
-            println!("[DEBUG][Rust][Spotify] Playlist: {}, Total tracks: {}", 
-                playlist_info.as_ref().unwrap().name, total_tracks);
         }
 
         let content_items = playlist_v2
@@ -617,7 +631,7 @@ async fn fetch_playlist_compat(
             if items.is_empty() {
                 break;
             }
-            
+
             let page_len = items.len();
             for item in items {
                 let status = json_pointer_string(item, "/itemV2/data/status")
@@ -630,13 +644,18 @@ async fn fetch_playlist_compat(
                     .unwrap_or(item);
 
                 if let Some(track_id) = extract_id(node) {
-                    track_list.push(fetch_track_compat(compat, &track_id, Some(node), None, status).await?);
+                    let added_at =
+                        json_pointer_string(item, "/addedAt/isoString").map(ToOwned::to_owned);
+                    track_list.push(
+                        fetch_track_compat(compat, &track_id, Some(node), None, status, added_at)
+                            .await?,
+                    );
                 }
             }
-            
+
             offset += page_len;
-            
-            // Si ya tenemos todas las canciones o la página vino incompleta, terminamos
+
+            // Si ya tenemos todas las canciones o la pÃ¡gina vino incompleta, terminamos
             if offset >= total_tracks || page_len < limit {
                 break;
             }
@@ -830,14 +849,21 @@ fn parse_spotify_entity(input: &str) -> CompatResult<SpotifyEntity> {
         .filter(|part| !part.is_empty() && *part != "embed")
         .collect::<Vec<_>>();
 
-    if segments.len() >= 2 {
-        return match segments[0] {
-            "track" => Ok(SpotifyEntity::Track(segments[1].to_string())),
-            "album" => Ok(SpotifyEntity::Album(segments[1].to_string())),
-            "playlist" => Ok(SpotifyEntity::Playlist(segments[1].to_string())),
-            "artist" => Ok(SpotifyEntity::Artist(segments[1].to_string())),
-            other => Err(format!("unsupported Spotify entity: {}", other)),
-        };
+    for i in 0..segments.len().saturating_sub(1) {
+        match segments[i] {
+            "track" => return Ok(SpotifyEntity::Track(segments[i + 1].to_string())),
+            "album" => return Ok(SpotifyEntity::Album(segments[i + 1].to_string())),
+            "playlist" => return Ok(SpotifyEntity::Playlist(segments[i + 1].to_string())),
+            "artist" => return Ok(SpotifyEntity::Artist(segments[i + 1].to_string())),
+            _ => continue,
+        }
+    }
+
+    if !segments.is_empty() {
+        return Err(format!(
+            "unsupported Spotify entity or locale: {}",
+            segments[0]
+        ));
     }
 
     Err("invalid Spotify URL".to_string())
@@ -891,14 +917,22 @@ fn track_artist_items(track_node: &Value) -> Vec<Value> {
         }
     };
 
-    push_unique(track_node.pointer("/firstArtist/items").and_then(Value::as_array));
+    push_unique(
+        track_node
+            .pointer("/firstArtist/items")
+            .and_then(Value::as_array),
+    );
     push_unique(
         track_node
             .pointer("/artists/items")
             .or_else(|| track_node.get("artists"))
             .and_then(Value::as_array),
     );
-    push_unique(track_node.pointer("/otherArtists/items").and_then(Value::as_array));
+    push_unique(
+        track_node
+            .pointer("/otherArtists/items")
+            .and_then(Value::as_array),
+    );
 
     combined
 }

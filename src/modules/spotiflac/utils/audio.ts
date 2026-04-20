@@ -1,4 +1,4 @@
-class AudioManager {
+﻿class AudioManager {
     private audioContext: AudioContext | null = null;
     private getAudioContext(): AudioContext {
         if (!this.audioContext) {
@@ -14,7 +14,7 @@ class AudioManager {
             }
         }
         catch (error) {
-            console.error("Error warming up audio:", error);
+            // console.error("Error warming up audio:", error);
         }
     }
     private playTone(frequency: number, duration: number, type: OscillatorType = 'sine', volume: number = 0.3) {
@@ -32,7 +32,7 @@ class AudioManager {
             oscillator.stop(ctx.currentTime + duration);
         }
         catch (error) {
-            console.error('Error playing audio:', error);
+            // console.error('Error playing audio:', error);
         }
     }
     playSuccess() {
@@ -72,7 +72,7 @@ class AudioManager {
             oscillator.stop(startTime + duration);
         }
         catch (error) {
-            console.error('Error playing audio:', error);
+            // console.error('Error playing audio:', error);
         }
     }
 }

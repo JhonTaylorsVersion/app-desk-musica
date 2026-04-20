@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { Toaster } from 'vue-sonner';
 import { invoke } from '@tauri-apps/api/core';
@@ -123,7 +123,7 @@ const checkFFmpeg = async () => {
   try {
     isFFmpegInstalled.value = await invoke<boolean>('check_ffmpeg_installed');
   } catch (err) {
-    console.error('FFmpeg check failed:', err);
+    // console.error('FFmpeg check failed:', err);
     isFFmpegInstalled.value = false;
   }
 };
@@ -159,7 +159,7 @@ const checkForUpdates = async () => {
       hasUpdate.value = true;
     }
   } catch (err) {
-    console.error('Update check failed:', err);
+    // console.error('Update check failed:', err);
   }
 };
 
@@ -257,7 +257,7 @@ onMounted(async () => {
   });
 
   const unlistenBackendLog = await listen<string>('backend-log', (event) => {
-    console.log(`%c[Backend]%c ${event.payload}`, 'color: #7c3aed; font-weight: bold', '');
+    // console.log(`%c[Backend]%c ${event.payload}`, 'color: #7c3aed; font-weight: bold', '');
   });
 
   cleanups = [unlistenProgress, unlistenStatus, unlistenBackendLog];

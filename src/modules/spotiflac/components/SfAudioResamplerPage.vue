@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -71,7 +71,7 @@ onMounted(() => {
       if (parsed.bitDepth) bitDepth.value = parsed.bitDepth;
     }
   } catch (err) {
-    console.error("Failed to load saved state:", err);
+    // console.error("Failed to load saved state:", err);
   }
 
   const checkFullscreen = () => {
@@ -114,7 +114,7 @@ watch([files, sampleRate, bitDepth], () => {
       bitDepth: bitDepth.value,
     }));
   } catch (err) {
-    console.error("Failed to save state:", err);
+    // console.error("Failed to save state:", err);
   }
 }, { deep: true });
 
@@ -185,7 +185,7 @@ const addFiles = async (paths: string[]) => {
       const stats = await stat(path);
       fileSize = stats.size;
     } catch (e) {
-      console.warn("Failed to get file size for", path, e);
+      // console.warn("Failed to get file size for", path, e);
     }
     
     const name = path.split(/[/\\]/).pop() || path;
@@ -366,7 +366,7 @@ const successCount = computed(() => files.value.filter((f) => f.status === "succ
 
         <div class="flex items-center justify-between shrink-0">
           <div class="text-sm text-muted-foreground">
-            {{ files.length }} file(s) • {{ successCount }} resampled
+              {{ files.length }} file(s) • {{ successCount }} resampled
           </div>
         </div>
 

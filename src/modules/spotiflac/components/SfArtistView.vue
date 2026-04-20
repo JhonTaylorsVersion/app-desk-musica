@@ -12,6 +12,7 @@ import {
   List,
   Music,
   Users,
+  XCircle,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -238,7 +239,10 @@ const updateBiographyClamp = () => {
     footerEl.offsetHeight -
     gap * 2;
 
-  biographyLineClamp.value = Math.max(1, Math.floor(availableHeight / lineHeight));
+  biographyLineClamp.value = Math.max(
+    1,
+    Math.floor(availableHeight / lineHeight),
+  );
 };
 
 const scheduleBiographyClamp = () => {
@@ -402,10 +406,13 @@ onMounted(() => {
       updateBiographyClamp();
     });
 
-    if (artistCardRef.value) biographyResizeObserver.observe(artistCardRef.value);
-    if (artistHeaderRef.value) biographyResizeObserver.observe(artistHeaderRef.value);
+    if (artistCardRef.value)
+      biographyResizeObserver.observe(artistCardRef.value);
+    if (artistHeaderRef.value)
+      biographyResizeObserver.observe(artistHeaderRef.value);
     if (artistBioRef.value) biographyResizeObserver.observe(artistBioRef.value);
-    if (artistFooterRef.value) biographyResizeObserver.observe(artistFooterRef.value);
+    if (artistFooterRef.value)
+      biographyResizeObserver.observe(artistFooterRef.value);
   }
 
   window.addEventListener("resize", updateBiographyClamp);
@@ -589,6 +596,16 @@ const artistBiographyStyle = computed(() => ({
     <div
       class="relative h-[300px] rounded-[40px] overflow-hidden group shadow-2xl"
     >
+      <div class="absolute top-6 right-6 z-50">
+        <Button
+          variant="ghost"
+          size="icon"
+          @click="emit('back')"
+          class="rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-md text-white border border-white/10 shadow-xl transition-all active:scale-90 h-10 w-10"
+        >
+          <XCircle class="h-6 w-6" />
+        </Button>
+      </div>
       <img
         :src="artistInfo.header || artistInfo.images"
         class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-[2s]"
@@ -602,7 +619,7 @@ const artistBiographyStyle = computed(() => ({
         class="absolute bottom-3 left-10 right-10 flex flex-col md:flex-row items-end gap-10"
       >
         <div
-          class="relative h-52 w-52 rounded-full border-8 overflow-hidden shrink-0 z-10 -ml-7  group/avatar"
+          class="relative h-52 w-52 rounded-full border-8 overflow-hidden shrink-0 z-10 -ml-7 group/avatar"
           :style="avatarFrameStyle"
         >
           <img :src="artistInfo.images" class="h-full w-full object-cover" />

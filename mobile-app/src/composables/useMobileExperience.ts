@@ -192,28 +192,37 @@ export function useMobileExperience() {
   });
 
   const activePlaylist = computed(
-    () => playlists.value.find((playlist) => playlist.id === selectedPlaylistId.value) ?? null,
+    () =>
+      playlists.value.find(
+        (playlist) => playlist.id === selectedPlaylistId.value,
+      ) ?? null,
   );
 
   const activePlaylistTracks = computed(() => {
     if (!activePlaylist.value || !library.value) return [];
     return activePlaylist.value.track_paths
-      .map((trackPath) => library.value?.items.find((track) => track.file_path === trackPath))
+      .map((trackPath) =>
+        library.value?.items.find((track) => track.file_path === trackPath),
+      )
       .filter((track): track is MobileTrack => Boolean(track));
   });
 
-  const getPlaylistTracks = (playlistOrId: PlaylistRecord | number | null | undefined) => {
+  const getPlaylistTracks = (
+    playlistOrId: PlaylistRecord | number | null | undefined,
+  ) => {
     if (!library.value || playlistOrId == null) return [] as MobileTrack[];
 
     const playlist =
       typeof playlistOrId === "number"
-        ? playlists.value.find((item) => item.id === playlistOrId) ?? null
+        ? (playlists.value.find((item) => item.id === playlistOrId) ?? null)
         : playlistOrId;
 
     if (!playlist) return [] as MobileTrack[];
 
     return playlist.track_paths
-      .map((trackPath) => library.value?.items.find((track) => track.file_path === trackPath))
+      .map((trackPath) =>
+        library.value?.items.find((track) => track.file_path === trackPath),
+      )
       .filter((track): track is MobileTrack => Boolean(track));
   };
 
@@ -240,12 +249,14 @@ export function useMobileExperience() {
 
   const currentSourceInfo = computed(() => {
     const source = queue.value[currentQueueIndex.value];
-    return source ?? {
-      track: currentTrack.value,
-      sourceKind: "library" as const,
-      sourceLabel: "Biblioteca",
-      sourceTargetLabel: "Biblioteca",
-    };
+    return (
+      source ?? {
+        track: currentTrack.value,
+        sourceKind: "library" as const,
+        sourceLabel: "Biblioteca",
+        sourceTargetLabel: "Biblioteca",
+      }
+    );
   });
 
   const parsedLyrics = computed(() => {
@@ -256,14 +267,17 @@ export function useMobileExperience() {
   });
 
   const progressPercentage = computed(() =>
-    duration.value ? Math.min((currentTime.value / duration.value) * 100, 100) : 0,
+    duration.value
+      ? Math.min((currentTime.value / duration.value) * 100, 100)
+      : 0,
   );
 
   const homeArtists = computed(() => artists.value.slice(0, 8));
   const homeAlbums = computed(() => albums.value.slice(0, 8));
   const recentHistory = computed(() => playbackHistory.value.slice(0, 8));
   const isDeviceSessionFresh = (updatedAt: number | null | undefined) =>
-    typeof updatedAt === "number" && Date.now() - updatedAt * 1000 < CONNECT_DEVICE_STALE_MS;
+    typeof updatedAt === "number" &&
+    Date.now() - updatedAt * 1000 < CONNECT_DEVICE_STALE_MS;
   const isDesktopConnectAvailable = computed(() =>
     isDeviceSessionFresh(desktopConnectState.value?.desktop?.updated_at),
   );
@@ -363,10 +377,14 @@ export function useMobileExperience() {
     command: string,
     payload: Record<string, unknown> = {},
   ) => {
-    void sendDesktopConnectCommand(serverConfig.value, command, payload).catch((error) => {
-      desktopConnectStatus.value =
-        error instanceof Error ? error.message : "No se pudo enviar el comando";
-    });
+    void sendDesktopConnectCommand(serverConfig.value, command, payload).catch(
+      (error) => {
+        desktopConnectStatus.value =
+          error instanceof Error
+            ? error.message
+            : "No se pudo enviar el comando";
+      },
+    );
   };
 
   const buildMobileConnectSession = (): DesktopSessionSnapshot => ({
@@ -408,12 +426,13 @@ export function useMobileExperience() {
         makeActive,
       );
     } catch (error) {
-      console.warn("No se pudo guardar la sesion movil Connect:", error);
+      // console.warn("No se pudo guardar la sesion movil Connect:", error);
     }
   };
 
   const startMobileConnectHeartbeat = () => {
-    if (mobileConnectHeartbeatId != null || typeof window === "undefined") return;
+    if (mobileConnectHeartbeatId != null || typeof window === "undefined")
+      return;
     mobileConnectHeartbeatId = window.setInterval(() => {
       void persistMobileConnectSession(false);
     }, 3000);
@@ -454,15 +473,19 @@ export function useMobileExperience() {
     audio.load();
   };
 
-  const applyDesktopSession = async (session: DesktopSessionSnapshot | null) => {
+  const applyDesktopSession = async (
+    session: DesktopSessionSnapshot | null,
+  ) => {
     if (!session || !library.value) {
       desktopConnectStatus.value = "Desktop sin sesion";
       return;
     }
 
-    const trackMap = new Map(library.value.items.map((track) => [track.file_path, track]));
+    const trackMap = new Map(
+      library.value.items.map((track) => [track.file_path, track]),
+    );
     const track = session.currentTrackPath
-      ? trackMap.get(session.currentTrackPath) ?? null
+      ? (trackMap.get(session.currentTrackPath) ?? null)
       : null;
 
     stopLocalAudioForRemotePlayback();
@@ -473,24 +496,41 @@ export function useMobileExperience() {
 
     currentTrack.value = track;
     if (track && !isSameTrack) {
-      currentDetail.value = await fetchTrackDetail(serverConfig.value, track.id);
-      currentMetadata.value = await fetchTrackMetadata(serverConfig.value, track.id);
-      currentCoverUrl.value = resolveCoverUrl(serverConfig.value, currentDetail.value);
-      currentCanvasUrl.value = resolveCanvasUrl(serverConfig.value, currentDetail.value);
+      currentDetail.value = await fetchTrackDetail(
+        serverConfig.value,
+        track.id,
+      );
+      currentMetadata.value = await fetchTrackMetadata(
+        serverConfig.value,
+        track.id,
+      );
+      currentCoverUrl.value = resolveCoverUrl(
+        serverConfig.value,
+        currentDetail.value,
+      );
+      currentCanvasUrl.value = resolveCanvasUrl(
+        serverConfig.value,
+        currentDetail.value,
+      );
     } else if (track) {
-      currentCoverUrl.value = currentCoverUrl.value ?? resolveCoverUrl(serverConfig.value, track);
+      currentCoverUrl.value =
+        currentCoverUrl.value ?? resolveCoverUrl(serverConfig.value, track);
     } else {
       currentDetail.value = null;
       currentMetadata.value = null;
       currentCoverUrl.value = null;
       currentCanvasUrl.value = null;
     }
-    currentTime.value = Number.isFinite(session.currentTime) ? session.currentTime : 0;
+    currentTime.value = Number.isFinite(session.currentTime)
+      ? session.currentTime
+      : 0;
     duration.value = track?.duration_seconds ?? 0;
     isPlaying.value = Boolean(session.wasPlaying);
     volume.value = Number.isFinite(session.volume) ? session.volume : 100;
     loopMode.value =
-      session.loopMode === "all" || session.loopMode === "one" ? session.loopMode : "off";
+      session.loopMode === "all" || session.loopMode === "one"
+        ? session.loopMode
+        : "off";
     isShuffleEnabled.value = Boolean(session.isShuffleEnabled);
 
     const mappedQueue = session.queue
@@ -500,7 +540,9 @@ export function useMobileExperience() {
     if (mappedQueue.length) {
       queue.value = mappedQueue;
       currentQueueIndex.value = track
-        ? mappedQueue.findIndex((entry) => entry.track.file_path === track.file_path)
+        ? mappedQueue.findIndex(
+            (entry) => entry.track.file_path === track.file_path,
+          )
         : -1;
     } else if (track) {
       queue.value = [
@@ -525,17 +567,26 @@ export function useMobileExperience() {
       const state = await fetchDesktopConnectState(serverConfig.value);
       const desktopFresh = isDeviceSessionFresh(state.desktop?.updated_at);
       desktopConnectState.value = state;
-      isDesktopConnectEnabled.value = state.active_device === "desktop" && desktopFresh;
+      isDesktopConnectEnabled.value =
+        state.active_device === "desktop" && desktopFresh;
 
       const activeSession =
-        state.active_device === "desktop" && desktopFresh ? state.desktop?.session ?? null : null;
+        state.active_device === "desktop" && desktopFresh
+          ? (state.desktop?.session ?? null)
+          : null;
       desktopConnectUpdatedAt.value =
-        state.active_device === "desktop" && desktopFresh ? state.desktop?.updated_at ?? null : null;
+        state.active_device === "desktop" && desktopFresh
+          ? (state.desktop?.updated_at ?? null)
+          : null;
 
       if (activeSession) {
         await applyDesktopSession(activeSession);
       } else if (state.active_device === "mobile") {
-        if (wasUsingDesktop && state.desktop?.session?.currentTrackPath && library.value) {
+        if (
+          wasUsingDesktop &&
+          state.desktop?.session?.currentTrackPath &&
+          library.value
+        ) {
           const desktopSession = state.desktop.session;
           const track = library.value.items.find(
             (item) => item.file_path === desktopSession.currentTrackPath,
@@ -566,7 +617,9 @@ export function useMobileExperience() {
       }
     } catch (error) {
       desktopConnectStatus.value =
-        error instanceof Error ? error.message : "No se pudo conectar con desktop";
+        error instanceof Error
+          ? error.message
+          : "No se pudo conectar con desktop";
     }
   };
 
@@ -629,10 +682,12 @@ export function useMobileExperience() {
     void setActiveConnectDevice(serverConfig.value, "mobile")
       .then(async () => {
         await sendDesktopCommand("pause", {}, false);
-        const desktopSession = desktopConnectState.value?.desktop?.session ?? null;
+        const desktopSession =
+          desktopConnectState.value?.desktop?.session ?? null;
         const path = desktopSession?.currentTrackPath;
         const track = path
-          ? library.value?.items.find((item) => item.file_path === path) ?? null
+          ? (library.value?.items.find((item) => item.file_path === path) ??
+            null)
           : null;
 
         isDesktopConnectEnabled.value = false;
@@ -640,7 +695,7 @@ export function useMobileExperience() {
         if (track) {
           const tracks = queue.value.length
             ? queue.value.map((entry) => entry.track)
-            : library.value?.items ?? [track];
+            : (library.value?.items ?? [track]);
           const startIndex = Math.max(
             tracks.findIndex((item) => item.file_path === track.file_path),
             0,
@@ -697,13 +752,14 @@ export function useMobileExperience() {
     isLoading.value = true;
     errorMessage.value = "";
     try {
-      const [libraryData, artistData, albumData, playlistData, recentData] = await Promise.all([
-        fetchLibrary(serverConfig.value),
-        fetchArtists(serverConfig.value),
-        fetchAlbums(serverConfig.value),
-        fetchPlaylists(serverConfig.value),
-        fetchRecentSearches(serverConfig.value),
-      ]);
+      const [libraryData, artistData, albumData, playlistData, recentData] =
+        await Promise.all([
+          fetchLibrary(serverConfig.value),
+          fetchArtists(serverConfig.value),
+          fetchAlbums(serverConfig.value),
+          fetchPlaylists(serverConfig.value),
+          fetchRecentSearches(serverConfig.value),
+        ]);
       library.value = libraryData;
       artists.value = artistData;
       albums.value = albumData;
@@ -712,7 +768,14 @@ export function useMobileExperience() {
       playbackHistory.value = restorePlaybackHistory(libraryData);
 
       if (!currentTrack.value && libraryData.items.length > 0) {
-        await playCollection(libraryData.items, 0, "library", "Biblioteca", "Biblioteca", false);
+        await playCollection(
+          libraryData.items,
+          0,
+          "library",
+          "Biblioteca",
+          "Biblioteca",
+          false,
+        );
       }
       await restoreSession();
       startDesktopConnectPolling();
@@ -720,7 +783,9 @@ export function useMobileExperience() {
       await syncDesktopConnectState();
     } catch (error) {
       errorMessage.value =
-        error instanceof Error ? error.message : "No se pudo conectar con music-server";
+        error instanceof Error
+          ? error.message
+          : "No se pudo conectar con music-server";
     } finally {
       isLoading.value = false;
     }
@@ -733,7 +798,9 @@ export function useMobileExperience() {
       await bootstrap();
     } catch (error) {
       errorMessage.value =
-        error instanceof Error ? error.message : "No se pudo actualizar la biblioteca";
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar la biblioteca";
     } finally {
       isRefreshing.value = false;
     }
@@ -747,15 +814,26 @@ export function useMobileExperience() {
   ) => {
     currentTrack.value = track;
     currentDetail.value = await fetchTrackDetail(serverConfig.value, track.id);
-    currentMetadata.value = await fetchTrackMetadata(serverConfig.value, track.id);
-    currentCoverUrl.value = resolveCoverUrl(serverConfig.value, currentDetail.value);
-    currentCanvasUrl.value = resolveCanvasUrl(serverConfig.value, currentDetail.value);
+    currentMetadata.value = await fetchTrackMetadata(
+      serverConfig.value,
+      track.id,
+    );
+    currentCoverUrl.value = resolveCoverUrl(
+      serverConfig.value,
+      currentDetail.value,
+    );
+    currentCanvasUrl.value = resolveCanvasUrl(
+      serverConfig.value,
+      currentDetail.value,
+    );
     currentTime.value = 0;
     audio.src = resolveStreamUrl(serverConfig.value, currentDetail.value);
     audio.load();
 
     if (context) {
-      currentQueueIndex.value = queue.value.findIndex((entry) => entry.track.id === context.track.id);
+      currentQueueIndex.value = queue.value.findIndex(
+        (entry) => entry.track.id === context.track.id,
+      );
     }
 
     if (shouldRecordHistory) {
@@ -875,7 +953,14 @@ export function useMobileExperience() {
     }
 
     if (!audio.src && featuredTrack.value) {
-      await playCollection(filteredTracks.value, 0, "library", "Biblioteca", "Biblioteca", true);
+      await playCollection(
+        filteredTracks.value,
+        0,
+        "library",
+        "Biblioteca",
+        "Biblioteca",
+        true,
+      );
       return;
     }
     if (audio.paused) {
@@ -910,7 +995,10 @@ export function useMobileExperience() {
   };
 
   const rememberSearch = async (record: RecentSearchRecord) => {
-    const nextItems = [record, ...recents.value.filter((item) => item.entity_key !== record.entity_key)].slice(0, 6);
+    const nextItems = [
+      record,
+      ...recents.value.filter((item) => item.entity_key !== record.entity_key),
+    ].slice(0, 6);
     recents.value = nextItems;
     await saveRecentSearches(serverConfig.value, nextItems);
   };
@@ -996,7 +1084,10 @@ export function useMobileExperience() {
 
   const openArtistView = async (artistId: string) => {
     pushCurrentViewToHistory();
-    selectedArtist.value = await fetchArtistDetail(serverConfig.value, artistId);
+    selectedArtist.value = await fetchArtistDetail(
+      serverConfig.value,
+      artistId,
+    );
     viewMode.value = "artist";
     activeTab.value = "library";
     viewForwardHistory.value = [];
@@ -1023,7 +1114,9 @@ export function useMobileExperience() {
     if (!source) return;
 
     if (source.sourceKind === "artist") {
-      const artist = artists.value.find((item) => item.name === source.sourceTargetLabel);
+      const artist = artists.value.find(
+        (item) => item.name === source.sourceTargetLabel,
+      );
       if (artist) await openArtistView(artist.id);
       return;
     }
@@ -1037,7 +1130,9 @@ export function useMobileExperience() {
       return;
     }
     if (source.sourceKind === "playlist") {
-      const playlist = playlists.value.find((item) => item.name === source.sourceTargetLabel);
+      const playlist = playlists.value.find(
+        (item) => item.name === source.sourceTargetLabel,
+      );
       if (playlist) openPlaylistView(playlist.id);
       return;
     }
@@ -1050,7 +1145,8 @@ export function useMobileExperience() {
 
   const saveSettings = async () => {
     serverConfig.value = {
-      baseUrl: draftServerConfig.value.baseUrl.trim() || defaultServerConfig().baseUrl,
+      baseUrl:
+        draftServerConfig.value.baseUrl.trim() || defaultServerConfig().baseUrl,
       token: draftServerConfig.value.token.trim(),
     };
     if (viewBackHistory.value.length) {
@@ -1075,19 +1171,31 @@ export function useMobileExperience() {
 
   const addCurrentTrackToPlaylist = async (playlistId: number) => {
     if (!currentDetail.value) return;
-    await addTrackToPlaylist(serverConfig.value, playlistId, currentDetail.value.file_path);
+    await addTrackToPlaylist(
+      serverConfig.value,
+      playlistId,
+      currentDetail.value.file_path,
+    );
     playlists.value = await fetchPlaylists(serverConfig.value);
   };
 
   const removeTrackFromCurrentPlaylist = async (track: MobileTrack) => {
     if (!activePlaylist.value) return;
-    await removeTrackFromPlaylist(serverConfig.value, activePlaylist.value.id, track.file_path);
+    await removeTrackFromPlaylist(
+      serverConfig.value,
+      activePlaylist.value.id,
+      track.file_path,
+    );
     playlists.value = await fetchPlaylists(serverConfig.value);
   };
 
   const renameCurrentPlaylist = async (name: string) => {
     if (!activePlaylist.value || !name.trim()) return;
-    await renamePlaylist(serverConfig.value, activePlaylist.value.id, name.trim());
+    await renamePlaylist(
+      serverConfig.value,
+      activePlaylist.value.id,
+      name.trim(),
+    );
     playlists.value = await fetchPlaylists(serverConfig.value);
   };
 
@@ -1103,12 +1211,20 @@ export function useMobileExperience() {
 
   const moveQueueItem = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || index >= queue.value.length || nextIndex >= queue.value.length) {
+    if (
+      index < 0 ||
+      nextIndex < 0 ||
+      index >= queue.value.length ||
+      nextIndex >= queue.value.length
+    ) {
       return;
     }
 
     const nextQueue = [...queue.value];
-    [nextQueue[index], nextQueue[nextIndex]] = [nextQueue[nextIndex], nextQueue[index]];
+    [nextQueue[index], nextQueue[nextIndex]] = [
+      nextQueue[nextIndex],
+      nextQueue[index],
+    ];
     queue.value = nextQueue;
 
     if (!isShuffleEnabled.value) {
@@ -1168,7 +1284,12 @@ export function useMobileExperience() {
 
     const fallbackIndex = Math.min(index, nextQueue.length - 1);
     currentQueueIndex.value = fallbackIndex;
-    await openTrack(nextQueue[fallbackIndex].track, wasPlaying, nextQueue[fallbackIndex], false);
+    await openTrack(
+      nextQueue[fallbackIndex].track,
+      wasPlaying,
+      nextQueue[fallbackIndex],
+      false,
+    );
   };
 
   const clearUpcomingQueue = () => {
@@ -1184,7 +1305,9 @@ export function useMobileExperience() {
 
     if (isShuffleEnabled.value) {
       const keepIds = new Set(trimmedQueue.map((entry) => entry.track.id));
-      queueOriginalOrder.value = queueOriginalOrder.value.filter((entry) => keepIds.has(entry.track.id));
+      queueOriginalOrder.value = queueOriginalOrder.value.filter((entry) =>
+        keepIds.has(entry.track.id),
+      );
     } else {
       queueOriginalOrder.value = [...trimmedQueue];
     }
@@ -1193,7 +1316,9 @@ export function useMobileExperience() {
   const toggleShuffle = () => {
     if (isDesktopConnectEnabled.value) {
       isShuffleEnabled.value = !isShuffleEnabled.value;
-      sendDesktopCommandFast("set_shuffle", { enabled: isShuffleEnabled.value });
+      sendDesktopCommandFast("set_shuffle", {
+        enabled: isShuffleEnabled.value,
+      });
       return;
     }
 
@@ -1286,7 +1411,9 @@ export function useMobileExperience() {
 
     playbackHistory.value = [
       historyEntry,
-      ...playbackHistory.value.filter((item) => item.track.id !== entry.track.id),
+      ...playbackHistory.value.filter(
+        (item) => item.track.id !== entry.track.id,
+      ),
     ].slice(0, 20);
   };
 
@@ -1316,13 +1443,19 @@ export function useMobileExperience() {
     isQueueOpen.value = snapshot.isQueueOpen;
 
     if (snapshot.selectedArtistId) {
-      selectedArtist.value = await fetchArtistDetail(serverConfig.value, snapshot.selectedArtistId);
+      selectedArtist.value = await fetchArtistDetail(
+        serverConfig.value,
+        snapshot.selectedArtistId,
+      );
     } else {
       selectedArtist.value = null;
     }
 
     if (snapshot.selectedAlbumId) {
-      selectedAlbum.value = await fetchAlbumDetail(serverConfig.value, snapshot.selectedAlbumId);
+      selectedAlbum.value = await fetchAlbumDetail(
+        serverConfig.value,
+        snapshot.selectedAlbumId,
+      );
     } else {
       selectedAlbum.value = null;
     }
@@ -1362,7 +1495,9 @@ export function useMobileExperience() {
       if (!raw) return;
 
       const snapshot = JSON.parse(raw) as Partial<SessionSnapshot>;
-      const trackMap = new Map(library.value.items.map((track) => [track.id, track]));
+      const trackMap = new Map(
+        library.value.items.map((track) => [track.id, track]),
+      );
       const restoredQueue = (snapshot.queue ?? [])
         .map((entry) => {
           const track = trackMap.get(entry.trackId);
@@ -1404,11 +1539,19 @@ export function useMobileExperience() {
 
       const currentEntry =
         restoredQueue[currentQueueIndex.value] ??
-        (snapshot.currentTrackId ? restoredQueue.find((entry) => entry.track.id === snapshot.currentTrackId) : null);
+        (snapshot.currentTrackId
+          ? restoredQueue.find(
+              (entry) => entry.track.id === snapshot.currentTrackId,
+            )
+          : null);
 
       if (currentEntry) {
         await openTrack(currentEntry.track, false, currentEntry, false);
-        if (snapshot.currentTime && Number.isFinite(snapshot.currentTime) && snapshot.currentTime > 0) {
+        if (
+          snapshot.currentTime &&
+          Number.isFinite(snapshot.currentTime) &&
+          snapshot.currentTime > 0
+        ) {
           audio.currentTime = snapshot.currentTime;
           currentTime.value = snapshot.currentTime;
         }
@@ -1584,7 +1727,8 @@ function currentViewSnapshotFromState(
 
 function shuffleQueue(queue: QueueEntry[], currentIndex: number) {
   if (!queue.length) return [];
-  const safeCurrentIndex = currentIndex >= 0 && currentIndex < queue.length ? currentIndex : 0;
+  const safeCurrentIndex =
+    currentIndex >= 0 && currentIndex < queue.length ? currentIndex : 0;
   const current = queue[safeCurrentIndex];
   const rest = queue.filter((_, index) => index !== safeCurrentIndex);
   for (let i = rest.length - 1; i > 0; i -= 1) {
@@ -1603,10 +1747,15 @@ function persistPlaybackHistory(history: PlaybackHistoryEntry[]) {
     sourceTargetLabel: entry.sourceTargetLabel,
     playedAt: entry.playedAt,
   }));
-  window.localStorage.setItem(PLAYBACK_HISTORY_STORAGE_KEY, JSON.stringify(payload));
+  window.localStorage.setItem(
+    PLAYBACK_HISTORY_STORAGE_KEY,
+    JSON.stringify(payload),
+  );
 }
 
-function restorePlaybackHistory(library: LibraryResponse | null): PlaybackHistoryEntry[] {
+function restorePlaybackHistory(
+  library: LibraryResponse | null,
+): PlaybackHistoryEntry[] {
   if (typeof window === "undefined" || !library) return [];
 
   try {
@@ -1641,7 +1790,9 @@ function restorePlaybackHistory(library: LibraryResponse | null): PlaybackHistor
   }
 }
 
-function normalizeSourceKind(value: string | null | undefined): QueueEntry["sourceKind"] {
+function normalizeSourceKind(
+  value: string | null | undefined,
+): QueueEntry["sourceKind"] {
   if (
     value === "artist" ||
     value === "album" ||

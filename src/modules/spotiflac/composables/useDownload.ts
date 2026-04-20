@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+﻿import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toastWithSound as toast } from '../utils/toast-with-sound';
 import { useSettings } from './useSettings';
@@ -36,6 +36,21 @@ type FileExistenceResult = {
     spotify_id?: string;
     exists: boolean;
     file_path?: string | null;
+};
+
+type LibraryPlaylistSummary = {
+    id: number;
+    name: string;
+    trackCount: number;
+    trackPaths: string[];
+    spotifyUrl?: string | null;
+    spotifySyncedIds?: string | null;
+};
+
+type PlaylistSyncContext = {
+    kind: 'playlist';
+    spotifyUrl: string;
+    playlistName: string;
 };
 
 export function useDownload() {
@@ -78,6 +93,25 @@ export function useDownload() {
     const resolveTrackName = (track: QueueTrack) => track.name || track.title || 'Unknown Track';
 
     const resolveTrackArtists = (track: QueueTrack) => track.artists || 'Unknown Artist';
+
+    const dedupeTracks = (tracks: QueueTrack[]) => {
+        const seen = new Set<string>();
+        return tracks.filter((track) => {
+            const trackId = resolveTrackId(track);
+            if (!trackId || seen.has(trackId)) return false;
+            seen.add(trackId);
+            return true;
+        });
+    };
+
+    const normalizePlaylistName = (value: string | undefined) =>
+        (value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/['â€™`Â´]/g, '')
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .trim()
+            .toLowerCase();
 
     const buildAppConfig = (outputDir: string, track?: QueueTrack) => ({
         output_dir: outputDir,
@@ -221,9 +255,107 @@ export function useDownload() {
             });
             toast.success('M3U8 playlist created');
         } catch (err: any) {
-            console.error('Failed to create M3U8 playlist:', err);
+            // console.error('Failed to create M3U8 playlist:', err);
             toast.error(`Failed to create M3U8 playlist: ${err}`);
         }
+    };
+
+    const syncPlaylistWithLibrary = async (
+        context: PlaylistSyncContext,
+        tracks: QueueTrack[],
+        finalFilePaths: Map<string, string>,
+    ) => {
+        const normalizedPlaylistName = normalizePlaylistName(context.playlistName);
+        const resolvedTrackPaths = tracks
+            .map((track) => {
+                const trackId = resolveTrackId(track);
+                return trackId ? finalFilePaths.get(trackId) || '' : '';
+            })
+            .filter((path): path is string => Boolean(path && path.trim().length > 0));
+
+        const remoteIds = tracks
+            .map((track) => resolveTrackId(track))
+            .filter((trackId): trackId is string => Boolean(trackId));
+
+        console.log('[PlaylistDebug][spotiflacDownloadSync] Preparing playlist sync', {
+            playlistName: context.playlistName,
+            spotifyUrl: context.spotifyUrl,
+            resolvedTrackPaths,
+            remoteIdsCount: remoteIds.length,
+            remoteIdsSample: remoteIds.slice(0, 10),
+        });
+
+        if (!normalizedPlaylistName || !context.spotifyUrl || resolvedTrackPaths.length === 0) {
+            console.warn('[PlaylistDebug][spotiflacDownloadSync] Skipped playlist sync due to incomplete data', {
+                playlistName: context.playlistName,
+                spotifyUrl: context.spotifyUrl,
+                resolvedTrackPathsCount: resolvedTrackPaths.length,
+            });
+            return;
+        }
+
+        const playlists = await invoke<LibraryPlaylistSummary[]>('get_playlists');
+        const existingPlaylist =
+            playlists.find((playlist) => normalizePlaylistName(playlist.name) === normalizedPlaylistName) || null;
+
+        let playlistId = existingPlaylist?.id ?? null;
+
+        console.log('[PlaylistDebug][spotiflacDownloadSync] Existing playlist lookup', {
+            playlistName: context.playlistName,
+            existingPlaylist,
+        });
+
+        if (!playlistId) {
+            const createdPlaylist = await invoke<LibraryPlaylistSummary>('create_playlist', {
+                name: context.playlistName,
+            });
+            playlistId = createdPlaylist.id;
+            console.log('[PlaylistDebug][spotiflacDownloadSync] Created playlist in library DB', {
+                playlistName: context.playlistName,
+                playlistId,
+            });
+        }
+
+        await invoke('set_playlist_spotify_url', {
+            playlistId,
+            spotifyUrl: context.spotifyUrl,
+        });
+
+        console.log('[PlaylistDebug][spotiflacDownloadSync] Saved spotifyUrl in library DB', {
+            playlistName: context.playlistName,
+            playlistId,
+            spotifyUrl: context.spotifyUrl,
+        });
+
+        await invoke('set_playlist_synced_ids', {
+            playlistId,
+            syncedIdsJson: JSON.stringify(remoteIds),
+        });
+
+        console.log('[PlaylistDebug][spotiflacDownloadSync] Saved spotifySyncedIds in library DB', {
+            playlistName: context.playlistName,
+            playlistId,
+            remoteIdsCount: remoteIds.length,
+        });
+
+        for (let index = 0; index < resolvedTrackPaths.length; index += 1) {
+            const trackPath = resolvedTrackPaths[index];
+            await invoke('add_track_to_playlist', {
+                playlistId,
+                trackPath,
+                position: index,
+            });
+        }
+
+        const refreshedPlaylists = await invoke<LibraryPlaylistSummary[]>('get_playlists');
+        const persistedPlaylist =
+            refreshedPlaylists.find((playlist) => playlist.id === playlistId) || null;
+
+        console.log('[PlaylistDebug][spotiflacDownloadSync] Playlist persisted after sync', {
+            playlistId,
+            playlistName: context.playlistName,
+            persistedPlaylist,
+        });
     };
 
     const finishBatchState = async () => {
@@ -267,7 +399,7 @@ export function useDownload() {
             toast.success(`Downloaded: ${trackName}`);
             return downloadedPath;
         } catch (err: any) {
-            console.error('Download failed:', err);
+            // console.error('Download failed:', err);
             markFailed(trackId);
             await invoke('mark_download_item_failed', {
                 itemId: trackId,
@@ -285,6 +417,7 @@ export function useDownload() {
         folderName: string | undefined,
         batchType: Exclude<BatchType, null>,
         isAlbum: boolean = false,
+        playlistSyncContext?: PlaylistSyncContext,
     ) => {
         if (isDownloading.value) return;
         if (!Array.isArray(tracks) || tracks.length === 0) {
@@ -293,7 +426,8 @@ export function useDownload() {
         }
 
         const validTracks = tracks.filter((track) => resolveTrackId(track));
-        if (validTracks.length === 0) {
+        const uniqueTracks = dedupeTracks(validTracks);
+        if (uniqueTracks.length === 0) {
             toast.warning('No valid tracks available for download');
             return;
         }
@@ -310,9 +444,9 @@ export function useDownload() {
         let skippedCount = 0;
 
         try {
-            const { existingSpotifyIds, existingFilePaths } = await checkExistingTracks(validTracks, outputDir);
+            const { existingSpotifyIds, existingFilePaths } = await checkExistingTracks(uniqueTracks, outputDir);
 
-            for (const track of validTracks) {
+            for (const track of uniqueTracks) {
                 const trackId = resolveTrackId(track);
                 await queueTrack(track);
 
@@ -328,14 +462,14 @@ export function useDownload() {
                 }
             }
 
-            const total = validTracks.length;
+            const total = uniqueTracks.length;
 
             if (total > 0) {
                 downloadProgress.value = Math.round((skippedCount / total) * 100);
             }
 
-            for (let i = 0; i < validTracks.length; i++) {
-                const track = validTracks[i];
+            for (let i = 0; i < uniqueTracks.length; i++) {
+                const track = uniqueTracks[i];
                 const trackId = resolveTrackId(track);
 
                 if (existingSpotifyIds.has(trackId)) {
@@ -343,7 +477,7 @@ export function useDownload() {
                 }
 
                 if (shouldStopDownload.value) {
-                    toast.info(`Download stopped. ${successCount} tracks downloaded, ${validTracks.length - i} remaining.`);
+                    toast.info(`Download stopped. ${successCount} tracks downloaded, ${uniqueTracks.length - i} remaining.`);
                     break;
                 }
 
@@ -370,7 +504,19 @@ export function useDownload() {
             }
 
             if (folderName) {
-                await createPlaylistFileIfNeeded(folderName, outputDir, validTracks.map((track) => finalFilePaths.get(resolveTrackId(track)) || ''));
+                await createPlaylistFileIfNeeded(folderName, outputDir, uniqueTracks.map((track) => finalFilePaths.get(resolveTrackId(track)) || ''));
+            }
+
+            if (playlistSyncContext) {
+                try {
+                    await syncPlaylistWithLibrary(playlistSyncContext, uniqueTracks, finalFilePaths);
+                } catch (error) {
+                    console.error('[PlaylistDebug][spotiflacDownloadSync] Failed to sync playlist with library DB', {
+                        playlistName: playlistSyncContext.playlistName,
+                        spotifyUrl: playlistSyncContext.spotifyUrl,
+                        error,
+                    });
+                }
             }
 
             if (errorCount === 0 && skippedCount === 0) {
@@ -393,14 +539,19 @@ export function useDownload() {
         }
     };
 
-    const downloadBatch = async (tracks: QueueTrack[], folderName?: string, isAlbum: boolean = false) => {
+    const downloadBatch = async (
+        tracks: QueueTrack[],
+        folderName?: string,
+        isAlbum: boolean = false,
+        playlistSyncContext?: PlaylistSyncContext,
+    ) => {
         const normalizedTracks = tracks.map((track, index) => ({
             ...track,
             position: track.position || index + 1,
             folder_name: folderName,
             is_album_context: isAlbum,
         }));
-        await runBatchDownload(normalizedTracks, folderName, 'all', isAlbum);
+        await runBatchDownload(normalizedTracks, folderName, 'all', isAlbum, playlistSyncContext);
     };
 
     const downloadSelected = async (
@@ -408,6 +559,7 @@ export function useDownload() {
         allTracks: QueueTrack[],
         folderName?: string,
         isAlbum: boolean = false,
+        playlistSyncContext?: PlaylistSyncContext,
     ) => {
         const selectedTracks = allTracks
             .map((track, index) => ({
@@ -417,7 +569,7 @@ export function useDownload() {
                 is_album_context: isAlbum,
             }))
             .filter((track) => selectedTrackIds.includes(resolveTrackId(track)));
-        await runBatchDownload(selectedTracks, folderName, 'selected', isAlbum);
+        await runBatchDownload(selectedTracks, folderName, 'selected', isAlbum, playlistSyncContext);
     };
 
     const handleStopDownload = () => {

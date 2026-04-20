@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Transition name="fade">
     <div
       v-if="isOpen"
@@ -145,7 +145,7 @@
                       <div class="flex-1 min-w-0">
                         <p class="font-medium truncate">{{ item.track_name }}</p>
                         <p class="text-sm text-muted-foreground truncate">
-                          {{ item.artist_name }}<span v-if="item.album_name"> • {{ item.album_name }}</span>
+                        {{ item.artist_name }}<span v-if="item.album_name"> • {{ item.album_name }}</span>
                         </p>
                       </div>
 
@@ -173,7 +173,7 @@
                           ? `${getItemSpeed(item).toFixed(2)} MB/s`
                           : queueInfo.current_speed > 0
                             ? `${queueInfo.current_speed.toFixed(2)} MB/s`
-                            : '—' }}
+                    : '—' }}
                       </span>
                     </div>
 
@@ -272,7 +272,7 @@ const handleClearHistory = async () => {
   try {
     await store.clearCompletedDownloads();
   } catch (e) {
-    console.error('Failed to clear history:', e);
+    // console.error('Failed to clear history:', e);
   }
 };
 
@@ -281,7 +281,7 @@ const handleReset = async () => {
     await store.clearAllDownloads();
     toast.success('Download queue reset');
   } catch (e) {
-    console.error('Failed to reset queue:', e);
+    // console.error('Failed to reset queue:', e);
   }
 };
 
@@ -294,7 +294,7 @@ const handleExportFailed = async () => {
       toast.info(message);
     }
   } catch (e) {
-    console.error('Failed to export:', e);
+    // console.error('Failed to export:', e);
     toast.error(`Failed to export: ${e}`);
   }
 };

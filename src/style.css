@@ -4433,7 +4433,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 .queue-panel .queue-dots-btn::before {
-  content: "â¢â¢â¢";
+content: "\2022\2022\2022";
 
   position: absolute;
 
@@ -6154,7 +6154,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
 }
 
 .context-menu-item.with-chevron::after {
-  content: "âº";
+content: "\203A";
 
   font-size: 18px;
 
@@ -7580,4 +7580,21 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 .spotify-sync-btn.primary:hover {
   box-shadow: 0 0 20px rgba(29, 185, 84, 0.4);
+}
+
+.spotify-sync-deep-scan-link {
+  background: none;
+  border: none;
+  color: #1db954;
+  font-size: 0.85em;
+  padding: 0 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+  font-family: inherit;
+  margin-left: 4px;
+}
+.spotify-sync-deep-scan-link:hover {
+  opacity: 1;
 }

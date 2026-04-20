@@ -1,13 +1,14 @@
-use anyhow::{Result, anyhow};
-use std::path::Path;
+use anyhow::{anyhow, Result};
+use reqwest::Client;
 use std::env;
 use std::fs;
 use std::io;
-use reqwest::Client;
-use zip::ZipArchive;
+use std::path::Path;
 use tempfile::NamedTempFile;
+use zip::ZipArchive;
 
-const FFMPEG_RELEASE_BASE_URL: &str = "https://github.com/afkarxyz/ffmpeg-binaries/releases/download/v8.1";
+const FFMPEG_RELEASE_BASE_URL: &str =
+    "https://github.com/afkarxyz/ffmpeg-binaries/releases/download/v8.1";
 
 pub struct FFmpegDownloader;
 
@@ -17,36 +18,43 @@ impl FFmpegDownloader {
         let ffprobe_exists = crate::utils::ffmpeg::FFprobe::get_path().is_ok();
 
         if !ffmpeg_exists || !ffprobe_exists {
-            println!("- [AVISO] FFmpeg o FFprobe no encontrados. Iniciando descarga automática...");
+            // println!("- [AVISO] FFmpeg o FFprobe no encontrados. Iniciando descarga automática...");
             Self::download_binaries(None::<fn(f64, &str)>).await?;
         } else {
-            println!("  ✓ FFmpeg y FFprobe encontrados.");
+            // println!("  ✓ FFmpeg y FFprobe encontrados.");
         }
 
         Ok(())
     }
 
-    pub async fn download_binaries<F>(progress_callback: Option<F>) -> Result<()> 
-    where F: Fn(f64, &str) + Send + Sync + 'static
+    pub async fn download_binaries<F>(progress_callback: Option<F>) -> Result<()>
+    where
+        F: Fn(f64, &str) + Send + Sync + 'static,
     {
         let client = Client::new();
         let (ffmpeg_url, ffprobe_url) = Self::get_download_urls()?;
-        
+
         let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
         let dest_dir = home.join(".spotiflac");
         if !dest_dir.exists() {
             fs::create_dir_all(&dest_dir)?;
         }
-        
+
         // Download and extract FFmpeg
-        if let Some(ref cb) = progress_callback { cb(10.0, "Downloading FFmpeg..."); }
+        if let Some(ref cb) = progress_callback {
+            cb(10.0, "Downloading FFmpeg...");
+        }
         Self::download_and_extract(&client, &ffmpeg_url, &dest_dir, "ffmpeg").await?;
-        
+
         // Download and extract FFprobe
-        if let Some(ref cb) = progress_callback { cb(50.0, "Downloading FFprobe..."); }
+        if let Some(ref cb) = progress_callback {
+            cb(50.0, "Downloading FFprobe...");
+        }
         Self::download_and_extract(&client, &ffprobe_url, &dest_dir, "ffprobe").await?;
 
-        if let Some(ref cb) = progress_callback { cb(100.0, "FFmpeg binaries installed successfully."); }
+        if let Some(ref cb) = progress_callback {
+            cb(100.0, "FFmpeg binaries installed successfully.");
+        }
         Ok(())
     }
 
@@ -65,18 +73,29 @@ impl FFmpegDownloader {
 
         Ok((
             format!("{}/{}", FFMPEG_RELEASE_BASE_URL, ffmpeg_asset),
-            format!("{}/{}", FFMPEG_RELEASE_BASE_URL, ffprobe_asset)
+            format!("{}/{}", FFMPEG_RELEASE_BASE_URL, ffprobe_asset),
         ))
     }
 
-    async fn download_and_extract(client: &Client, url: &str, dest_dir: &Path, binary_name: &str) -> Result<()> {
+    async fn download_and_extract(
+        client: &Client,
+        url: &str,
+        dest_dir: &Path,
+        binary_name: &str,
+    ) -> Result<()> {
         println!("  📥 Descargando {}...", binary_name);
-        let response = client.get(url)
+        let response = client
+            .get(url)
             .header("User-Agent", crate::models::APP_USER_AGENT)
-            .send().await?;
+            .send()
+            .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Failed to download {}: HTTP {}", url, response.status()));
+            return Err(anyhow!(
+                "Failed to download {}: HTTP {}",
+                url,
+                response.status()
+            ));
         }
 
         let mut tmp_file = NamedTempFile::new()?;
@@ -111,12 +130,12 @@ impl FFmpegDownloader {
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let file_name = file.name();
-            
+
             if file_name.ends_with(expected_name) {
                 let out_path = dest_dir.join(expected_name);
                 let mut out_file = fs::File::create(&out_path)?;
                 io::copy(&mut file, &mut out_file)?;
-                
+
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -124,7 +143,7 @@ impl FFmpegDownloader {
                     perms.set_mode(0o755);
                     fs::set_permissions(&out_path, perms)?;
                 }
-                
+
                 found = true;
                 break;
             }
@@ -137,8 +156,8 @@ impl FFmpegDownloader {
     }
 
     fn extract_tar_xz(xz_path: &Path, dest_dir: &Path, expected_name: &str) -> Result<()> {
-        use xz2::read::XzDecoder;
         use tar::Archive;
+        use xz2::read::XzDecoder;
 
         let file = fs::File::open(xz_path)?;
         let decompressor = XzDecoder::new(file);
@@ -153,7 +172,7 @@ impl FFmpegDownloader {
             if file_name == expected_name {
                 let out_path = dest_dir.join(expected_name);
                 entry.unpack(&out_path)?;
-                
+
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -161,7 +180,7 @@ impl FFmpegDownloader {
                     perms.set_mode(0o755);
                     fs::set_permissions(&out_path, perms)?;
                 }
-                
+
                 found = true;
                 break;
             }

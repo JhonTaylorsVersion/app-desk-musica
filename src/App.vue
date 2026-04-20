@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 import { defineComponent } from "vue";
 import { useAppLogic } from "./useAppLogic";
 import SpotiFlacEmbeddedView from "./modules/spotiflac/SpotiFlacEmbeddedView.vue";
@@ -281,7 +281,7 @@ export default defineComponent({
                       title="Quitar de búsquedas recientes"
                       @click.stop="removeRecentGlobalSearch(item)"
                     >
-                      ×
+                      &times;
                     </button>
                   </div>
 
@@ -317,21 +317,21 @@ export default defineComponent({
                         type="button"
                         aria-label="Navegar arriba"
                       >
-                        ↑
+                        &uarr;
                       </button>
                       <button
                         class="global-search-nav-btn"
                         type="button"
                         aria-label="Navegar abajo"
                       >
-                        ↓
+                        &darr;
                       </button>
                       <span class="global-search-nav-label">Navegar</span>
                     </div>
 
                     <div class="global-search-actions">
                       <div class="global-search-kbd-hint">
-                        <span class="topbar-shortcut-key">↵</span>
+                        <span class="topbar-shortcut-key">&crarr;</span>
                         <span>Ingresar búsqueda</span>
                       </div>
 
@@ -356,7 +356,7 @@ export default defineComponent({
                       type="button"
                       @click="applyQuickSearchSuggestion(suggestion)"
                     >
-                      <span class="global-search-suggestion-icon">⌕</span>
+                      <span class="global-search-suggestion-icon">&#8989;</span>
                       <span class="global-search-suggestion-copy">{{
                         suggestion
                       }}</span>
@@ -686,7 +686,7 @@ export default defineComponent({
                 alt=""
                 class="global-search-thumb"
               />
-              <div v-else class="global-search-thumb placeholder">♪</div>
+              <div v-else class="global-search-thumb placeholder">&#9835;</div>
 
               <div class="global-search-meta">
                 <div class="global-search-item-title">{{ item.title }}</div>
@@ -723,7 +723,7 @@ export default defineComponent({
           <template v-else>
             <div class="global-search-popover-topbar">
               <div class="global-search-kbd-hint">
-                <span class="topbar-shortcut-key">↵</span>
+                <span class="topbar-shortcut-key">&crarr;</span>
                 <span>Ingresar búsqueda</span>
               </div>
 
@@ -747,7 +747,7 @@ export default defineComponent({
                 type="button"
                 @click="applyQuickSearchSuggestion(suggestion)"
               >
-                <span class="global-search-suggestion-icon">⌕</span>
+                <span class="global-search-suggestion-icon">&#8989;</span>
                 <span class="global-search-suggestion-copy">{{
                   suggestion
                 }}</span>
@@ -774,14 +774,16 @@ export default defineComponent({
                   alt=""
                   class="global-search-thumb"
                 />
-                <div v-else class="global-search-thumb placeholder">♪</div>
+                <div v-else class="global-search-thumb placeholder">
+                  &#9835;
+                </div>
 
                 <div class="global-search-meta">
                   <div class="global-search-item-title">
                     {{ getTrackDisplayTitle(track) }}
                   </div>
                   <div class="global-search-item-subtitle">
-                    Canción • {{ getLibraryTrackArtist(track) }}
+                    Canción &bull; {{ getLibraryTrackArtist(track) }}
                   </div>
                 </div>
               </button>
@@ -826,7 +828,7 @@ export default defineComponent({
             <button
               class="glass-button"
               type="button"
-              @click="añadirRutaMusica"
+              @click="anadirRutaMusica"
             >
               Anadir ruta
             </button>
@@ -874,12 +876,14 @@ export default defineComponent({
             <div class="panel-divider"></div>
             <div class="asset-manager-header">
               <div class="panel-title">Almacenamiento de Activos</div>
-              <div class="panel-subtitle">Elige dónde buscar letras, canvas y carátulas</div>
+              <div class="panel-subtitle">
+                Elige dónde buscar letras, canvas y carátulas
+              </div>
             </div>
 
             <div class="asset-mode-selector glass-panel-inner">
-              <button 
-                class="mode-toggle-btn" 
+              <button
+                class="mode-toggle-btn"
                 :class="{ active: assetStorageMode === 'unified' }"
                 type="button"
                 @click="assetStorageMode = 'unified'"
@@ -887,8 +891,8 @@ export default defineComponent({
                 Unificado
                 <span class="mode-desc">Junto a la música</span>
               </button>
-              <button 
-                class="mode-toggle-btn" 
+              <button
+                class="mode-toggle-btn"
                 :class="{ active: assetStorageMode === 'custom' }"
                 type="button"
                 @click="assetStorageMode = 'custom'"
@@ -902,25 +906,49 @@ export default defineComponent({
               <div class="custom-path-item glass-panel-inner">
                 <div class="path-info">
                   <div class="path-label">Carpeta de Canvas (.mp4)</div>
-                  <div class="path-value">{{ customCanvasPath || 'Predeterminada' }}</div>
+                  <div class="path-value">
+                    {{ customCanvasPath || "Predeterminada" }}
+                  </div>
                 </div>
-                <button class="small-action-btn" type="button" @click="selectCustomCanvasPath">Cambiar</button>
+                <button
+                  class="small-action-btn"
+                  type="button"
+                  @click="selectCustomCanvasPath"
+                >
+                  Cambiar
+                </button>
               </div>
 
               <div class="custom-path-item glass-panel-inner">
                 <div class="path-info">
                   <div class="path-label">Carpeta de Letras (.lrc)</div>
-                  <div class="path-value">{{ customLyricsPath || 'Predeterminada' }}</div>
+                  <div class="path-value">
+                    {{ customLyricsPath || "Predeterminada" }}
+                  </div>
                 </div>
-                <button class="small-action-btn" type="button" @click="selectCustomLyricsPath">Cambiar</button>
+                <button
+                  class="small-action-btn"
+                  type="button"
+                  @click="selectCustomLyricsPath"
+                >
+                  Cambiar
+                </button>
               </div>
 
               <div class="custom-path-item glass-panel-inner">
                 <div class="path-info">
                   <div class="path-label">Carpeta de Carátulas</div>
-                  <div class="path-value">{{ customCoversPath || 'Predeterminada' }}</div>
+                  <div class="path-value">
+                    {{ customCoversPath || "Predeterminada" }}
+                  </div>
                 </div>
-                <button class="small-action-btn" type="button" @click="selectCustomCoversPath">Cambiar</button>
+                <button
+                  class="small-action-btn"
+                  type="button"
+                  @click="selectCustomCoversPath"
+                >
+                  Cambiar
+                </button>
               </div>
             </div>
           </div>
@@ -1192,11 +1220,18 @@ export default defineComponent({
                     v-if="item.kind === 'playlist' && item.isSystem"
                     class="playlist-cover-system liked-songs"
                   >
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="white">
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="24"
+                      height="24"
+                      fill="white"
+                    >
+                      <path
+                        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                      />
                     </svg>
                   </div>
-                  
+
                   <div
                     v-else-if="
                       item.kind === 'playlist' && item.coverTiles.length > 0
@@ -1211,7 +1246,7 @@ export default defineComponent({
                     >
                       <img v-if="tile" :src="tile" alt="" />
                       <div v-else class="playlist-cover-tile-placeholder">
-                        ♪
+                        &#9835;
                       </div>
                     </div>
                   </div>
@@ -1219,7 +1254,7 @@ export default defineComponent({
                   <div v-else class="left-library-item-placeholder">
                     {{
                       item.kind === "playlist"
-                        ? "♪"
+                        ? "&#9835;"
                         : item.kind === "album"
                           ? "💿"
                           : "●"
@@ -1256,7 +1291,7 @@ export default defineComponent({
 
           <div class="library-panel glass-panel-inner">
             <template v-if="currentViewMode === 'spotiflac'">
-               <SpotiFlacEmbeddedView />
+              <SpotiFlacEmbeddedView />
             </template>
 
             <template v-else-if="isSearchViewActive">
@@ -1305,7 +1340,7 @@ export default defineComponent({
                           }"
                         />
                         <div v-else class="search-top-card-cover placeholder">
-                          ♪
+                          &#9835;
                         </div>
 
                         <span
@@ -1382,7 +1417,7 @@ export default defineComponent({
                             class="search-song-cover"
                           />
                           <div v-else class="search-song-cover placeholder">
-                            ♪
+                            &#9835;
                           </div>
                           <span
                             class="search-card-play-overlay"
@@ -1449,7 +1484,7 @@ export default defineComponent({
                           class="search-circle-cover"
                         />
                         <div v-else class="search-circle-cover placeholder">
-                          ♪
+                          &#9835;
                         </div>
                         <span
                           class="search-card-play-overlay search-card-play-overlay-circle"
@@ -1504,7 +1539,7 @@ export default defineComponent({
                           class="search-album-cover"
                         />
                         <div v-else class="search-album-cover placeholder">
-                          ♪
+                          &#9835;
                         </div>
                         <span
                           class="search-card-play-overlay"
@@ -1606,7 +1641,7 @@ export default defineComponent({
                     @click="librarySearch = ''"
                     type="button"
                   >
-                    ✕
+                    &times;
                   </button>
                 </div>
               </div>
@@ -1634,11 +1669,11 @@ export default defineComponent({
                     >
                       <img v-if="tile" :src="tile || undefined" alt="" />
                       <div v-else class="playlist-cover-tile-placeholder">
-                        ♪
+                        &#9835;
                       </div>
                     </div>
                   </div>
-                  <div v-else class="playlist-hero-placeholder">♪</div>
+                  <div v-else class="playlist-hero-placeholder">&#9835;</div>
                 </div>
 
                 <div class="playlist-hero-copy">
@@ -1647,7 +1682,7 @@ export default defineComponent({
                     {{ activePlaylistSafe.name }}
                   </h1>
                   <div class="playlist-hero-meta">
-                    {{ activePlaylist.trackCount }} canciones •
+                    {{ activePlaylist.trackCount }} canciones &bull;
                     {{ activePlaylistDurationFormatted }}
                   </div>
                 </div>
@@ -1720,14 +1755,21 @@ export default defineComponent({
                 >
                   <div class="sah-content playlist-sah-content">
                     <!-- Carátula de sistema para Tus Me Gusta -->
-                      <div
-                        v-if="activePlaylist.isSystem === 1"
-                        class="playlist-cover-system liked-songs sah-cover glass-shadow"
+                    <div
+                      v-if="activePlaylist.isSystem === 1"
+                      class="playlist-cover-system liked-songs sah-cover glass-shadow"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="86"
+                        height="86"
+                        fill="white"
                       >
-                        <svg viewBox="0 0 24 24" width="86" height="86" fill="white">
-                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                        </svg>
-                      </div>
+                        <path
+                          d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                        />
+                      </svg>
+                    </div>
 
                     <div
                       v-else-if="activePlaylistCoverTiles.length > 0"
@@ -1741,7 +1783,7 @@ export default defineComponent({
                       >
                         <img v-if="tile" :src="tile" alt="" />
                         <div v-else class="playlist-cover-tile-placeholder">
-                          ♪
+                          &#9835;
                         </div>
                       </div>
                     </div>
@@ -1750,7 +1792,7 @@ export default defineComponent({
                       class="sah-cover-placeholder glass-shadow"
                       :class="{ 'empty-playlist-cover': isActivePlaylistEmpty }"
                     >
-                      ♪
+                      &#9835;
                     </div>
 
                     <div class="sah-info">
@@ -1764,53 +1806,173 @@ export default defineComponent({
                       <h1 class="sah-title playlist-view-title">
                         {{ activePlaylist.name }}
                       </h1>
-                      
+
                       <!-- Botones de Sincronización Manual -->
-                      <div v-if="activePlaylist && activePlaylist.spotifyUrl" class="playlist-sync-manual-controls">
-                        <button 
-                          class="playlist-sync-force-btn" 
-                          :class="{ 
+                      <div
+                        v-if="activePlaylist && activePlaylist.spotifyUrl"
+                        class="playlist-sync-manual-controls"
+                      >
+                        <button
+                          class="playlist-sync-force-btn"
+                          :class="{
                             'is-loading': isManualSyncing === activePlaylist.id,
-                            'is-success': isSyncSuccess === activePlaylist.id
+                            'is-success': isSyncSuccess === activePlaylist.id,
                           }"
                           :disabled="isManualSyncing === activePlaylist.id"
                           title="Sincronizar ahora con Spotify"
-                          @click="activePlaylist && manualForceSync(activePlaylist.id)"
+                          @click="
+                            activePlaylist && manualForceSync(activePlaylist.id)
+                          "
                         >
                           <template v-if="isSyncSuccess === activePlaylist.id">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-                              <path d="M20 6L9 17L4 12" stroke="#1db954" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="none"
+                            >
+                              <path
+                                d="M20 6L9 17L4 12"
+                                stroke="#1db954"
+                                stroke-width="3"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              />
                             </svg>
                           </template>
-                          <template v-else-if="isManualSyncing === activePlaylist.id">
-                            <div class="spotify-sync-spinner-mini white" style="width: 14px; height: 14px;"></div>
+                          <template
+                            v-else-if="isManualSyncing === activePlaylist.id"
+                          >
+                            <div
+                              class="spotify-sync-spinner-mini white"
+                              style="width: 14px; height: 14px"
+                            ></div>
                           </template>
-                          <svg v-else viewBox="0 0 496 512" width="16" height="16">
-                            <path fill="#1ed760" d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"/>
-                            <path d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"/>
+                          <svg
+                            v-else
+                            viewBox="0 0 496 512"
+                            width="16"
+                            height="16"
+                          >
+                            <path
+                              fill="#1ed760"
+                              d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"
+                            />
+                            <path
+                              d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"
+                            />
                           </svg>
                           <span>
-                            {{ isManualSyncing === activePlaylist.id ? 'Sincronizando...' : isSyncSuccess === activePlaylist.id ? 'Al día' : 'Sincronizar' }}
+                            {{
+                              isManualSyncing === activePlaylist.id
+                                ? "Sincronizando..."
+                                : isSyncSuccess === activePlaylist.id
+                                  ? "Al día"
+                                  : "Sincronizar"
+                            }}
                           </span>
+                        </button>
+                        <button
+                          class="playlist-sync-force-btn secondary"
+                          :class="{
+                            'is-loading':
+                              isSpotifyOrdering === activePlaylist.id,
+                          }"
+                          :disabled="
+                            isSpotifyOrdering === activePlaylist.id ||
+                            isManualSyncing === activePlaylist.id
+                          "
+                          title="Ordenar según el orden actual de Spotify"
+                          @click="
+                            activePlaylist &&
+                            orderPlaylistFromSpotify(activePlaylist.id)
+                          "
+                        >
+                          <template
+                            v-if="isSpotifyOrdering === activePlaylist.id"
+                          >
+                            <div
+                              class="spotify-sync-spinner-mini white"
+                              style="width: 14px; height: 14px"
+                            ></div>
+                          </template>
+                          <svg
+                            v-else
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                          >
+                            <path
+                              d="M7 7h10M7 12h7M7 17h4"
+                              stroke="currentColor"
+                              stroke-width="2.2"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                          <span>
+                            {{
+                              isSpotifyOrdering === activePlaylist.id
+                                ? "Ordenando..."
+                                : "Ordenar"
+                            }}
+                          </span>
+                        </button>
+                        <button
+                          v-if="
+                            isSyncSuccess === activePlaylist.id &&
+                            isManualSyncing !== activePlaylist.id
+                          "
+                          class="spotify-sync-deep-scan-link"
+                          type="button"
+                          @click="
+                            manualForceSync(activePlaylist.id, true, true)
+                          "
+                        >
+                          (Ver todas)
                         </button>
 
                         <template v-if="activePlaylistSync">
-                          <button 
+                          <button
                             v-if="activePlaylistSync.newTracks.length > 0"
                             class="playlist-sync-status-badge nuevas"
-                            @click="activePlaylist && (sessionDismissedNuevas[activePlaylist.id] = '')"
+                            @click="
+                              activePlaylist &&
+                              (sessionDismissedNuevas[activePlaylist.id] = '')
+                            "
                           >
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="12"
+                              height="12"
+                              fill="currentColor"
+                            >
+                              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                            </svg>
                             Ver {{ activePlaylistSync.newTracks.length }} nuevas
                           </button>
-                          
-                          <button 
+
+                          <button
                             v-if="activePlaylistSync.removedTracks.length > 0"
                             class="playlist-sync-status-badge eliminadas"
-                            @click="activePlaylist && (sessionDismissedBajas[activePlaylist.id] = '')"
+                            @click="
+                              activePlaylist &&
+                              (sessionDismissedBajas[activePlaylist.id] = '')
+                            "
                           >
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                            Ver {{ activePlaylistSync.removedTracks.length }} eliminadas
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="12"
+                              height="12"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                              />
+                            </svg>
+                            Ver
+                            {{ activePlaylistSync.removedTracks.length }}
+                            eliminadas
                           </button>
                         </template>
                       </div>
@@ -1826,9 +1988,9 @@ export default defineComponent({
                       </div>
                       <div class="sah-meta playlist-view-meta">
                         <span class="playlist-owner-chip">Tu biblioteca</span>
-                        <span class="sah-bullet">•</span>
+                        <span class="sah-bullet">&bull;</span>
                         <span>{{ activePlaylist.trackCount }} canciones</span>
-                        <span class="sah-bullet">•</span>
+                        <span class="sah-bullet">&bull;</span>
                         <span>{{ activePlaylistDurationFormatted }}</span>
                       </div>
                     </div>
@@ -1848,7 +2010,7 @@ export default defineComponent({
                       alt="Album Cover"
                     />
                     <div v-else class="sah-cover-placeholder glass-shadow">
-                      ♪
+                      &#9835;
                     </div>
 
                     <div class="sah-info">
@@ -1878,9 +2040,9 @@ export default defineComponent({
                           </span>
                         </span>
 
-                        <span class="sah-bullet">•</span>
+                        <span class="sah-bullet">&bull;</span>
                         <span>{{ activeAlbumYear }}</span>
-                        <span class="sah-bullet">•</span>
+                        <span class="sah-bullet">&bull;</span>
                         <span
                           >{{ activeAlbumTracks.length }} canciones,
                           <span class="sah-duration">{{
@@ -2050,7 +2212,7 @@ export default defineComponent({
                       @click="librarySearch = ''"
                       type="button"
                     >
-                      ✕
+                      &times;
                     </button>
                   </div>
                 </div>
@@ -2076,7 +2238,7 @@ export default defineComponent({
                       @click="librarySearch = ''"
                       type="button"
                     >
-                      ×
+                      &times;
                     </button>
                   </div>
                 </div>
@@ -2183,7 +2345,7 @@ export default defineComponent({
                           @click="closeEmptyPlaylistDiscovery"
                           aria-label="Cerrar sugerencias"
                         >
-                          ×
+                          &times;
                         </button>
                       </div>
                     </div>
@@ -2203,7 +2365,7 @@ export default defineComponent({
                         type="button"
                         @click="emptyPlaylistSearch = ''"
                       >
-                        ×
+                        &times;
                       </button>
                     </div>
 
@@ -2227,7 +2389,7 @@ export default defineComponent({
                               v-else
                               class="empty-playlist-result-cover placeholder"
                             >
-                              ♪
+                              &#9835;
                             </div>
                           </div>
 
@@ -2291,7 +2453,7 @@ export default defineComponent({
                       @click="goToAlbum(album.name, activeArtistView)"
                     >
                       <img v-if="album.cover" :src="album.cover" alt="cover" />
-                      <div v-else class="album-cover-placeholder">♪</div>
+                      <div v-else class="album-cover-placeholder">&#9835;</div>
                       <div class="album-name">{{ album.name }}</div>
                     </div>
                   </div>
@@ -2354,7 +2516,7 @@ export default defineComponent({
                         : "Agregado"
                     }}
                   </div>
-                  <div class="col-time">⏱</div>
+                  <div class="col-time">&#9201;</div>
                 </div>
 
                 <div
@@ -2379,7 +2541,9 @@ export default defineComponent({
                   @mouseenter="hoveredLibraryTrackPath = track.path"
                   @mouseleave="hoveredLibraryTrackPath = null"
                   @mousedown.left="handleTrackPointerDown($event, track, index)"
-                  @contextmenu.prevent="openLibraryTrackContextMenu($event, track, index)"
+                  @contextmenu.prevent="
+                    openLibraryTrackContextMenu($event, track, index)
+                  "
                   @dblclick="playTrackFromLibrary(track, index)"
                 >
                   <div
@@ -2443,9 +2607,7 @@ export default defineComponent({
 
                   <div
                     class="col-title row-title-wrap"
-                    @click.stop="
-                      toggleLibraryTrackPlayback(track, index)
-                    "
+                    @click.stop="toggleLibraryTrackPlayback(track, index)"
                   >
                     <div class="row-cover" v-if="currentViewMode !== 'album'">
                       <img
@@ -2453,7 +2615,7 @@ export default defineComponent({
                         :src="getLibraryTrackCover(track)!"
                         alt="cover"
                       />
-                      <div v-else class="row-cover-placeholder">♪</div>
+                      <div v-else class="row-cover-placeholder">&#9835;</div>
                     </div>
 
                     <div class="row-title-meta">
@@ -2462,7 +2624,7 @@ export default defineComponent({
                           {{ getTrackDisplayTitle(track) }}
                         </div>
 
-                        <button 
+                        <button
                           v-if="likedSongsPlaylist"
                           class="track-heart-btn"
                           :class="{ active: isLiked(track.path) }"
@@ -2470,8 +2632,19 @@ export default defineComponent({
                           title="Me gusta"
                           @click.stop="toggleTrackLike(track)"
                         >
-                          <svg viewBox="0 0 24 24" width="16" height="16" :fill="isLiked(track.path) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            :fill="
+                              isLiked(track.path) ? 'currentColor' : 'none'
+                            "
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path
+                              d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                            />
                           </svg>
                         </button>
                       </div>
@@ -2524,7 +2697,9 @@ export default defineComponent({
                       class="library-row-menu-btn"
                       type="button"
                       aria-label="Más opciones"
-                      @click.stop="openLibraryTrackContextMenu($event, track, index)"
+                      @click.stop="
+                        openLibraryTrackContextMenu($event, track, index)
+                      "
                     >
                       <svg
                         width="16"
@@ -2606,7 +2781,7 @@ export default defineComponent({
                           :src="getLibraryTrackCover(item.track)!"
                           alt="cover"
                         />
-                        <div v-else class="row-cover-placeholder">♪</div>
+                        <div v-else class="row-cover-placeholder">&#9835;</div>
                       </div>
 
                       <div class="queue-item-meta">
@@ -2662,7 +2837,7 @@ export default defineComponent({
                         "
                         aria-label="Más opciones"
                       >
-                        ✕
+                        &times;
                       </button>
                     </div>
                   </div>
@@ -2713,7 +2888,7 @@ export default defineComponent({
                     />
                   </template>
                   <template v-else>
-                    <div class="cover-placeholder glass-shadow">♪</div>
+                    <div class="cover-placeholder glass-shadow">&#9835;</div>
                   </template>
                 </div>
 
@@ -2768,7 +2943,7 @@ export default defineComponent({
                       <div class="meta-item">
                         <span class="meta-label">Compositor</span>
                         <span class="meta-value">{{
-                          metadata?.composer || "—"
+                          formatMetadataListValue(metadata?.composer) || "—"
                         }}</span>
                       </div>
                       <div class="meta-item">
@@ -2935,7 +3110,7 @@ export default defineComponent({
       <div v-if="filePath" class="spotify-bottom-player glass-panel-inner">
         <div class="sbp-left">
           <img v-if="coverUrl" :src="coverUrl" class="sbp-cover" />
-          <div v-else class="sbp-cover-placeholder">♪</div>
+          <div v-else class="sbp-cover-placeholder">&#9835;</div>
           <div class="sbp-info">
             <div class="sbp-title">{{ displayTitle }}</div>
             <div class="sbp-artist">
@@ -3625,7 +3800,11 @@ export default defineComponent({
           <label class="delete-files-checkbox">
             <input type="checkbox" v-model="deletePlaylistWithFiles" />
             <span class="checkbox-custom"></span>
-            <span class="checkbox-label">Eliminar la playlist <strong>{{ playlistPendingDeletion.name }}</strong> y sus canciones físicamente de tu PC</span>
+            <span class="checkbox-label"
+              >Eliminar la playlist
+              <strong>{{ playlistPendingDeletion.name }}</strong> y sus
+              canciones físicamente de tu PC</span
+            >
           </label>
           <div v-if="deletePlaylistWithFiles" class="delete-files-hard-warning">
             <svg class="modal-warning-icon" viewBox="0 0 24 24" fill="none">
@@ -3658,7 +3837,7 @@ export default defineComponent({
             type="button"
             @click="confirmDeletePlaylist"
           >
-            {{ deletePlaylistWithFiles ? 'Eliminar todo' : 'Eliminar' }}
+            {{ deletePlaylistWithFiles ? "Eliminar todo" : "Eliminar" }}
           </button>
         </div>
       </div>
@@ -3673,18 +3852,27 @@ export default defineComponent({
     <div class="playlist-modal delete-modal">
       <div class="playlist-modal-copy">
         <h2>
-          {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
-            ? `¿Quitar estas ${trackPendingDeletion.count} canciones?` 
-            : "¿Quitar esta canción de la playlist?" }}
+          {{
+            trackPendingDeletion.count && trackPendingDeletion.count > 1
+              ? `¿Quitar estas ${trackPendingDeletion.count} canciones?`
+              : "¿Quitar esta canción de la playlist?"
+          }}
         </h2>
-        <p v-if="!trackPendingDeletion.count || trackPendingDeletion.count === 1">
+        <p
+          v-if="!trackPendingDeletion.count || trackPendingDeletion.count === 1"
+        >
           Se quitará
-          <strong>{{ getTrackDisplayTitle(trackPendingDeletion.track) }}</strong>
-          de <strong>{{ trackPendingDeletion.playlistName }}</strong>.
+          <strong>{{
+            getTrackDisplayTitle(trackPendingDeletion.track)
+          }}</strong>
+          de <strong>{{ trackPendingDeletion.playlistName }}</strong
+          >.
         </p>
         <p v-else>
-          Se quitarán <strong>{{ trackPendingDeletion.count }} canciones</strong> 
-          de <strong>{{ trackPendingDeletion.playlistName }}</strong>.
+          Se quitarán
+          <strong>{{ trackPendingDeletion.count }} canciones</strong> de
+          <strong>{{ trackPendingDeletion.playlistName }}</strong
+          >.
         </p>
       </div>
 
@@ -3694,9 +3882,11 @@ export default defineComponent({
             <input type="checkbox" v-model="deleteTrackWithFiles" />
             <span class="checkbox-custom"></span>
             <span class="checkbox-label">
-              {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
-                 ? "Eliminar también los archivos físicos del PC" 
-                 : "Eliminar también el archivo físico del PC" }}
+              {{
+                trackPendingDeletion.count && trackPendingDeletion.count > 1
+                  ? "Eliminar también los archivos físicos del PC"
+                  : "Eliminar también el archivo físico del PC"
+              }}
             </span>
           </label>
           <div v-if="deleteTrackWithFiles" class="delete-files-hard-warning">
@@ -3710,11 +3900,13 @@ export default defineComponent({
               />
             </svg>
             <span>
-              {{ trackPendingDeletion.count && trackPendingDeletion.count > 1 
-                 ? "Los archivos se eliminarán físicamente solo de la carpeta de la playlist" 
-                 : "El archivo se eliminará físicamente solo de la carpeta de la playlist" }}
-              <strong>{{ trackPendingDeletion.playlistName }}</strong>. Otras
-              copias en tu PC no se verán afectadas.
+              {{
+                trackPendingDeletion.count && trackPendingDeletion.count > 1
+                  ? "Los archivos se eliminarán físicamente solo de la carpeta de la playlist"
+                  : "El archivo se eliminará físicamente solo de la carpeta de la playlist"
+              }}
+              <strong>{{ trackPendingDeletion.playlistName }}</strong
+              >. Otras copias en tu PC no se verán afectadas.
             </span>
           </div>
         </div>
@@ -3752,61 +3944,221 @@ export default defineComponent({
         <div class="spotify-sync-modal-header">
           <div class="spotify-sync-icon-badge">
             <svg viewBox="0 0 496 512" width="60" height="60">
-              <path fill="#1ed760" d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"/>
-              <path d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"/>
+              <path
+                fill="#1ed760"
+                d="M248 8C111.1 8 0 119.1 0 256s111.1 248 248 248 248-111.1 248-248S384.9 8 248 8Z"
+              />
+              <path
+                d="M406.6 231.1c-5.2 0-8.4-1.3-12.9-3.9-71.2-42.5-198.5-52.7-280.9-29.7-3.6 1-8.1 2.6-12.9 2.6-13.2 0-23.3-10.3-23.3-23.6 0-13.6 8.4-21.3 17.4-23.9 35.2-10.3 74.6-15.2 117.5-15.2 73 0 149.5 15.2 205.4 47.8 7.8 4.5 12.9 10.7 12.9 22.6 0 13.6-11 23.3-23.3 23.3zm-31 76.2c-5.2 0-8.7-2.3-12.3-4.2-62.5-37-155.7-51.9-238.6-29.4-4.8 1.3-7.4 2.6-11.9 2.6-10.7 0-19.4-8.7-19.4-19.4s5.2-17.8 15.5-20.7c27.8-7.8 56.2-13.6 97.8-13.6 64.9 0 127.6 16.1 177 45.5 8.1 4.8 11.3 11 11.3 19.7-.1 10.8-8.5 19.5-19.4 19.5zm-26.9 65.6c-4.2 0-6.8-1.3-10.7-3.6-62.4-37.6-135-39.2-206.7-24.5-3.9 1-9 2.6-11.9 2.6-9.7 0-15.8-7.7-15.8-15.8 0-10.3 6.1-15.2 13.6-16.8 81.9-18.1 165.6-16.5 237 26.2 6.1 3.9 9.7 7.4 9.7 16.5s-7.1 15.4-15.2 15.4z"
+              />
             </svg>
           </div>
-          <h2 v-if="!isSyncSuccess">Sincronización de Spotify</h2>
+          <h2 v-if="!isSyncSuccess">
+            {{
+              pendingSpotifySyncs[0].isScanning
+                ? "Sincronizando..."
+                : "Sincronización de Spotify"
+            }}
+          </h2>
           <h2 v-else>¡Todo listo!</h2>
         </div>
 
         <div v-if="isSyncSuccess" class="spotify-sync-success-view">
           <div class="spotify-sync-success-icon">
-            <svg viewBox="0 0 24 24" width="80" height="80" fill="#1db954"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            <svg viewBox="0 0 24 24" width="80" height="80" fill="#1db954">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+              />
+            </svg>
           </div>
           <p>Sincronización completada con éxito</p>
         </div>
 
         <div v-else class="spotify-sync-sections">
           <!-- Columna Izquierda: NUEVAS -->
-          <div 
-            v-if="pendingSpotifySyncs[0].newTracks.length > 0 && sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] !== pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')" 
+          <div
+            v-if="
+              pendingSpotifySyncs[0].newTracks.length > 0 &&
+              sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] !==
+                pendingSpotifySyncs[0].newTracks
+                  .map((t) => t.id)
+                  .sort()
+                  .join(',')
+            "
             class="spotify-sync-column"
           >
             <div class="spotify-sync-column-header">
               <h3 class="spotify-sync-section-title">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 6px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  style="vertical-align: middle; margin-right: 6px"
+                >
+                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                </svg>
                 Nuevas canciones
               </h3>
-              <p class="spotify-sync-column-subtitle">Detectamos <strong>{{ pendingSpotifySyncs[0].newTracks.length }}</strong> novedades.</p>
-            </div>
-            
-            <div class="spotify-sync-track-list">
-              <div 
-                v-for="track in pendingSpotifySyncs[0].newTracks" 
-                :key="track.id"
-                class="spotify-sync-track-item"
+              <p class="spotify-sync-column-subtitle">
+                Detectamos
+                <strong>{{ pendingSpotifySyncs[0].newTracks.length }}</strong>
+                novedades.
+                <button
+                  v-if="
+                    (!isManualSyncing ||
+                      pendingSpotifySyncs[0].isDeepMode !== undefined) &&
+                    !pendingSpotifySyncs[0].isForcedFromUpToDate
+                  "
+                  class="spotify-sync-deep-scan-link"
+                  type="button"
+                  :disabled="pendingSpotifySyncs[0].isScanning"
+                  @click="
+                    manualForceSync(
+                      pendingSpotifySyncs[0].playlistId,
+                      !pendingSpotifySyncs[0].isDeepMode,
+                    )
+                  "
+                >
+                  {{
+                    pendingSpotifySyncs[0].isDeepMode
+                      ? "(Ver solo las nuevas)"
+                      : "(Ver todas las faltantes)"
+                  }}
+                </button>
+              </p>
+              <div
+                v-if="activePendingSpotifySync?.newTracks.length > 1"
+                class="spotify-sync-bulk-actions"
               >
-                <div class="spotify-sync-track-cover-mini">
-                  <img v-if="track.cover" :src="track.cover" alt="" />
-                  <div v-else class="spotify-sync-track-placeholder">♪</div>
+                <button
+                  v-if="!areAllNewTracksSelected(activePendingNewTrackIds)"
+                  type="button"
+                  class="spotify-sync-bulk-link"
+                  :disabled="isBulkSelectingNewTracks"
+                  @click="
+                    setAllNewTracksSelection(activePendingNewTrackIds, true)
+                  "
+                >
+                  {{
+                    isBulkSelectingNewTracks ? "Procesando..." : "Marcar todas"
+                  }}
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="spotify-sync-bulk-link"
+                  :disabled="isBulkSelectingNewTracks"
+                  @click="
+                    setAllNewTracksSelection(activePendingNewTrackIds, false)
+                  "
+                >
+                  {{
+                    isBulkSelectingNewTracks
+                      ? "Procesando..."
+                      : "Desmarcar todas"
+                  }}
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref="syncNewTracksListRef"
+              class="spotify-sync-track-list"
+              @scroll="onSyncNewTracksScroll"
+            >
+              <div
+                v-if="virtualNewTracksWindow.topPadding > 0"
+                class="spotify-sync-virtual-spacer"
+                :style="{ height: `${virtualNewTracksWindow.topPadding}px` }"
+              ></div>
+              <div
+                v-for="item in virtualNewTracksWindow.items"
+                :key="item.track.id"
+                class="spotify-sync-track-item selectable"
+                :class="{
+                  selected: isNewTrackSelected(item.track.id),
+                }"
+                @click="toggleNewTrackSelection(item.track.id)"
+              >
+                <div
+                  v-if="pendingSpotifySyncs[0].newTracks.length > 1"
+                  class="spotify-sync-checkbox"
+                >
+                  <div
+                    class="checkbox-inner"
+                    :class="{
+                      active: isNewTrackSelected(item.track.id),
+                      success: true,
+                    }"
+                  >
+                    <svg
+                      v-if="isNewTrackSelected(item.track.id)"
+                      viewBox="0 0 24 24"
+                      width="10"
+                      height="10"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M20.285 2l-11.285 11.567-5.286-5.011-3.714 3.716 9 8.728 15-15.285z"
+                      />
+                    </svg>
+                  </div>
                 </div>
-                <div class="spotify-sync-track-info" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                  <div style="flex: 1; min-width: 0;">
-                    <div class="spotify-sync-track-title">{{ track.title }}</div>
-                    <div class="spotify-sync-track-artist">{{ track.artists }}</div>
+                <div class="spotify-sync-track-cover-mini">
+                  <img v-if="item.track.cover" :src="item.track.cover" alt="" />
+                  <div v-else class="spotify-sync-track-placeholder">
+                    &#9835;
+                  </div>
+                </div>
+                <div
+                  class="spotify-sync-track-info"
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    width: 100%;
+                  "
+                >
+                  <div style="flex: 1; min-width: 0">
+                    <div class="spotify-sync-track-title">
+                      {{ item.track.title }}
+                    </div>
+                    <div class="spotify-sync-track-artist">
+                      {{ item.track.artists }}
+                    </div>
                   </div>
                   <!-- Estado de la descarga en la fila -->
-                  <div v-if="track.status === 'downloading' || track.status === 'finishing'" class="spotify-sync-track-status downloading">
+                  <div
+                    v-if="
+                      item.track.status === 'downloading' ||
+                      item.track.status === 'finishing' ||
+                      item.track.status === 'waiting'
+                    "
+                    class="spotify-sync-track-status downloading"
+                  >
                     <div class="spotify-sync-spinner-mini"></div>
-                    <span>Bajando...</span>
+                    <span>{{
+                      item.track.status === "waiting"
+                        ? "En cola..."
+                        : "Bajando..."
+                    }}</span>
                   </div>
-                  <div v-else-if="track.status" class="spotify-sync-track-status" :class="track.status">
-                    <span v-if="track.status === 'done'">Listo</span>
-                    <span v-if="track.status === 'error'">Error</span>
+                  <div
+                    v-else-if="item.track.status"
+                    class="spotify-sync-track-status"
+                    :class="item.track.status"
+                  >
+                    <span v-if="item.track.status === 'done'">Listo</span>
+                    <span v-if="item.track.status === 'error'">Error</span>
                   </div>
                 </div>
               </div>
+              <div
+                v-if="virtualNewTracksWindow.bottomPadding > 0"
+                class="spotify-sync-virtual-spacer"
+                :style="{ height: `${virtualNewTracksWindow.bottomPadding}px` }"
+              ></div>
             </div>
 
             <div class="spotify-sync-column-footer">
@@ -3814,15 +4166,35 @@ export default defineComponent({
                 <button
                   class="spotify-sync-btn ghost mini"
                   type="button"
-                  @click="sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')"
+                  @click="
+                    sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] =
+                      pendingSpotifySyncs[0].newTracks
+                        .map((t) => t.id)
+                        .sort()
+                        .join(',')
+                  "
                   title="Recordar luego"
                 >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"
+                    />
+                  </svg>
                 </button>
                 <button
                   class="spotify-sync-btn ghost mini"
                   type="button"
-                  @click="ignoreNewTracksSync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0].newTracks)"
+                  @click="
+                    ignoreNewTracksSync(
+                      pendingSpotifySyncs[0].playlistId,
+                      pendingSpotifySyncs[0].newTracks,
+                    )
+                  "
                   title="Ignorar permanentemente"
                 >
                   No mostrar
@@ -3831,83 +4203,262 @@ export default defineComponent({
               <button
                 class="spotify-sync-btn primary mini"
                 type="button"
-                :disabled="isSyncDownloading"
-                @click="applyNewTracksSync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0].newTracks, pendingSpotifySyncs[0].remoteIds || [])"
+                :disabled="
+                  isSyncDownloading || pendingSpotifySyncs[0].isScanning
+                "
+                @click="
+                  applyNewTracksSync(
+                    pendingSpotifySyncs[0].playlistId,
+                    pendingSpotifySyncs[0].newTracks,
+                    pendingSpotifySyncs[0].remoteIds || [],
+                  )
+                "
               >
                 <template v-if="isSyncDownloading">
-                  <div class="spotify-sync-spinner-mini white" style="margin-right: 10px;"></div>
-                  Descargando ({{ pendingSpotifySyncs[0].newTracks.filter(t => t.status !== 'done').length }})
+                  <div
+                    class="spotify-sync-spinner-mini white"
+                    style="margin-right: 10px"
+                  ></div>
+                  Descargando ({{ selectedNewTracks.length }})
+                </template>
+                <template v-else-if="pendingSpotifySyncs[0].isScanning">
+                  <div
+                    class="spotify-sync-spinner-mini white"
+                    style="margin-right: 10px"
+                  ></div>
+                  Escaneando...
                 </template>
                 <template v-else>
-                  Descargar todas
+                  Descargar ({{ selectedNewTracks.length }})
                 </template>
               </button>
             </div>
           </div>
 
           <!-- Columna Derecha: ELIMINADAS -->
-          <div 
-            v-if="pendingSpotifySyncs[0].removedTracks.length > 0 && sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] !== pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')" 
+          <div
+            v-if="
+              pendingSpotifySyncs[0].removedTracks.length > 0 &&
+              sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] !==
+                pendingSpotifySyncs[0].removedTracks
+                  .map((t) => t.path)
+                  .sort()
+                  .join(',')
+            "
             class="spotify-sync-column"
           >
             <div class="spotify-sync-column-header">
               <h3 class="spotify-sync-section-title danger">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 6px;"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  style="vertical-align: middle; margin-right: 6px"
+                >
+                  <path
+                    d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                  />
+                </svg>
                 Eliminadas en Spotify
               </h3>
-              <p class="spotify-sync-column-subtitle">Hay <strong>{{ pendingSpotifySyncs[0].removedTracks.length }}</strong> bajas en el origen.</p>
-            </div>
-            
-            <div class="spotify-sync-track-list">
-              <div 
-                v-for="track in pendingSpotifySyncs[0].removedTracks" 
-                :key="track.id"
-                class="spotify-sync-track-item selectable"
-                :class="{ selected: selectedRemovedTracks.includes(track.path) }"
-                @click="toggleRemovedTrackSelection(track.path)"
+              <p class="spotify-sync-column-subtitle">
+                Hay
+                <strong>{{
+                  pendingSpotifySyncs[0].removedTracks.length
+                }}</strong>
+                bajas en el origen.
+              </p>
+              <div
+                v-if="activePendingSpotifySync?.removedTracks.length > 1"
+                class="spotify-sync-bulk-actions"
               >
-                <div class="spotify-sync-checkbox">
-                  <div class="checkbox-inner" :class="{ active: selectedRemovedTracks.includes(track.path) }">
-                    <svg v-if="selectedRemovedTracks.includes(track.path)" viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M20.285 2l-11.285 11.567-5.286-5.011-3.714 3.716 9 8.728 15-15.285z"/></svg>
-                  </div>
-                </div>
-                <div class="spotify-sync-track-cover-mini">
-                  <img v-if="track.cover" :src="track.cover" alt="" />
-                  <div v-else class="spotify-sync-track-placeholder">♪</div>
-                </div>
-                <div class="spotify-sync-track-info">
-                  <div class="spotify-sync-track-title">{{ track.title }}</div>
-                  <div class="spotify-sync-track-artist">{{ track.artists }}</div>
-                </div>
+                <button
+                  v-if="
+                    !areAllRemovedTracksSelected(activePendingRemovedTrackPaths)
+                  "
+                  type="button"
+                  class="spotify-sync-bulk-link"
+                  :disabled="isBulkSelectingRemovedTracks"
+                  @click="
+                    setAllRemovedTracksSelection(
+                      activePendingRemovedTrackPaths,
+                      true,
+                    )
+                  "
+                >
+                  {{
+                    isBulkSelectingRemovedTracks
+                      ? "Procesando..."
+                      : "Marcar todas"
+                  }}
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="spotify-sync-bulk-link"
+                  :disabled="isBulkSelectingRemovedTracks"
+                  @click="
+                    setAllRemovedTracksSelection(
+                      activePendingRemovedTrackPaths,
+                      false,
+                    )
+                  "
+                >
+                  {{
+                    isBulkSelectingRemovedTracks
+                      ? "Procesando..."
+                      : "Desmarcar todas"
+                  }}
+                </button>
               </div>
             </div>
 
-            <div class="spotify-sync-column-footer" style="flex-direction: column; align-items: stretch; gap: 12px;">
+            <div
+              ref="syncRemovedTracksListRef"
+              class="spotify-sync-track-list"
+              @scroll="onSyncRemovedTracksScroll"
+            >
+              <div
+                v-if="virtualRemovedTracksWindow.topPadding > 0"
+                class="spotify-sync-virtual-spacer"
+                :style="{
+                  height: `${virtualRemovedTracksWindow.topPadding}px`,
+                }"
+              ></div>
+              <div
+                v-for="item in virtualRemovedTracksWindow.items"
+                :key="item.track.id"
+                class="spotify-sync-track-item selectable"
+                :class="{
+                  selected: isRemovedTrackSelected(item.track.path),
+                }"
+                @click="toggleRemovedTrackSelection(item.track.path)"
+              >
+                <div
+                  v-if="pendingSpotifySyncs[0].removedTracks.length > 1"
+                  class="spotify-sync-checkbox"
+                >
+                  <div
+                    class="checkbox-inner"
+                    :class="{
+                      active: isRemovedTrackSelected(item.track.path),
+                    }"
+                  >
+                    <svg
+                      v-if="isRemovedTrackSelected(item.track.path)"
+                      viewBox="0 0 24 24"
+                      width="10"
+                      height="10"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M20.285 2l-11.285 11.567-5.286-5.011-3.714 3.716 9 8.728 15-15.285z"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <div class="spotify-sync-track-cover-mini">
+                  <img v-if="item.track.cover" :src="item.track.cover" alt="" />
+                  <div v-else class="spotify-sync-track-placeholder">
+                    &#9835;
+                  </div>
+                </div>
+                <div class="spotify-sync-track-info">
+                  <div class="spotify-sync-track-title">
+                    {{ item.track.title }}
+                  </div>
+                  <div class="spotify-sync-track-artist">
+                    {{ item.track.artists }}
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="virtualRemovedTracksWindow.bottomPadding > 0"
+                class="spotify-sync-virtual-spacer"
+                :style="{
+                  height: `${virtualRemovedTracksWindow.bottomPadding}px`,
+                }"
+              ></div>
+            </div>
+
+            <div
+              class="spotify-sync-column-footer"
+              style="flex-direction: column; align-items: stretch; gap: 12px"
+            >
               <!-- Nueva opción de borrado inteligente -->
-              <div v-if="selectedRemovedTracks.length > 0" class="delete-files-option sync-mini" style="margin: 0; padding: 10px; background: rgba(255, 77, 77, 0.05); border-radius: 12px; border: 1px solid rgba(255, 77, 77, 0.1);">
-                <label class="delete-files-checkbox" style="gap: 10px; cursor: pointer;">
+              <div
+                v-if="selectedRemovedTracks.length > 0"
+                class="delete-files-option sync-mini"
+                style="
+                  margin: 0;
+                  padding: 10px;
+                  background: rgba(255, 77, 77, 0.05);
+                  border-radius: 12px;
+                  border: 1px solid rgba(255, 77, 77, 0.1);
+                "
+              >
+                <label
+                  class="delete-files-checkbox"
+                  style="gap: 10px; cursor: pointer"
+                >
                   <input type="checkbox" v-model="deleteSyncTracksWithFiles" />
                   <span class="checkbox-custom"></span>
-                  <span class="checkbox-label" style="font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.4;">
-                    Eliminar también archivos físicos si pertenecen a esta carpeta
+                  <span
+                    class="checkbox-label"
+                    style="
+                      font-size: 13px;
+                      color: rgba(255, 255, 255, 0.7);
+                      line-height: 1.4;
+                    "
+                  >
+                    Eliminar también archivos físicos si pertenecen a esta
+                    carpeta
                   </span>
                 </label>
               </div>
 
-              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  width: 100%;
+                "
+              >
                 <div class="sync-actions-group">
                   <button
                     class="spotify-sync-btn ghost mini"
                     type="button"
-                    @click="sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] = pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(',')"
+                    @click="
+                      sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] =
+                        pendingSpotifySyncs[0].removedTracks
+                          .map((t) => t.path)
+                          .sort()
+                          .join(',')
+                    "
                     title="Recordar luego"
                   >
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"/></svg>
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h2v5.2l4.5 2.7-.7.3z"
+                      />
+                    </svg>
                   </button>
                   <button
                     class="spotify-sync-btn ghost mini"
                     type="button"
-                    @click="ignoreRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks)"
+                    @click="
+                      ignoreRemovedTracksSync(
+                        pendingSpotifySyncs[0].playlistId,
+                        selectedRemovedTracks,
+                      )
+                    "
                     title="Ignorar permanentemente"
                   >
                     Mantener
@@ -3917,18 +4468,45 @@ export default defineComponent({
                   class="spotify-sync-btn danger mini"
                   type="button"
                   :disabled="selectedRemovedTracks.length === 0"
-                  @click="applyRemovedTracksSync(pendingSpotifySyncs[0].playlistId, selectedRemovedTracks, pendingSpotifySyncs[0].remoteIds || [])"
+                  @click="
+                    applyRemovedTracksSync(
+                      pendingSpotifySyncs[0].playlistId,
+                      selectedRemovedTracks,
+                      pendingSpotifySyncs[0].remoteIds || [],
+                    )
+                  "
                 >
-                  Quitar marcadas
+                  Quitar ({{ selectedRemovedTracks.length }})
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Cierre automático si ambos estados coinciden con los descartados -->
-        <div v-if="(pendingSpotifySyncs[0].newTracks.length === 0 || sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] === pendingSpotifySyncs[0].newTracks.map(t => t.id).sort().join(',')) && (pendingSpotifySyncs[0].removedTracks.length === 0 || sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] === pendingSpotifySyncs[0].removedTracks.map(t => t.path).sort().join(','))" v-show="false">
-          {{ discardSpotifySync(pendingSpotifySyncs[0].playlistId, pendingSpotifySyncs[0]) }}
+        <!-- Cierre automÃ¡tico si ambos estados coinciden con los descartados -->
+        <div
+          v-if="
+            (pendingSpotifySyncs[0].newTracks.length === 0 ||
+              sessionDismissedNuevas[pendingSpotifySyncs[0].playlistId] ===
+                pendingSpotifySyncs[0].newTracks
+                  .map((t) => t.id)
+                  .sort()
+                  .join(',')) &&
+            (pendingSpotifySyncs[0].removedTracks.length === 0 ||
+              sessionDismissedBajas[pendingSpotifySyncs[0].playlistId] ===
+                pendingSpotifySyncs[0].removedTracks
+                  .map((t) => t.path)
+                  .sort()
+                  .join(','))
+          "
+          v-show="false"
+        >
+          {{
+            discardSpotifySync(
+              pendingSpotifySyncs[0].playlistId,
+              pendingSpotifySyncs[0],
+            )
+          }}
         </div>
       </div>
     </div>
@@ -3947,7 +4525,7 @@ export default defineComponent({
           :src="playlistAddToast.cover"
           alt=""
         />
-        <div v-else class="playlist-add-toast-cover placeholder">♪</div>
+        <div v-else class="playlist-add-toast-cover placeholder">&#9835;</div>
       </div>
       <div class="playlist-add-toast-copy">
         <div class="playlist-add-toast-title">
@@ -4014,8 +4592,14 @@ export default defineComponent({
 }
 
 @keyframes modal-enter {
-  from { opacity: 0; transform: scale(0.9) translateY(20px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .spotify-sync-modal-header {
@@ -4121,6 +4705,22 @@ export default defineComponent({
   transform: translateY(-1px);
 }
 
+.playlist-sync-force-btn.secondary {
+  background: rgba(29, 185, 84, 0.1);
+  border-color: rgba(29, 185, 84, 0.25);
+  color: #d8ffe5;
+}
+
+.playlist-sync-force-btn.secondary:hover {
+  background: rgba(29, 185, 84, 0.18);
+}
+
+.playlist-sync-force-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+  transform: none;
+}
+
 .playlist-sync-status-badge {
   display: flex;
   align-items: center;
@@ -4150,6 +4750,44 @@ export default defineComponent({
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
+.spotify-sync-bulk-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.spotify-sync-bulk-link {
+  background: none;
+  border: none;
+  color: #1db954;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: opacity 0.2s ease;
+}
+
+.spotify-sync-bulk-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.spotify-sync-bulk-link:disabled {
+  opacity: 0.5;
+  cursor: wait;
+  text-decoration: none;
+  pointer-events: none;
+}
+
+.spotify-sync-section-title.danger
+  + .spotify-sync-column-subtitle
+  + .spotify-sync-bulk-actions
+  .spotify-sync-bulk-link {
+  color: #ff4d4d;
+}
+
 .spotify-sync-success-view {
   display: flex;
   flex-direction: column;
@@ -4173,13 +4811,25 @@ export default defineComponent({
 }
 
 @keyframes spotify-sync-fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes spotify-sync-pop {
-  0% { transform: scale(0.5); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .spotify-sync-track-list {
@@ -4192,6 +4842,12 @@ export default defineComponent({
   background: rgba(0, 0, 0, 0.2);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.spotify-sync-virtual-spacer {
+  flex: 0 0 auto;
+  width: 100%;
+  pointer-events: none;
 }
 
 .spotify-sync-empty-state {
@@ -4284,6 +4940,11 @@ export default defineComponent({
   background: #ff4d4d;
   border-color: #ff4d4d;
   color: #fff;
+}
+
+.checkbox-inner.active.success {
+  background: #1db954;
+  border-color: #1db954;
 }
 
 /* Custom Scrollbar */
@@ -4397,7 +5058,9 @@ export default defineComponent({
 }
 
 @keyframes spotify-sync-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .spotify-sync-more-count {
@@ -4508,17 +5171,17 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
 }
 
 .playlist-view-hero .playlist-cover-system.liked-songs {
-  width: 232px; /* Tamaño estándar de carátula en héroe */
+  width: 232px; /* TamaÃ±o estÃ¡ndar de carÃ¡tula en hÃ©roe */
   height: 232px;
   flex-shrink: 0;
   border-radius: 8px;
 }
 .playlist-cover-system.liked-songs svg {
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .track-row-title-container {
@@ -4556,7 +5219,9 @@ export default defineComponent({
 }
 
 .track-heart-btn svg {
-  transition: fill 0.2s ease, stroke 0.2s ease;
+  transition:
+    fill 0.2s ease,
+    stroke 0.2s ease;
 }
 .empty-playlist-header-actions {
   display: flex;

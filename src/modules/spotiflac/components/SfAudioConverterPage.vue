@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -73,7 +73,7 @@ onMounted(() => {
       if (parsed.m4aCodec) m4aCodec.value = parsed.m4aCodec;
     }
   } catch (err) {
-    console.error("Failed to load saved state:", err);
+    // console.error("Failed to load saved state:", err);
   }
 
   const checkFullscreen = () => {
@@ -131,7 +131,7 @@ watch(
         }),
       );
     } catch (err) {
-      console.error("Failed to save state:", err);
+      // console.error("Failed to save state:", err);
     }
   },
   { deep: true },
@@ -228,7 +228,7 @@ const addFiles = async (paths: string[]) => {
       const stats = await stat(path);
       fileSize = stats.size;
     } catch (e) {
-      console.warn("Failed to get file size for", path, e);
+      // console.warn("Failed to get file size for", path, e);
     }
 
     const name = path.split(/[/\\]/).pop() || path;
@@ -486,7 +486,7 @@ import { computed } from "vue";
 
         <div class="flex items-center justify-between shrink-0">
           <div class="text-sm text-muted-foreground">
-            {{ files.length }} file(s) • {{ successCount }} converted
+              {{ files.length }} file(s) • {{ successCount }} converted
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue';
+﻿import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toastWithSound as toast } from '../utils/toast-with-sound';
 
@@ -27,7 +27,7 @@ export function useHistory() {
             const history = await invoke<any[]>('get_fetch_history');
             fetchHistory.value = normalizeHistoryItems(history);
         } catch (err) {
-            console.error("Failed to load fetch history:", err);
+            // console.error("Failed to load fetch history:", err);
         }
     };
 

@@ -1,6 +1,6 @@
-use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
+use anyhow::{anyhow, Result};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -42,16 +42,25 @@ impl LyricsClient {
         }
     }
 
-    pub async fn fetch_lyrics_all_sources(&self, track: &str, artist: &str, album: Option<&str>, duration_sec: Option<u32>) -> Result<LyricsResponse> {
-        println!("🔍 Buscando letras para: {} - {}", artist, track);
+    pub async fn fetch_lyrics_all_sources(
+        &self,
+        track: &str,
+        artist: &str,
+        album: Option<&str>,
+        duration_sec: Option<u32>,
+    ) -> Result<LyricsResponse> {
+        // println!("🔍 Buscando letras para: {} - {}", artist, track);
 
         // 1. Exact match with album
         if let Some(album_name) = album {
-             if let Ok(lrc) = self.fetch_exact(track, artist, Some(album_name), duration_sec).await {
-                 if lrc.synced_lyrics.is_some() {
-                     return Ok(self.convert_to_response(lrc));
-                 }
-             }
+            if let Ok(lrc) = self
+                .fetch_exact(track, artist, Some(album_name), duration_sec)
+                .await
+            {
+                if lrc.synced_lyrics.is_some() {
+                    return Ok(self.convert_to_response(lrc));
+                }
+            }
         }
 
         // 2. Exact match without album
@@ -65,7 +74,8 @@ impl LyricsClient {
         if let Ok(results) = self.search(track, artist).await {
             if !results.is_empty() {
                 // Return first with synced lyrics, otherwise first with plain
-                let best = results.iter()
+                let best = results
+                    .iter()
                     .find(|r| r.synced_lyrics.is_some())
                     .unwrap_or(&results[0]);
                 return Ok(self.convert_to_response(best.clone()));
@@ -75,16 +85,29 @@ impl LyricsClient {
         // 4. Simplified name search
         let simplified = self.simplify_track_name(track);
         if simplified != track {
-            println!("   Intentando con nombre simplificado: {}", simplified);
-            return Box::pin(self.fetch_lyrics_all_sources(&simplified, artist, album, duration_sec)).await;
+            // println!("   Intentando con nombre simplificado: {}", simplified);
+            return Box::pin(self.fetch_lyrics_all_sources(
+                &simplified,
+                artist,
+                album,
+                duration_sec,
+            ))
+            .await;
         }
 
         Err(anyhow!("No se encontraron letras en LRCLIB"))
     }
 
-    async fn fetch_exact(&self, track: &str, artist: &str, album: Option<&str>, duration: Option<u32>) -> Result<LRCLibResponse> {
-        let mut url = format!("https://lrclib.net/api/get?artist_name={}&track_name={}", 
-            urlencoding::encode(artist), 
+    async fn fetch_exact(
+        &self,
+        track: &str,
+        artist: &str,
+        album: Option<&str>,
+        duration: Option<u32>,
+    ) -> Result<LRCLibResponse> {
+        let mut url = format!(
+            "https://lrclib.net/api/get?artist_name={}&track_name={}",
+            urlencoding::encode(artist),
             urlencoding::encode(track)
         );
         if let Some(a) = album {
@@ -103,8 +126,9 @@ impl LyricsClient {
     }
 
     async fn search(&self, track: &str, artist: &str) -> Result<Vec<LRCLibResponse>> {
-        let url = format!("https://lrclib.net/api/search?artist_name={}&track_name={}", 
-            urlencoding::encode(artist), 
+        let url = format!(
+            "https://lrclib.net/api/search?artist_name={}&track_name={}",
+            urlencoding::encode(artist),
             urlencoding::encode(track)
         );
         Ok(self.client.get(url).send().await?.json().await?)
@@ -112,23 +136,29 @@ impl LyricsClient {
 
     fn convert_to_response(&self, lrc: LRCLibResponse) -> LyricsResponse {
         let mut lines = Vec::new();
-        let sync_type = if lrc.synced_lyrics.is_some() { "LINE_SYNCED" } else { "UNSYNCED" };
+        let sync_type = if lrc.synced_lyrics.is_some() {
+            "LINE_SYNCED"
+        } else {
+            "UNSYNCED"
+        };
         let lyrics_text = lrc.synced_lyrics.or(lrc.plain_lyrics).unwrap_or_default();
 
         for line in lyrics_text.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
 
             if line.starts_with('[') && line.len() > 10 {
                 if let Some(close_bracket) = line.find(']') {
-                     let timestamp = &line[1..close_bracket];
-                     let words = &line[close_bracket+1..];
-                     let ms = self.lrc_timestamp_to_ms(timestamp);
-                     lines.push(LyricsLine {
-                         start_time_ms: Some(ms),
-                         words: words.trim().to_string(),
-                     });
-                     continue;
+                    let timestamp = &line[1..close_bracket];
+                    let words = &line[close_bracket + 1..];
+                    let ms = self.lrc_timestamp_to_ms(timestamp);
+                    lines.push(LyricsLine {
+                        start_time_ms: Some(ms),
+                        words: words.trim().to_string(),
+                    });
+                    continue;
                 }
             }
             lines.push(LyricsLine {
@@ -137,7 +167,10 @@ impl LyricsClient {
             });
         }
 
-        LyricsResponse { sync_type: sync_type.to_string(), lines }
+        LyricsResponse {
+            sync_type: sync_type.to_string(),
+            lines,
+        }
     }
 
     fn lrc_timestamp_to_ms(&self, timestamp: &str) -> u64 {
@@ -148,7 +181,11 @@ impl LyricsClient {
             let sec_parts: Vec<&str> = parts[1].split('.').collect();
             if vec![1, 2].contains(&sec_parts.len()) {
                 let seconds: u64 = sec_parts[0].parse().unwrap_or(0);
-                let centi: u64 = if sec_parts.len() == 2 { sec_parts[1].parse().unwrap_or(0) } else { 0 };
+                let centi: u64 = if sec_parts.len() == 2 {
+                    sec_parts[1].parse().unwrap_or(0)
+                } else {
+                    0
+                };
                 return minutes * 60000 + seconds * 1000 + centi * 10;
             }
         }

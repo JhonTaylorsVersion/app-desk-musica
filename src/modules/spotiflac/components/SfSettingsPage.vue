@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, watch, onMounted } from "vue";
 import {
   useSettings,
@@ -105,7 +105,7 @@ const pickFolder = async () => {
       tempSettings.downloadPath = selected;
     }
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
 };
 
@@ -121,7 +121,7 @@ const fetchStatus = async (force = false) => {
     });
     serviceStatus.value = JSON.parse(payload);
   } catch (err) {
-    console.error("Failed to fetch status:", err);
+    // console.error("Failed to fetch status:", err);
   } finally {
     isLoadingStatus.value = false;
   }

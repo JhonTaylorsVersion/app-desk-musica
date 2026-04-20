@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+﻿import { invoke } from "@tauri-apps/api/core";
 import { parseTemplate, type TemplateData } from "../types/settings";
 
 export type FontFamily =
@@ -202,6 +202,25 @@ export const DEFAULT_SETTINGS: Settings = {
 const SETTINGS_KEY = "spotiflac-settings";
 let cachedSettings: Settings | null = null;
 
+function normalizeSeparatorSetting(value: unknown): Settings["separator"] {
+  if (value === "comma" || value === "," || value === ", ") {
+    return "comma";
+  }
+
+  return "semicolon";
+}
+
+function toBackendSeparatorValue(separator: Settings["separator"]): string {
+  return separator === "comma" ? ", " : "; ";
+}
+
+function toBackendSettings(settings: Settings): Record<string, unknown> {
+  return {
+    ...settings,
+    separator: toBackendSeparatorValue(settings.separator),
+  };
+}
+
 function normalizeSettings(input: unknown): Settings {
   const parsed = (input && typeof input === "object" ? { ...(input as Record<string, unknown>) } : {}) as Record<
     string,
@@ -260,7 +279,7 @@ function normalizeSettings(input: unknown): Settings {
   if (!("useFirstArtistOnly" in parsed)) parsed.useFirstArtistOnly = false;
   if (!("useSingleGenre" in parsed)) parsed.useSingleGenre = false;
   if (!("embedGenre" in parsed)) parsed.embedGenre = false;
-  if (!("separator" in parsed)) parsed.separator = "semicolon";
+  parsed.separator = normalizeSeparatorSetting(parsed.separator);
   if (!("redownloadWithSuffix" in parsed)) parsed.redownloadWithSuffix = false;
 
   return { ...DEFAULT_SETTINGS, ...(parsed as Partial<Settings>) };
@@ -273,7 +292,7 @@ function getSettingsFromLocalStorage(): Settings {
       return normalizeSettings(JSON.parse(stored));
     }
   } catch (error) {
-    console.error("Failed to load settings from local storage:", error);
+    // console.error("Failed to load settings from local storage:", error);
   }
   return { ...DEFAULT_SETTINGS };
 }
@@ -288,7 +307,7 @@ async function fetchDefaultPath(): Promise<string> {
   try {
     return await invoke<string>("get_default_download_path");
   } catch (error) {
-    console.error("Failed to fetch default download path:", error);
+    // console.error("Failed to fetch default download path:", error);
     return "";
   }
 }
@@ -301,14 +320,14 @@ export async function loadSettings(): Promise<Settings> {
       return cachedSettings;
     }
   } catch (error) {
-    console.error("Failed to load settings from backend:", error);
+    // console.error("Failed to load settings from backend:", error);
   }
 
   const local = getSettingsFromLocalStorage();
   try {
-    await invoke("save_settings", { settings: local });
+    await invoke("save_settings", { settings: toBackendSettings(local) });
   } catch (error) {
-    console.error("Failed to migrate settings to backend:", error);
+    // console.error("Failed to migrate settings to backend:", error);
   }
   cachedSettings = local;
   return local;
@@ -319,9 +338,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
   cachedSettings = normalized;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalized));
   try {
-    await invoke("save_settings", { settings: normalized });
+    await invoke("save_settings", { settings: toBackendSettings(normalized) });
   } catch (error) {
-    console.error("Failed to save settings:", error);
+    // console.error("Failed to save settings:", error);
   }
   window.dispatchEvent(new CustomEvent("settingsUpdated", { detail: normalized }));
 }
@@ -350,35 +369,35 @@ export async function resetToDefaultSettings(): Promise<Settings> {
 }
 
 export function applyThemeMode(mode: "auto" | "light" | "dark"): void {
-  console.log(`[ThemeEngine] Aplicando Modo: ${mode}`);
+  // console.log(`[ThemeEngine] Aplicando Modo: ${mode}`);
   if (mode === "auto") {
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.classList.toggle("dark", prefersDark);
-    console.log(`[ThemeEngine] Auto-detectado modo oscuro: ${prefersDark}`);
+    // console.log(`[ThemeEngine] Auto-detectado modo oscuro: ${prefersDark}`);
   } else {
     document.documentElement.classList.toggle("dark", mode === "dark");
   }
 }
 
 export function applyFont(fontFamily: FontFamily): void {
-  console.log(`[ThemeEngine] Aplicando Fuente: ${fontFamily}`);
+  // console.log(`[ThemeEngine] Aplicando Fuente: ${fontFamily}`);
   const font = FONT_OPTIONS.find((entry) => entry.value === fontFamily);
   if (font) {
     document.documentElement.style.setProperty("--font-sans", font.fontFamily);
     document.body.style.fontFamily = font.fontFamily;
   } else {
-    console.warn(`[ThemeEngine] Fuente no encontrada: ${fontFamily}`);
+    // console.warn(`[ThemeEngine] Fuente no encontrada: ${fontFamily}`);
   }
 }
 
 export function applyTheme(theme: string): void {
-  console.log(`[ThemeEngine] Aplicando Acento: ${theme}`);
+  // console.log(`[ThemeEngine] Aplicando Acento: ${theme}`);
   document.documentElement.setAttribute("data-theme", theme);
   const currentAttr = document.documentElement.getAttribute("data-theme");
   if (currentAttr !== theme) {
-    console.error(`[ThemeEngine] Error: Falló la aplicación del atributo data-theme [${theme}]`);
+    // console.error(`[ThemeEngine] Error: FallÃ³ la aplicaciÃ³n del atributo data-theme [${theme}]`);
   } else {
-    console.log(`[ThemeEngine] ✓ Atributo data-theme establecido correctamente a: ${theme}`);
+    // console.log(`[ThemeEngine] âœ“ Atributo data-theme establecido correctamente a: ${theme}`);
   }
 }
 

@@ -1,10 +1,10 @@
-use anyhow::{Result, anyhow};
-use crate::models::{AudioQuality, AppConfig};
 use crate::metadata::tagger::Tagger;
+use crate::models::{AppConfig, AudioQuality};
 use crate::utils::ffmpeg::FFmpeg;
+use anyhow::{anyhow, Result};
 use std::path::Path;
-use tokio::sync::Mutex;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,15 +44,22 @@ impl AudioProcessor {
 
             let handle = task::spawn(async move {
                 let input_path = Path::new(&input_file);
-                let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+                let base_name = input_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
                 let parent = input_path.parent().unwrap_or_else(|| Path::new("."));
-                
+
                 let output_dir = parent.join(req_clone.output_format.to_uppercase());
                 if !output_dir.exists() {
                     let _ = std::fs::create_dir_all(&output_dir);
                 }
 
-                let output_file = output_dir.join(format!("{}.{}", base_name, req_clone.output_format.to_lowercase()));
+                let output_file = output_dir.join(format!(
+                    "{}.{}",
+                    base_name,
+                    req_clone.output_format.to_lowercase()
+                ));
                 let output_path_str = output_file.to_string_lossy().to_string();
 
                 let mut result = ConvertResult {
@@ -67,7 +74,8 @@ impl AudioProcessor {
                 let cover = Tagger::extract_cover(input_path).ok().flatten();
 
                 // 2. Perform Conversion
-                let ffmpeg_res = Self::run_ffmpeg_convert(&input_file, &output_path_str, &req_clone).await;
+                let ffmpeg_res =
+                    Self::run_ffmpeg_convert(&input_file, &output_path_str, &req_clone).await;
 
                 match ffmpeg_res {
                     Ok(_) => {
@@ -98,14 +106,19 @@ impl AudioProcessor {
                                 position_override: None,
                             };
 
-                            if let Err(e) = Tagger::embed_metadata(&output_file, &m, lyrics.as_deref(), &default_config) {
-                                println!("⚠️ Warning: Failed to re-embed metadata to {}: {}", output_path_str, e);
+                            if let Err(_e) = Tagger::embed_metadata(
+                                &output_file,
+                                &m,
+                                lyrics.as_deref(),
+                                &default_config,
+                            ) {
+                                // println!("⚠️ Warning: Failed to re-embed metadata to {}: {}", output_path_str, e);
                             }
                         }
-                        
+
                         if let Some(c) = cover {
-                            if let Err(e) = Tagger::embed_cover(&output_file, c) {
-                                println!("⚠️ Warning: Failed to re-embed cover to {}: {}", output_path_str, e);
+                            if let Err(_e) = Tagger::embed_cover(&output_file, c) {
+                                // println!("⚠️ Warning: Failed to re-embed cover to {}: {}", output_path_str, e);
                             }
                         }
 
@@ -128,8 +141,16 @@ impl AudioProcessor {
         let mut res = results.lock().await.clone();
         // Maintain original order
         res.sort_by(|a, b| {
-            let idx_a = req.input_files.iter().position(|r| r == &a.input_file).unwrap_or(0);
-            let idx_b = req.input_files.iter().position(|r| r == &b.input_file).unwrap_or(0);
+            let idx_a = req
+                .input_files
+                .iter()
+                .position(|r| r == &a.input_file)
+                .unwrap_or(0);
+            let idx_b = req
+                .input_files
+                .iter()
+                .position(|r| r == &b.input_file)
+                .unwrap_or(0);
             idx_a.cmp(&idx_b)
         });
         res
@@ -138,16 +159,19 @@ impl AudioProcessor {
     async fn run_ffmpeg_convert(input: &str, output: &str, req: &ConvertRequest) -> Result<()> {
         let ffmpeg_path = FFmpeg::get_path()?;
         let mut cmd = tokio::process::Command::new(ffmpeg_path);
-        
-        cmd.arg("-i").arg(input)
-           .arg("-y");
+
+        cmd.arg("-i").arg(input).arg("-y");
 
         match req.output_format.to_lowercase().as_str() {
             "mp3" => {
-                cmd.arg("-codec:a").arg("libmp3lame")
-                   .arg("-b:a").arg(&req.bitrate)
-                   .arg("-map").arg("0:a")
-                   .arg("-id3v2_version").arg("3");
+                cmd.arg("-codec:a")
+                    .arg("libmp3lame")
+                    .arg("-b:a")
+                    .arg(&req.bitrate)
+                    .arg("-map")
+                    .arg("0:a")
+                    .arg("-id3v2_version")
+                    .arg("3");
             }
             "m4a" => {
                 let codec = if req.codec == "alac" { "alac" } else { "aac" };
@@ -158,8 +182,10 @@ impl AudioProcessor {
                 cmd.arg("-map").arg("0:a");
             }
             "flac" => {
-                cmd.arg("-codec:a").arg("flac")
-                   .arg("-compression_level").arg("8");
+                cmd.arg("-codec:a")
+                    .arg("flac")
+                    .arg("-compression_level")
+                    .arg("8");
             }
             _ => return Err(anyhow!("Unsupported output format")),
         }
@@ -182,8 +208,9 @@ impl AudioProcessor {
     pub async fn resample_batch(req: ResampleRequest) -> Vec<ConvertResult> {
         let results = Arc::new(Mutex::new(Vec::new()));
         let mut handlers = Vec::new();
-        
-        let folder_label = Self::build_folder_label(req.sample_rate.as_deref(), req.bit_depth.as_deref());
+
+        let folder_label =
+            Self::build_folder_label(req.sample_rate.as_deref(), req.bit_depth.as_deref());
 
         for input_file in &req.input_files {
             let input_file = input_file.clone();
@@ -193,9 +220,12 @@ impl AudioProcessor {
 
             let handle = task::spawn(async move {
                 let input_path = Path::new(&input_file);
-                let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+                let base_name = input_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
                 let parent = input_path.parent().unwrap_or_else(|| Path::new("."));
-                
+
                 let output_dir = parent.join(&folder_label_clone);
                 if !output_dir.exists() {
                     let _ = std::fs::create_dir_all(&output_dir);
@@ -211,11 +241,16 @@ impl AudioProcessor {
                     error: None,
                 };
 
-                let ffmpeg_res = Self::run_ffmpeg_resample(&input_file, &output_path_str, &req_clone).await;
+                let ffmpeg_res =
+                    Self::run_ffmpeg_resample(&input_file, &output_path_str, &req_clone).await;
 
                 match ffmpeg_res {
-                    Ok(_) => { result.success = true; }
-                    Err(e) => { result.error = Some(e.to_string()); }
+                    Ok(_) => {
+                        result.success = true;
+                    }
+                    Err(e) => {
+                        result.error = Some(e.to_string());
+                    }
                 }
 
                 results_clone.lock().await.push(result);
@@ -234,15 +269,25 @@ impl AudioProcessor {
     async fn run_ffmpeg_resample(input: &str, output: &str, req: &ResampleRequest) -> Result<()> {
         let ffmpeg_path = FFmpeg::get_path()?;
         let mut cmd = tokio::process::Command::new(ffmpeg_path);
-        
-        cmd.arg("-i").arg(input)
-           .arg("-y");
+
+        cmd.arg("-i").arg(input).arg("-y");
 
         if let Some(bit_depth) = &req.bit_depth {
             match bit_depth.as_str() {
-                "16" => { cmd.arg("-c:a").arg("flac").arg("-sample_fmt").arg("s16"); }
-                "24" => { cmd.arg("-c:a").arg("flac").arg("-sample_fmt").arg("s32").arg("-bits_per_raw_sample").arg("24"); }
-                _ => { cmd.arg("-c:a").arg("flac"); }
+                "16" => {
+                    cmd.arg("-c:a").arg("flac").arg("-sample_fmt").arg("s16");
+                }
+                "24" => {
+                    cmd.arg("-c:a")
+                        .arg("flac")
+                        .arg("-sample_fmt")
+                        .arg("s32")
+                        .arg("-bits_per_raw_sample")
+                        .arg("24");
+                }
+                _ => {
+                    cmd.arg("-c:a").arg("flac");
+                }
             }
         } else {
             cmd.arg("-c:a").arg("flac");

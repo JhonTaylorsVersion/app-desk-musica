@@ -1,8 +1,8 @@
-use anyhow::{Result, anyhow};
-use serde_json::Value;
+use anyhow::{anyhow, Result};
 use regex::Regex;
-use std::time::Duration;
 use reqwest::Client;
+use serde_json::Value;
+use std::time::Duration;
 
 pub struct SongStatsResolver {
     client: Client,
@@ -19,7 +19,10 @@ impl SongStatsResolver {
     }
 
     pub async fn resolve_links(&self, isrc: &str) -> Result<super::ResolvedPlatformLinks> {
-        let page_url = format!("https://songstats.com/{}?ref=ISRCFinder", isrc.to_uppercase());
+        let page_url = format!(
+            "https://songstats.com/{}?ref=ISRCFinder",
+            isrc.to_uppercase()
+        );
         let mut links = super::ResolvedPlatformLinks::default();
 
         let response = self.client.get(&page_url)
@@ -32,7 +35,9 @@ impl SongStatsResolver {
         }
 
         let body = response.text().await?;
-        let script_pattern = Regex::new(r#"(?is)<script[^>]+type=["']application/ld\+json["'][^>]*>(.*?)</script>"#)?;
+        let script_pattern = Regex::new(
+            r#"(?is)<script[^>]+type=["']application/ld\+json["'][^>]*>(.*?)</script>"#,
+        )?;
 
         let mut found = false;
         for cap in script_pattern.captures_iter(&body) {
@@ -105,23 +110,25 @@ impl SongStatsResolver {
 
     fn assign_link(&self, link: &str, links: &mut super::ResolvedPlatformLinks) -> bool {
         let link = link.trim();
-        if link.is_empty() { return false; }
+        if link.is_empty() {
+            return false;
+        }
 
         if link.contains("listen.tidal.com/track") && links.tidal_url.is_none() {
             links.tidal_url = Some(link.to_string());
-            println!("✓ Tidal URL found via SongStats");
+            // println!("✓ Tidal URL found via SongStats");
             return true;
         }
 
         if link.contains("music.amazon.com") && links.amazon_url.is_none() {
             links.amazon_url = Some(link.to_string());
-            println!("✓ Amazon URL found via SongStats");
+            // println!("✓ Amazon URL found via SongStats");
             return true;
         }
 
         if link.contains("deezer.com") && links.deezer_url.is_none() {
             links.deezer_url = Some(link.to_string());
-            println!("✓ Deezer URL found via SongStats");
+            // println!("✓ Deezer URL found via SongStats");
             return true;
         }
 

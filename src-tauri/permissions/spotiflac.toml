@@ -39,6 +39,7 @@ commands = { allow = [
     "download_gallery_image",
     "download_avatar",
     "select_folder",
+    "get_host_info",
     "open_config_folder",
     "get_default_download_path",
     "open_folder",

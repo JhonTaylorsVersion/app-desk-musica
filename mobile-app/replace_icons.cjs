@@ -1,5 +1,5 @@
-const fs = require('fs');
-let file = fs.readFileSync('src/MobileExperienceRefresh.vue', 'utf8');
+const fs = require("fs");
+let file = fs.readFileSync("src/MobileExperienceRefresh.vue", "utf8");
 
 const genericMusicNote = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" width="100%" height="100%"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
 const profileSvg = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" width="100%" height="100%"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
@@ -12,22 +12,46 @@ const cMix = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 const cFusion = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/></svg>`;
 const cJam = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="24" height="24"><circle cx="12" cy="12" r="9"></circle><path d="M12 12V4"></path><path d="M12 12l5.5 5.5"></path></svg>`;
 
-file = file.replace(/>\\s*♪\\s*<\/div>/g, `>\n                    ${genericMusicNote}\n                  </div>`);
-file = file.replace(/>\\s*♪\\s*<\/span>/g, `>\n                    ${genericMusicNote}\n                  </span>`);
+file = file.replace(
+  />\\s*♪\\s*<\/div>/g,
+  `>\n                    ${genericMusicNote}\n                  </div>`,
+);
+file = file.replace(
+  />\\s*♪\\s*<\/span>/g,
+  `>\n                    ${genericMusicNote}\n                  </span>`,
+);
 file = file.replace(/>\s*♪\s*<\/div>/g, `>${genericMusicNote}</div>`);
 file = file.replace(/>\s*♪\s*<\/span>/g, `>${genericMusicNote}</span>`);
 // Sometimes it sits alone
-file = file.replace(/([>\s])♪([<\s])/g, `$1<div style="width:50%;height:50%;margin:auto;">${genericMusicNote}</div>$2`);
+file = file.replace(
+  /([>\s])♪([<\s])/g,
+  `$1<div style="width:50%;height:50%;margin:auto;">${genericMusicNote}</div>$2`,
+);
 
 file = file.replace(/>\s*◫\s*</g, `>${gridSvg}<`);
 file = file.replace(/>\s*♫\s*</g, `>${profileSvg}<`);
 file = file.replace(/>\s*⚙️\s*</g, `>${gearSvg}<`);
 
-file = file.replace(/<div class="create-option__icon">♪<\/div>/g, `<div class="create-option__icon">${cPlaylist}</div>`);
-file = file.replace(/<div class="create-option__icon">👥<\/div>/g, `<div class="create-option__icon">${cCollab}</div>`);
-file = file.replace(/<div class="create-option__icon">≋<\/div>/g, `<div class="create-option__icon">${cMix}</div>`);
-file = file.replace(/<div class="create-option__icon">◌<\/div>/g, `<div class="create-option__icon">${cFusion}</div>`);
-file = file.replace(/<div class="create-option__icon">◔<\/div>/g, `<div class="create-option__icon">${cJam}</div>`);
+file = file.replace(
+  /<div class="create-option__icon">♪<\/div>/g,
+  `<div class="create-option__icon">${cPlaylist}</div>`,
+);
+file = file.replace(
+  /<div class="create-option__icon">👥<\/div>/g,
+  `<div class="create-option__icon">${cCollab}</div>`,
+);
+file = file.replace(
+  /<div class="create-option__icon">≋<\/div>/g,
+  `<div class="create-option__icon">${cMix}</div>`,
+);
+file = file.replace(
+  /<div class="create-option__icon">◌<\/div>/g,
+  `<div class="create-option__icon">${cFusion}</div>`,
+);
+file = file.replace(
+  /<div class="create-option__icon">◔<\/div>/g,
+  `<div class="create-option__icon">${cJam}</div>`,
+);
 
-fs.writeFileSync('src/MobileExperienceRefresh.vue', file, 'utf8');
-console.log('Replacements completed.');
+fs.writeFileSync("src/MobileExperienceRefresh.vue", file, "utf8");
+// console.log('Replacements completed.');

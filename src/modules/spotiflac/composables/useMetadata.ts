@@ -1,4 +1,4 @@
-import { onUnmounted, ref } from "vue";
+﻿import { onUnmounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { logger } from "../utils/logger";
@@ -181,7 +181,7 @@ export function useMetadata() {
         addFetchHistoryItem(historyItem);
       }
     } catch (err: any) {
-      console.error("Fetch failed:", err);
+      // console.error("Fetch failed:", err);
       fetchFailureReason.value = err.toString();
       dismissLoadingToast();
       toast.error(err.toString());
@@ -198,7 +198,7 @@ export function useMetadata() {
       metadata.value = data;
       toast.success("Loaded from cache");
     } catch (err) {
-      console.error("Failed to load from cache:", err);
+      // console.error("Failed to load from cache:", err);
       toast.error("Failed to load from cache");
     }
   };

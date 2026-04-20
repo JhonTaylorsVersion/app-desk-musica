@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue';
 import {
   CloudDownload,
@@ -126,7 +126,7 @@ onMounted(() => {
       recentSearches.value = JSON.parse(saved);
     }
   } catch (error) {
-    console.error('Failed to load recent searches:', error);
+    // console.error('Failed to load recent searches:', error);
   }
 });
 
@@ -141,7 +141,7 @@ const saveRecentSearch = (query: string) => {
   try {
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
   } catch (error) {
-    console.error('Failed to save recent searches:', error);
+    // console.error('Failed to save recent searches:', error);
   }
 };
 
@@ -152,7 +152,7 @@ const removeRecentSearch = (query: string) => {
   try {
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
   } catch (error) {
-    console.error('Failed to save recent searches:', error);
+    // console.error('Failed to save recent searches:', error);
   }
 };
 
@@ -184,7 +184,7 @@ const handleSearch = async () => {
     else if (results.artists?.length > 0) activeTab.value = 'artists';
     else if (results.playlists?.length > 0) activeTab.value = 'playlists';
   } catch (error) {
-    console.error('Search failed:', error);
+    // console.error('Search failed:', error);
     searchResults.value = null;
   } finally {
     isSearching.value = false;
@@ -228,7 +228,7 @@ const handleLoadMore = async () => {
 
     hasMore.value[activeTab.value] = moreResults.length === SEARCH_LIMIT;
   } catch (error) {
-    console.error('Load more failed:', error);
+    // console.error('Load more failed:', error);
   } finally {
     isLoadingMore.value = false;
   }

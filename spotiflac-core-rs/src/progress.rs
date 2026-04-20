@@ -98,7 +98,7 @@ impl ProgressManager {
     }
 
     pub fn log(&self, message: &str) {
-        println!("{}", message);
+        // println!("{}", message);
         log::info!("{}", message);
         let h_lock = self.handler.read().unwrap();
         if let Some(h) = &*h_lock {
@@ -106,12 +106,37 @@ impl ProgressManager {
         }
     }
 
-    pub fn add_to_queue(&self, id: String, track: String, artist: String, album: String, spotify_id: String) {
+    pub fn add_to_queue(
+        &self,
+        id: String,
+        track: String,
+        artist: String,
+        album: String,
+        spotify_id: String,
+    ) {
         let mut state = self.state.write().unwrap();
         if state.session_start_time == 0 {
             state.session_start_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH).unwrap().as_secs();
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
         }
+
+        // Avoid duplicate queue rows for the same logical download item. If the
+        // item is still active, keep the existing row. If it already finished,
+        // replace it with a fresh queued row for this new attempt.
+        if let Some(existing) = state.queue.iter().position(|item| item.id == id) {
+            let existing_status = state.queue[existing].status.clone();
+            if matches!(
+                existing_status,
+                DownloadStatus::Queued | DownloadStatus::Downloading
+            ) {
+                return;
+            }
+
+            state.queue.remove(existing);
+        }
+
         state.queue.push(DownloadItem {
             id: id.clone(),
             track_name: track,
@@ -138,9 +163,12 @@ impl ProgressManager {
     pub fn start_item(&self, id: &str) {
         let mut state = self.state.write().unwrap();
         state.is_downloading = true;
-        if let Some(item) = state.queue.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = state.queue.iter_mut().rev().find(|i| i.id == id) {
             item.status = DownloadStatus::Downloading;
-            item.start_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            item.start_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
         }
         drop(state);
 
@@ -153,7 +181,7 @@ impl ProgressManager {
     pub fn update_progress(&self, id: &str, progress: f64, speed: f64) {
         let mut state = self.state.write().unwrap();
         state.current_speed = speed;
-        if let Some(item) = state.queue.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = state.queue.iter_mut().rev().find(|i| i.id == id) {
             item.progress_mb = progress;
             item.speed_mbps = speed;
         }
@@ -173,9 +201,12 @@ impl ProgressManager {
     pub fn complete_item(&self, id: &str, file_path: String, final_size: f64) {
         let mut state = self.state.write().unwrap();
         state.total_downloaded += final_size;
-        if let Some(item) = state.queue.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = state.queue.iter_mut().rev().find(|i| i.id == id) {
             item.status = DownloadStatus::Completed;
-            item.end_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            item.end_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             item.file_path = Some(file_path);
             item.progress_mb = final_size;
             item.total_size_mb = final_size;
@@ -183,7 +214,10 @@ impl ProgressManager {
         }
         // Check if all done
         let all_done = state.queue.iter().all(|i| {
-            matches!(i.status, DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped)
+            matches!(
+                i.status,
+                DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped
+            )
         });
         if all_done {
             state.is_downloading = false;
@@ -199,14 +233,20 @@ impl ProgressManager {
 
     pub fn fail_item(&self, id: &str, error: String) {
         let mut state = self.state.write().unwrap();
-        if let Some(item) = state.queue.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = state.queue.iter_mut().rev().find(|i| i.id == id) {
             item.status = DownloadStatus::Failed;
-            item.end_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            item.end_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             item.error_message = Some(error);
             item.speed_mbps = 0.0;
         }
         let all_done = state.queue.iter().all(|i| {
-            matches!(i.status, DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped)
+            matches!(
+                i.status,
+                DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped
+            )
         });
         if all_done {
             state.is_downloading = false;
@@ -223,14 +263,20 @@ impl ProgressManager {
     /// Mirrors Go's SkipDownloadItem
     pub fn skip_item(&self, id: &str, file_path: String) {
         let mut state = self.state.write().unwrap();
-        if let Some(item) = state.queue.iter_mut().find(|i| i.id == id) {
+        if let Some(item) = state.queue.iter_mut().rev().find(|i| i.id == id) {
             item.status = DownloadStatus::Skipped;
-            item.end_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            item.end_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             item.file_path = Some(file_path);
             item.speed_mbps = 0.0;
         }
         let all_done = state.queue.iter().all(|i| {
-            matches!(i.status, DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped)
+            matches!(
+                i.status,
+                DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Skipped
+            )
         });
         if all_done {
             state.is_downloading = false;
@@ -248,7 +294,10 @@ impl ProgressManager {
     pub fn clear_completed(&self) {
         let mut state = self.state.write().unwrap();
         state.queue.retain(|item| {
-            matches!(item.status, DownloadStatus::Queued | DownloadStatus::Downloading)
+            matches!(
+                item.status,
+                DownloadStatus::Queued | DownloadStatus::Downloading
+            )
         });
     }
 
@@ -264,7 +313,10 @@ impl ProgressManager {
 
     /// Mirrors Go's CancelAllQueuedItems — marks all queued as skipped
     pub fn cancel_all_queued(&self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let mut state = self.state.write().unwrap();
         let mut cancelled = vec![];
         for item in state.queue.iter_mut() {
@@ -288,7 +340,9 @@ impl ProgressManager {
     /// Returns failed items for export
     pub fn get_failed_items(&self) -> Vec<DownloadItem> {
         let state = self.state.read().unwrap();
-        state.queue.iter()
+        state
+            .queue
+            .iter()
             .filter(|i| i.status == DownloadStatus::Failed)
             .cloned()
             .collect()
@@ -367,7 +421,7 @@ impl ProgressReporter {
         if self.bytes_since_last_report >= 256 * 1024 {
             let now = Instant::now();
             let duration = now.duration_since(self.last_reported_time).as_secs_f64();
-            
+
             let mb_downloaded = self.total_bytes as f64 / (1024.0 * 1024.0);
             let speed_mbps = if duration > 0.0 {
                 (self.bytes_since_last_report as f64 / (1024.0 * 1024.0)) / duration
@@ -375,7 +429,8 @@ impl ProgressReporter {
                 0.0
             };
 
-            self.manager.update_progress(&self.item_id, mb_downloaded, speed_mbps);
+            self.manager
+                .update_progress(&self.item_id, mb_downloaded, speed_mbps);
 
             self.last_reported_time = now;
             self.bytes_since_last_report = 0;

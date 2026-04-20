@@ -1,15 +1,15 @@
-use anyhow::{Result, anyhow};
-use async_trait::async_trait;
-use crate::models::AudioQuality;
 use super::AudioProvider;
+use crate::models::AudioQuality;
+use crate::progress::{ProgressManager, ProgressReporter};
+use crate::storage::MirrorManager;
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine as _};
+use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Write;
-use base64::{Engine as _, engine::general_purpose};
-use regex::Regex;
-use crate::progress::{ProgressManager, ProgressReporter};
-use crate::storage::MirrorManager;
 use std::sync::Arc;
 
 #[derive(Deserialize, Debug)]
@@ -111,7 +111,7 @@ impl TidalProvider {
                 .timeout(std::time::Duration::from_secs(15))
                 .user_agent(crate::models::APP_USER_AGENT)
                 .http1_only() // Force HTTP/1.1 for mirror compatibility
-                .no_gzip()    // Disable compression types mirrors might not handle
+                .no_gzip() // Disable compression types mirrors might not handle
                 .no_brotli()
                 .no_deflate()
                 .build()
@@ -120,7 +120,13 @@ impl TidalProvider {
         }
     }
 
-    async fn get_download_url_with_fallback(&self, query_id: &str, quality: AudioQuality, allow_fallback: bool, progress: Arc<ProgressManager>) -> Result<String> {
+    async fn get_download_url_with_fallback(
+        &self,
+        query_id: &str,
+        quality: AudioQuality,
+        allow_fallback: bool,
+        progress: Arc<ProgressManager>,
+    ) -> Result<String> {
         let q_str = match quality {
             AudioQuality::Low => "LOW",
             AudioQuality::Lossless => "LOSSLESS",
@@ -143,12 +149,15 @@ impl TidalProvider {
         for mirror in prioritized_mirrors {
             let url = format!("{}/track/?id={}&quality={}", mirror, query_id, q_str);
             let ua = "Go-http-client/1.1";
-            
-            progress.log(&format!("DEBUG [Tidal]: Probando Mirror -> {} [UA: {}]", mirror, ua));
-            
+
+            progress.log(&format!(
+                "DEBUG [Tidal]: Probando Mirror -> {} [UA: {}]",
+                mirror, ua
+            ));
+
             // --- PARITY: Fresh client per mirror check (mirrors Go's tidal.go:937) ---
             let fresh_client = Client::builder()
-                .timeout(std::time::Duration::from_secs(30)) 
+                .timeout(std::time::Duration::from_secs(30))
                 .user_agent(ua)
                 .http1_only() // Keep HTTP/1.1
                 .danger_accept_invalid_certs(true)
@@ -158,15 +167,18 @@ impl TidalProvider {
             // Anti-429 delay: Increased to 2 seconds for better mirror stability
             tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
 
-            match fresh_client.get(&url)
+            match fresh_client
+                .get(&url)
                 .header("Accept", "*/*")
                 .header("Connection", "keep-alive")
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
                         let body_bytes = resp.bytes().await?;
-                        
+
                         // Parity log
                         progress.log(&format!("DEBUG [Tidal]: Success 200 de {}", mirror));
 
@@ -178,7 +190,9 @@ impl TidalProvider {
                             }
                         }
 
-                        if let Ok(v1_list) = serde_json::from_slice::<Vec<TidalAPIResponse>>(&body_bytes) {
+                        if let Ok(v1_list) =
+                            serde_json::from_slice::<Vec<TidalAPIResponse>>(&body_bytes)
+                        {
                             for item in v1_list {
                                 if let Some(u) = item.original_track_url {
                                     progress.log(&format!("DEBUG [Tidal]: URL Directa obtenida"));
@@ -188,17 +202,22 @@ impl TidalProvider {
                             }
                         }
 
-                        progress.log(&format!("DEBUG [Tidal]: Cuerpo de respuesta inválido o vacío."));
+                        progress.log(&format!(
+                            "DEBUG [Tidal]: Cuerpo de respuesta inválido o vacío."
+                        ));
                         self.mirrors_manager.record_outcome("tidal", &mirror, false);
                     } else {
                         progress.log(&format!("DEBUG [Tidal]: Mirror rechazó [Code: {}]", status));
                         self.mirrors_manager.record_outcome("tidal", &mirror, false);
                         last_error = anyhow!("Mirror returned {}", status);
                     }
-                },
+                }
                 Err(e) => {
                     let err_msg = format!("{:?}", e);
-                    progress.log(&format!("DEBUG [Tidal]: ERROR DE RED en {}: {}", mirror, err_msg));
+                    progress.log(&format!(
+                        "DEBUG [Tidal]: ERROR DE RED en {}: {}",
+                        mirror, err_msg
+                    ));
                     self.mirrors_manager.record_outcome("tidal", &mirror, false);
                     last_error = e.into();
                 }
@@ -210,12 +229,24 @@ impl TidalProvider {
             match quality {
                 AudioQuality::HiRes => {
                     progress.log("⚠️ Tidal HI_RES falló, intentando LOSSLESS...");
-                    return Box::pin(self.get_download_url_with_fallback(query_id, AudioQuality::Lossless, true, progress)).await;
-                },
+                    return Box::pin(self.get_download_url_with_fallback(
+                        query_id,
+                        AudioQuality::Lossless,
+                        true,
+                        progress,
+                    ))
+                    .await;
+                }
                 AudioQuality::Lossless => {
                     progress.log("⚠️ Tidal LOSSLESS falló, intentando LOW...");
-                    return Box::pin(self.get_download_url_with_fallback(query_id, AudioQuality::Low, false, progress)).await;
-                },
+                    return Box::pin(self.get_download_url_with_fallback(
+                        query_id,
+                        AudioQuality::Low,
+                        false,
+                        progress,
+                    ))
+                    .await;
+                }
                 _ => {}
             }
         }
@@ -223,7 +254,10 @@ impl TidalProvider {
         Err(last_error)
     }
 
-    fn parse_manifest(&self, manifest_b64: &str) -> Result<(Option<String>, Option<String>, Vec<String>)> {
+    fn parse_manifest(
+        &self,
+        manifest_b64: &str,
+    ) -> Result<(Option<String>, Option<String>, Vec<String>)> {
         let manifest_bytes = general_purpose::STANDARD.decode(manifest_b64)?;
         let manifest_str = String::from_utf8(manifest_bytes.clone())?;
 
@@ -237,9 +271,9 @@ impl TidalProvider {
         }
 
         // 2. Try DASH Format (XML)
-        println!("DEBUG: Parsing DASH Manifest...");
+        // println!("DEBUG: Parsing DASH Manifest...");
         let mpd: Mpd = quick_xml::de::from_reader(manifest_bytes.as_slice())?;
-        
+
         let mut best_rep: Option<&Representation> = None;
         let mut best_as: Option<&AdaptationSet> = None;
 
@@ -253,11 +287,14 @@ impl TidalProvider {
         }
 
         if let (Some(rep), Some(as_set)) = (best_rep, best_as) {
-            let template = rep.segment_template.as_ref().or(as_set.segment_template.as_ref());
+            let template = rep
+                .segment_template
+                .as_ref()
+                .or(as_set.segment_template.as_ref());
             if let Some(t) = template {
                 let init_url = t.initialization.replace("&amp;", "&");
                 let media_template = t.media.replace("&amp;", "&");
-                
+
                 let mut segment_count = 0;
                 if let Some(timeline) = &t.timeline {
                     for s in &timeline.segments {
@@ -280,15 +317,22 @@ impl TidalProvider {
         let media_re = Regex::new(r#"media="([^"]+)""#).unwrap();
         let s_re = Regex::new(r#"<S [^>]*r="(\d+)""#).unwrap();
 
-        let init_url = init_re.captures(&manifest_str).map(|c| c[1].to_string().replace("&amp;", "&"));
-        let media_template = media_re.captures(&manifest_str).map(|c| c[1].to_string().replace("&amp;", "&"));
+        let init_url = init_re
+            .captures(&manifest_str)
+            .map(|c| c[1].to_string().replace("&amp;", "&"));
+        let media_template = media_re
+            .captures(&manifest_str)
+            .map(|c| c[1].to_string().replace("&amp;", "&"));
 
         if let (Some(init), Some(media_tmp)) = (init_url, media_template) {
             let mut segment_count = 0;
             let s_tag_re = Regex::new(r#"<S [^>]*>"#).unwrap();
             for cap in s_tag_re.find_iter(&manifest_str) {
                 let tag_str = cap.as_str();
-                let repeat = s_re.captures(tag_str).and_then(|c| c[1].parse::<i32>().ok()).unwrap_or(0);
+                let repeat = s_re
+                    .captures(tag_str)
+                    .and_then(|c| c[1].parse::<i32>().ok())
+                    .unwrap_or(0);
                 segment_count += repeat + 1;
             }
 
@@ -301,24 +345,40 @@ impl TidalProvider {
             }
         }
 
-        Err(anyhow!("Failed to parse manifest (Unknown format or no segments)"))
+        Err(anyhow!(
+            "Failed to parse manifest (Unknown format or no segments)"
+        ))
     }
 }
 
 #[async_trait]
 impl AudioProvider for TidalProvider {
-    fn name(&self) -> &str { "Tidal" }
-
-    async fn get_download_url(&self, query_id: &str, quality: AudioQuality, progress: Arc<ProgressManager>) -> Result<String> {
-        self.get_download_url_with_fallback(query_id, quality, true, progress).await
+    fn name(&self) -> &str {
+        "Tidal"
     }
 
-    async fn download_track(&self, url: &str, path: &str, progress: Arc<ProgressManager>, item_id: &str) -> Result<()> {
+    async fn get_download_url(
+        &self,
+        query_id: &str,
+        quality: AudioQuality,
+        progress: Arc<ProgressManager>,
+    ) -> Result<String> {
+        self.get_download_url_with_fallback(query_id, quality, true, progress)
+            .await
+    }
+
+    async fn download_track(
+        &self,
+        url: &str,
+        path: &str,
+        progress: Arc<ProgressManager>,
+        item_id: &str,
+    ) -> Result<()> {
         let mut reporter = ProgressReporter::new(progress, item_id.to_string());
 
         if url.starts_with("MANIFEST:") {
             let (direct, init, media) = self.parse_manifest(&url[9..])?;
-            
+
             if let Some(direct_url) = direct {
                 let mut resp = self.client.get(direct_url).send().await?;
                 let mut file = File::create(path)?;

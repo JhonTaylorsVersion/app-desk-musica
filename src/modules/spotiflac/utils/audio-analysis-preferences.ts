@@ -1,4 +1,4 @@
-export type AnalyzerColorScheme = "spek" | "viridis" | "hot" | "cool" | "grayscale";
+﻿export type AnalyzerColorScheme = "spek" | "viridis" | "hot" | "cool" | "grayscale";
 export type AnalyzerFreqScale = "linear" | "log2";
 export type AnalyzerWindowFunction = "hann" | "hamming" | "blackman" | "rectangular";
 
@@ -25,7 +25,7 @@ export function loadAudioAnalysisPreferences(): AudioAnalysisPreferences {
             return { ...DEFAULT_PREFS, ...JSON.parse(saved) };
         }
     } catch (err) {
-        console.error("Failed to load audio analysis preferences:", err);
+        // console.error("Failed to load audio analysis preferences:", err);
     }
     return DEFAULT_PREFS;
 }
@@ -34,6 +34,6 @@ export function saveAudioAnalysisPreferences(prefs: AudioAnalysisPreferences): v
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch (err) {
-        console.error("Failed to save audio analysis preferences:", err);
+        // console.error("Failed to save audio analysis preferences:", err);
     }
 }

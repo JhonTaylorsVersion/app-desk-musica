@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Transition name="slide-up">
     <div
       v-if="hasActiveDownloads"
@@ -60,7 +60,7 @@ const pollProgress = async () => {
   try {
     progress.value = await invoke('get_download_progress');
   } catch (e) {
-    console.error('Failed to get download progress:', e);
+    // console.error('Failed to get download progress:', e);
     progress.value = {
       is_downloading: false,
       mb_downloaded: 0,

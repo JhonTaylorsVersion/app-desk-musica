@@ -1,4 +1,4 @@
-import { onMounted, ref } from "vue";
+﻿import { onMounted, ref } from "vue";
 import {
   DEFAULT_SETTINGS,
   applyFont,
@@ -27,7 +27,7 @@ export function useSettings() {
       applyTheme(settings.value.theme);
       applyFont(settings.value.fontFamily);
     } catch (error) {
-      console.error("Failed to load settings:", error);
+      // console.error("Failed to load settings:", error);
       settings.value = { ...DEFAULT_SETTINGS };
     } finally {
       initialized.value = true;

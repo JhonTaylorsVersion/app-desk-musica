@@ -1,9 +1,9 @@
-use anyhow::{Result, anyhow};
+use crate::utils::filename::FilenameBuilder;
+use anyhow::{anyhow, Result};
 use reqwest::Client;
-use std::path::Path;
 use std::fs;
 use std::io::Write;
-use crate::utils::filename::FilenameBuilder;
+use std::path::Path;
 
 pub struct AssetsDownloader {
     client: Client,
@@ -21,16 +21,22 @@ impl AssetsDownloader {
 
     /// Downloads artist-related assets (avatar, header, gallery) into a dedicated folder.
     pub async fn download_artist_assets(
-        &self, 
-        output_dir: &Path, 
-        artist_name: &str, 
-        avatar_url: Option<&str>, 
-        header_url: Option<&str>, 
-        gallery_urls: Option<&[String]>
+        &self,
+        output_dir: &Path,
+        artist_name: &str,
+        avatar_url: Option<&str>,
+        header_url: Option<&str>,
+        gallery_urls: Option<&[String]>,
     ) -> Result<()> {
         let safe_artist = FilenameBuilder::sanitize(artist_name);
-        let artist_folder = output_dir.join(&safe_artist);
-        
+        // Keep artist assets out of the track/playlist folder so they do not
+        // pollute user-visible downloads or confuse library scanners.
+        let assets_root = output_dir
+            .parent()
+            .unwrap_or(output_dir)
+            .join("_SpotiFLAC Artist Assets");
+        let artist_folder = assets_root.join(&safe_artist);
+
         if !artist_folder.exists() {
             fs::create_dir_all(&artist_folder)?;
         }
@@ -38,16 +44,16 @@ impl AssetsDownloader {
         // 1. Avatar
         if let Some(url) = avatar_url {
             let path = artist_folder.join(format!("{}_Avatar.jpg", safe_artist));
-            if let Err(e) = self.download_file(url, &path).await {
-                println!("⚠️ Warning: Failed to download avatar for {}: {}", artist_name, e);
+            if let Err(_e) = self.download_file(url, &path).await {
+                // println!("⚠️ Warning: Failed to download avatar for {}: {}", artist_name, e);
             }
         }
 
         // 2. Header
         if let Some(url) = header_url {
             let path = artist_folder.join(format!("{}_Header.jpg", safe_artist));
-            if let Err(e) = self.download_file(url, &path).await {
-                println!("⚠️ Warning: Failed to download header for {}: {}", artist_name, e);
+            if let Err(_e) = self.download_file(url, &path).await {
+                // println!("⚠️ Warning: Failed to download header for {}: {}", artist_name, e);
             }
         }
 
@@ -55,8 +61,8 @@ impl AssetsDownloader {
         if let Some(urls) = gallery_urls {
             for (i, url) in urls.iter().enumerate() {
                 let path = artist_folder.join(format!("{}_Gallery_{}.jpg", safe_artist, i + 1));
-                if let Err(e) = self.download_file(url, &path).await {
-                    println!("⚠️ Warning: Failed to download gallery image {} for {}: {}", i + 1, artist_name, e);
+                if let Err(_e) = self.download_file(url, &path).await {
+                    // println!("⚠️ Warning: Failed to download gallery image {} for {}: {}", i + 1, artist_name, e);
                 }
             }
         }

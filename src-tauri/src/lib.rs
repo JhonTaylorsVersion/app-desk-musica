@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose, Engine as _};
+﻿use base64::{engine::general_purpose, Engine as _};
 mod spotiflac;
 
 use lofty::config::WriteOptions;
@@ -8,11 +8,11 @@ use lofty::prelude::Accessor;
 use lofty::read_from_path;
 use lofty::tag::{ItemKey, Tag};
 use serde::{Deserialize, Serialize};
-// Asegúrate de tener esto arriba en tu archivo
+// AsegÃºrate de tener esto arriba en tu archivo
 use rusqlite::{params, Connection};
 use std::cmp::Ordering as CmpOrdering;
 use std::fs;
-use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres únicos de carátulas
+use std::hash::{Hash, Hasher}; // <-- NUEVO: Para crear nombres Ãºnicos de carÃ¡tulas
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -36,7 +36,6 @@ use walkdir::WalkDir;
 // === IMPORTACIONES SPOTIFLAC NATUVO ===
 use spotiflac::commands::{AppState as SpotiAppState, TauriProgressHandler};
 use spotiflac_core_rs::engine::SpotiFLACEngine;
-
 
 // === NUEVAS DEPENDENCIAS PRO ===
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -75,9 +74,9 @@ struct LibraryTrackMetadataLite {
     album_artist: String,
     duration_seconds: u64,
     duration_formatted: String,
-    cover_path: Option<String>, // <-- NUEVO: Ruta física de la imagen
-    track_number: Option<u32>,  // <-- NUEVO: Agregamos el número de pista
-    spotify_id: Option<String>, // <-- NUEVO: ID de Spotify para sincronización
+    cover_path: Option<String>, // <-- NUEVO: Ruta fÃ­sica de la imagen
+    track_number: Option<u32>,  // <-- NUEVO: Agregamos el nÃºmero de pista
+    spotify_id: Option<String>, // <-- NUEVO: ID de Spotify para sincronizaciÃ³n
 }
 
 #[derive(Serialize, Clone)]
@@ -201,9 +200,9 @@ struct PlaylistSummary {
     created_at: i64,
     updated_at: i64,
     track_paths: Vec<String>,
-    spotify_url: Option<String>, 
+    spotify_url: Option<String>,
     spotify_synced_ids: Option<String>, // <-- NUEVO: IDs ya conocidos (JSON)
-    is_system: i32, // <-- NUEVO: 1 para playlist del sistema (ej: Tus Me Gusta)
+    is_system: i32,                     // <-- NUEVO: 1 para playlist del sistema (ej: Tus Me Gusta)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -276,7 +275,7 @@ struct ConnectStateRecord {
 
 // Este es el "idioma" con el que Tauri habla con el hilo de audio
 pub enum AudioCommand {
-    Play(String, f64), // Ruta y posición de inicio
+    Play(String, f64), // Ruta y posiciÃ³n de inicio
     Pause,
     Resume,
     Stop,
@@ -287,7 +286,7 @@ pub enum AudioCommand {
 struct AudioPlayerState {
     // Transmisor para enviar comandos al hilo de fondo
     tx: Sender<AudioCommand>,
-    // Posición actual compartida (para que la UI la lea rapidísimo sin bloquear)
+    // PosiciÃ³n actual compartida (para que la UI la lea rapidÃ­simo sin bloquear)
     current_position_secs: Arc<Mutex<f64>>,
 }
 
@@ -403,31 +402,37 @@ fn init_library_cache_db(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Migraciones silenciosas
     let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN album_artist TEXT", []);
     let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN cover_path TEXT", []);
-    // <-- NUEVA MIGRACIÓN PARA ACTUALIZAR TU BD EXISTENTE
+    // <-- NUEVA MIGRACIÃ“N PARA ACTUALIZAR TU BD EXISTENTE
     let _ = conn.execute(
         "ALTER TABLE library_cache ADD COLUMN track_number INTEGER",
         [],
     );
     let _ = conn.execute("ALTER TABLE library_cache ADD COLUMN spotify_id TEXT", []);
     let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_url TEXT", []);
-    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT", []);
-    let _ = conn.execute("ALTER TABLE playlists ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0", []); // <-- NUEVO
-    
-    // DEDUPLICACIÓN: Asegurarnos de que solo exista UNA "Tus Me Gusta" y que sea de sistema
+    let _ = conn.execute(
+        "ALTER TABLE playlists ADD COLUMN spotify_synced_ids TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE playlists ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0",
+        [],
+    ); // <-- NUEVO
+
+    // DEDUPLICACIÃ“N: Asegurarnos de que solo exista UNA "Tus Me Gusta" y que sea de sistema
     // 1. Si existe una manual llamada "Tus Me Gusta", la promovemos a sistema
     let _ = conn.execute(
         "UPDATE playlists SET is_system = 1 WHERE (name = 'Tus Me Gusta' OR name = 'Tus Me Gusta ') AND is_system = 0",
         [],
     );
 
-    // 2. LIMPIEZA DRÁSTICA: Borramos cualquier duplicado de sistema, quedándonos SOLO con el ID más bajo
+    // 2. LIMPIEZA DRÃSTICA: Borramos cualquier duplicado de sistema, quedÃ¡ndonos SOLO con el ID mÃ¡s bajo
     // Esto limpia las que se crearon por el error del bucle anterior.
     let _ = conn.execute(
         "DELETE FROM playlists WHERE is_system = 1 AND id NOT IN (SELECT id FROM playlists WHERE is_system = 1 ORDER BY id ASC LIMIT 1)",
         [],
     );
 
-    // 3. CREACIÓN CONDICIONAL: Solo insertamos si NO existe absolutamente ninguna playlist de sistema
+    // 3. CREACIÃ“N CONDICIONAL: Solo insertamos si NO existe absolutamente ninguna playlist de sistema
     let _ = conn.execute(
         "INSERT INTO playlists (name, is_system) SELECT 'Tus Me Gusta', 1 WHERE NOT EXISTS (SELECT 1 FROM playlists WHERE is_system = 1)",
         [],
@@ -529,7 +534,7 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
     let properties = tagged_file.properties();
     let duration_seconds = properties.duration().as_secs();
 
-    // NUEVO: Extracción de carátula a disco duro
+    // NUEVO: ExtracciÃ³n de carÃ¡tula a disco duro
     let mut cover_path = None;
     for tag in &tags {
         if let Some(pic) = tag
@@ -566,7 +571,7 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
     let fallback_name = Path::new(path)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("Sin título")
+        .unwrap_or("Sin tÃ­tulo")
         .to_string();
 
     let title = first_text(&tags, |tag| tag.title().map(|s| s.to_string()))
@@ -576,15 +581,15 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
         .unwrap_or_else(|| "Artista desconocido".to_string());
 
     let album = first_text(&tags, |tag| tag.album().map(|s| s.to_string()))
-        .unwrap_or_else(|| "—".to_string());
+        .unwrap_or_else(|| "â€”".to_string());
 
-    // NUEVO: Extraer Artista del Álbum
+    // NUEVO: Extraer Artista del Ãlbum
     let album_artist = first_text(&tags, |tag| {
         tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string())
     })
     .unwrap_or_else(|| artist.clone()); // Si no existe, usamos el artista de la pista como fallback
 
-    // Lofty limpia automáticamente formatos tipo "22/22" y nos da el "22" en u32
+    // Lofty limpia automÃ¡ticamente formatos tipo "22/22" y nos da el "22" en u32
     let track_number = tags.iter().find_map(|tag| tag.track());
 
     // NUEVO: Intentar extraer el ID de Spotify usando un campo seguro
@@ -604,7 +609,7 @@ fn read_light_metadata(path: &str, covers_dir: &Path) -> Result<LibraryTrackMeta
         duration_formatted: format_duration(duration_seconds),
         cover_path,
         track_number,
-        spotify_id, // <-- SE AGREGA AQUÍ
+        spotify_id, // <-- SE AGREGA AQUÃ
     })
 }
 
@@ -1122,36 +1127,220 @@ fn reconcile_playlists_with_filesystem(conn: &Connection) -> Result<(), String> 
         .map_err(|e| e.to_string())?;
 
     for playlist_id in playlist_ids {
+        let playlist_name: String = conn
+            .query_row(
+                "SELECT name FROM playlists WHERE id = ?1",
+                params![playlist_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "<unknown>".to_string());
         let tracks = load_playlist_track_paths(conn, playlist_id)?;
         if tracks.is_empty() {
+            eprintln!(
+                "[PlaylistDebug][reconcile] Playlist has no tracks, skipping: id={} name={}",
+                playlist_id, playlist_name
+            );
             continue;
         }
+
+        eprintln!(
+            "[PlaylistDebug][reconcile] Checking playlist: id={} name={} tracks={:?}",
+            playlist_id, playlist_name, tracks
+        );
 
         let mut missing_count = 0;
         for track_path in &tracks {
             if !Path::new(track_path).exists() {
-                missing_count += 1;
+                eprintln!(
+                    "[PlaylistDebug][reconcile] Missing track path detected: playlist_id={} name={} path={}",
+                    playlist_id, playlist_name, track_path
+                );
+                let reconciled =
+                    try_reconcile_physical_path_with_conn(conn, playlist_id, track_path)?;
 
-                // Purge broken track record from this playlist
-                conn.execute(
-                    "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_path = ?2",
-                    params![playlist_id, track_path],
-                )
-                .map_err(|e| e.to_string())?;
+                if reconciled.is_none() {
+                    missing_count += 1;
+                    eprintln!(
+                        "[PlaylistDebug][reconcile] Could not reconcile missing track, removing mapping: playlist_id={} name={} path={}",
+                        playlist_id, playlist_name, track_path
+                    );
 
-                // Purge from library cache since file is gone from disk
-                conn.execute(
-                    "DELETE FROM library_cache WHERE path = ?1",
-                    params![track_path],
-                )
-                .map_err(|e| e.to_string())?;
+                    // Purge broken track record from this playlist
+                    conn.execute(
+                        "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_path = ?2",
+                        params![playlist_id, track_path],
+                    )
+                    .map_err(|e| e.to_string())?;
+
+                    // Purge from library cache since file is gone from disk
+                    conn.execute(
+                        "DELETE FROM library_cache WHERE path = ?1",
+                        params![track_path],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
             }
         }
 
         // Auto-Delete Sync Rule: If ALL previously existing tracks are gone from disk, remove playlist
         if missing_count > 0 && missing_count == tracks.len() {
+            eprintln!(
+                "[PlaylistDebug][reconcile] Removing playlist because all tracks are missing: id={} name={}",
+                playlist_id, playlist_name
+            );
             conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])
                 .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn normalize_playlist_name_for_match(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn is_supported_audio_path(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase()),
+        Some(ext) if matches!(ext.as_str(), "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac")
+    )
+}
+
+fn import_missing_physical_playlists(conn: &Connection) -> Result<(), String> {
+    let mut known_names = std::collections::HashSet::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT name FROM playlists") {
+        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+            for row in rows {
+                if let Ok(name) = row {
+                    known_names.insert(normalize_playlist_name_for_match(&name));
+                }
+            }
+        }
+    }
+
+    let mut roots = Vec::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT path FROM music_directories") {
+        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+            for row in rows {
+                if let Ok(path) = row {
+                    roots.push(PathBuf::from(path));
+                }
+            }
+        }
+    }
+
+    for root in roots {
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let folder_path = entry.path();
+            if !folder_path.is_dir() {
+                continue;
+            }
+
+            let Some(folder_name) = folder_path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            if folder_name.starts_with("_SpotiFLAC") {
+                continue;
+            }
+
+            let normalized_name = normalize_playlist_name_for_match(folder_name);
+            if known_names.contains(&normalized_name) {
+                continue;
+            }
+
+            let Ok(child_entries) = fs::read_dir(&folder_path) else {
+                continue;
+            };
+
+            let mut direct_audio_files: Vec<PathBuf> = child_entries
+                .flatten()
+                .map(|child| child.path())
+                .filter(|child_path| child_path.is_file() && is_supported_audio_path(child_path))
+                .collect();
+
+            if direct_audio_files.len() < 2 {
+                continue;
+            }
+
+            direct_audio_files.sort_by(|left, right| {
+                compare_library_paths(
+                    &left.to_string_lossy(),
+                    &right.to_string_lossy(),
+                )
+            });
+
+            let mut artists = std::collections::HashSet::new();
+            let mut albums = std::collections::HashSet::new();
+            let import_covers_dir = std::env::temp_dir().join("app-desk-musica-import-covers");
+            let _ = fs::create_dir_all(&import_covers_dir);
+
+            for audio_file in &direct_audio_files {
+                if let Ok(metadata) = read_light_metadata(
+                    audio_file.to_string_lossy().as_ref(),
+                    &import_covers_dir,
+                ) {
+                    artists.insert(metadata.artist.trim().to_lowercase());
+                    albums.insert(metadata.album.trim().to_lowercase());
+                }
+            }
+
+            // Conservative backfill rule:
+            // only import folders that look like mixed collections rather than
+            // a single album/artist directory.
+            if artists.len() < 2 && albums.len() <= 1 {
+                eprintln!(
+                    "[PlaylistDebug][import] Skipping folder because it does not look like a playlist: root={} folder={} files={} artists={} albums={}",
+                    root.display(),
+                    folder_name,
+                    direct_audio_files.len(),
+                    artists.len(),
+                    albums.len()
+                );
+                continue;
+            }
+
+            conn.execute(
+                r#"
+                INSERT INTO playlists (name, is_system, created_at, updated_at)
+                VALUES (?1, 0, strftime('%s','now'), strftime('%s','now'))
+                "#,
+                params![folder_name],
+            )
+            .map_err(|e| e.to_string())?;
+
+            let playlist_id = conn.last_insert_rowid();
+
+            for (position, audio_file) in direct_audio_files.iter().enumerate() {
+                let track_path = audio_file.to_string_lossy().to_string();
+                conn.execute(
+                    r#"
+                    INSERT INTO playlist_tracks (playlist_id, track_path, position, added_at)
+                    VALUES (?1, ?2, ?3, strftime('%s','now'))
+                    "#,
+                    params![playlist_id, track_path, position as i64],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+
+            known_names.insert(normalized_name);
+            eprintln!(
+                "[PlaylistDebug][import] Imported physical playlist folder: id={} name={} root={} tracks={:?}",
+                playlist_id,
+                folder_name,
+                root.display(),
+                direct_audio_files
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+            );
         }
     }
 
@@ -1167,6 +1356,7 @@ fn get_playlists(
 
     // Perform architectural reconciliation first
     reconcile_playlists_with_filesystem(&conn)?;
+    import_missing_physical_playlists(&conn)?;
 
     let mut stmt = conn
         .prepare(
@@ -1197,8 +1387,16 @@ fn get_playlists(
 
     let mut playlists = Vec::new();
     for row in rows {
-        let (id, name, created_at, updated_at, track_count, spotify_url, spotify_synced_ids, is_system) =
-            row.map_err(|e| e.to_string())?;
+        let (
+            id,
+            name,
+            created_at,
+            updated_at,
+            track_count,
+            spotify_url,
+            spotify_synced_ids,
+            is_system,
+        ) = row.map_err(|e| e.to_string())?;
 
         playlists.push(PlaylistSummary {
             id,
@@ -1212,6 +1410,31 @@ fn get_playlists(
             is_system,
         });
     }
+
+    eprintln!(
+        "[PlaylistDebug][get_playlists] Returning playlists: {:?}",
+        playlists
+            .iter()
+            .map(|playlist| format!(
+                "#{} {} (tracks={}, spotify_url={:?}, has_synced_ids={}, synced_ids_len={}) {:?}",
+                playlist.id,
+                playlist.name,
+                playlist.track_count,
+                playlist.spotify_url,
+                playlist
+                    .spotify_synced_ids
+                    .as_ref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+                playlist
+                    .spotify_synced_ids
+                    .as_ref()
+                    .map(|value| value.len())
+                    .unwrap_or(0),
+                playlist.track_paths
+            ))
+            .collect::<Vec<_>>()
+    );
 
     Ok(playlists)
 }
@@ -1239,6 +1462,10 @@ fn create_playlist(
     .map_err(|e| e.to_string())?;
 
     let id = conn.last_insert_rowid();
+    eprintln!(
+        "[PlaylistDebug][create_playlist] Created playlist: id={} name={}",
+        id, trimmed
+    );
 
     Ok(PlaylistSummary {
         id,
@@ -1269,7 +1496,7 @@ fn set_playlist_spotify_url(
         Some(trimmed)
     };
 
-    println!("[DB][Log] Updating Spotify URL for playlist {}: {:?}", playlist_id, url_to_save);
+    // println!("[DB][Log] Updating Spotify URL for playlist {}: {:?}", playlist_id, url_to_save);
 
     let updated_rows = conn
         .execute(
@@ -1278,13 +1505,26 @@ fn set_playlist_spotify_url(
         )
         .map_err(|e| {
             let err = e.to_string();
-            println!("[DB][Error] Failed to update URL: {}", err);
+            // println!("[DB][Error] Failed to update URL: {}", err);
             err
         })?;
 
     if updated_rows == 0 {
         return Err("La playlist ya no existe.".to_string());
     }
+
+    let persisted_url: Option<String> = conn
+        .query_row(
+            "SELECT spotify_url FROM playlists WHERE id = ?1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[PlaylistDebug][set_playlist_spotify_url] Persisted value: playlist_id={} input={:?} stored={:?}",
+        playlist_id, url_to_save, persisted_url
+    );
 
     Ok(())
 }
@@ -1298,9 +1538,9 @@ fn set_playlist_synced_ids(
     let conn = Connection::open(&cache_state.db_path)
         .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
 
-    println!("[DB][Log] Updating Synced IDs for playlist {}. Length: {} chars", playlist_id, synced_ids_json.len());
+    // println!("[DB][Log] Updating Synced IDs for playlist {}. Length: {} chars", playlist_id, synced_ids_json.len());
 
-    conn.execute(
+    let updated_rows = conn.execute(
         "UPDATE playlists SET spotify_synced_ids = ?1, updated_at = ?2 WHERE id = ?3",
         params![
             synced_ids_json,
@@ -1313,11 +1553,37 @@ fn set_playlist_synced_ids(
     )
     .map_err(|e| {
         let err = e.to_string();
-        println!("[DB][Error] Failed to update Synced IDs: {}", err);
+        // println!("[DB][Error] Failed to update Synced IDs: {}", err);
         err
     })?;
 
-    println!("[DB][Log] Synced IDs updated successfully.");
+    if updated_rows == 0 {
+        return Err("La playlist ya no existe.".to_string());
+    }
+
+    let persisted_synced_ids: Option<String> = conn
+        .query_row(
+            "SELECT spotify_synced_ids FROM playlists WHERE id = ?1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let parsed_count = persisted_synced_ids
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+        .map(|values| values.len())
+        .unwrap_or(0);
+
+    eprintln!(
+        "[PlaylistDebug][set_playlist_synced_ids] Persisted value: playlist_id={} stored_chars={} parsed_count={}",
+        playlist_id,
+        persisted_synced_ids
+            .as_ref()
+            .map(|value| value.len())
+            .unwrap_or(0),
+        parsed_count
+    );
 
     Ok(())
 }
@@ -1370,16 +1636,31 @@ fn add_track_to_playlist(
         return Ok(());
     }
 
-    let target_position: i64 = if let Some(pos) = position {
-        pos
-    } else {
-        tx.query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+    let max_position: i64 = tx
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlist_id = ?1",
             params![playlist_id],
             |row| row.get(0),
         )
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    let target_position: i64 = if let Some(pos) = position {
+        pos.clamp(0, max_position + 1)
+    } else {
+        max_position + 1
     };
+
+    if position.is_some() {
+        tx.execute(
+            r#"
+            UPDATE playlist_tracks
+            SET position = position + 1
+            WHERE playlist_id = ?1 AND position >= ?2
+            "#,
+            params![playlist_id, target_position],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     tx.execute(
         r#"
@@ -1389,6 +1670,77 @@ fn add_track_to_playlist(
         params![playlist_id, track_path, target_position],
     )
     .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+        params![playlist_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn reorder_playlist_tracks(
+    playlist_id: i64,
+    ordered_track_paths: Vec<String>,
+    cache_state: State<'_, LibraryCacheState>,
+) -> Result<(), String> {
+    let mut conn = Connection::open(&cache_state.db_path)
+        .map_err(|e| format!("No se pudo abrir SQLite: {}", e))?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let mut stmt = tx
+        .prepare(
+            r#"
+            SELECT track_path
+            FROM playlist_tracks
+            WHERE playlist_id = ?1
+            ORDER BY position ASC, added_at ASC, id ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let existing_rows = stmt
+        .query_map(params![playlist_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut existing_paths = Vec::new();
+    for row in existing_rows {
+        existing_paths.push(row.map_err(|e| e.to_string())?);
+    }
+    drop(stmt);
+
+    let existing_set: std::collections::HashSet<&str> =
+        existing_paths.iter().map(|path| path.as_str()).collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut final_paths = Vec::new();
+
+    for path in ordered_track_paths {
+        if existing_set.contains(path.as_str()) && seen.insert(path.clone()) {
+            final_paths.push(path);
+        }
+    }
+
+    for path in existing_paths {
+        if seen.insert(path.clone()) {
+            final_paths.push(path);
+        }
+    }
+
+    for (position, path) in final_paths.iter().enumerate() {
+        tx.execute(
+            r#"
+            UPDATE playlist_tracks
+            SET position = ?3
+            WHERE playlist_id = ?1 AND track_path = ?2
+            "#,
+            params![playlist_id, path, position as i64],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     tx.execute(
         "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
@@ -1468,15 +1820,17 @@ fn remove_track_from_playlist(
     if delete_files {
         // Physical deletion logic (Same as in delete_playlist)
         // Check "Shared Count" across other playlists (path-specific)
-        let other_refs: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM playlist_tracks WHERE track_path = ?1 AND playlist_id != ?2",
-            params![track_path, playlist_id],
-            |row| row.get(0)
-        ).unwrap_or(0);
+        let other_refs: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_path = ?1 AND playlist_id != ?2",
+                params![track_path, playlist_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         if other_refs == 0 {
             let path = std::path::Path::new(&track_path);
-            
+
             // Delete physical audio file
             if path.exists() {
                 let _ = std::fs::remove_file(path);
@@ -1538,34 +1892,48 @@ fn try_reconcile_physical_path(
     current_path: String,
     cache_state: State<'_, LibraryCacheState>,
 ) -> Result<Option<String>, String> {
-    let conn = Connection::open(&cache_state.db_path)
+    let conn = Connection::open(&cache_state.db_path).map_err(|e| e.to_string())?;
+
+    try_reconcile_physical_path_with_conn(&conn, playlist_id, &current_path)
+}
+
+fn try_reconcile_physical_path_with_conn(
+    conn: &Connection,
+    playlist_id: i64,
+    current_path: &str,
+) -> Result<Option<String>, String> {
+    let current_path_owned = current_path.to_string();
+
+    let playlist_name: String = conn
+        .query_row(
+            "SELECT name FROM playlists WHERE id = ?1",
+            params![playlist_id],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
-    let playlist_name: String = conn.query_row(
-        "SELECT name FROM playlists WHERE id = ?1",
-        params![playlist_id],
-        |row| row.get(0)
-    ).map_err(|e| e.to_string())?;
-
-    let path = Path::new(&current_path);
+    let path = Path::new(current_path);
     let file_name = match path.file_name() {
         Some(n) => n,
         None => return Ok(None),
     };
 
-    println!("[Reconcile] Start checking track: {} for playlist: {}", current_path, playlist_name);
+    eprintln!(
+        "[PlaylistDebug][try_reconcile] Start: playlist_id={} name={} current_path={}",
+        playlist_id, playlist_name, current_path
+    );
 
     // Lista de directorios base para buscar la carpeta de la playlist
     let mut search_roots = Vec::new();
 
-    // 1. El abuelo de la ubicación actual (si tiene)
+    // 1. El abuelo de la ubicaciÃ³n actual (si tiene)
     if let Some(parent) = path.parent() {
         if let Some(grandparent) = parent.parent() {
             search_roots.push(grandparent.to_path_buf());
         }
     }
 
-    // 2. El directorio de música por defecto del sistema
+    // 2. El directorio de mÃºsica por defecto del sistema
     search_roots.push(PathBuf::from(default_music_directory()));
 
     // 3. Todos los directorios configurados por el usuario
@@ -1585,35 +1953,56 @@ fn try_reconcile_physical_path(
 
     for root in search_roots {
         let candidate = root.join(&playlist_name).join(file_name);
-        println!("[Reconcile] Testing candidate: {:?}", candidate);
+        eprintln!(
+            "[PlaylistDebug][try_reconcile] Testing candidate: playlist_id={} name={} candidate={}",
+            playlist_id,
+            playlist_name,
+            candidate.display()
+        );
 
         if candidate.exists() {
             let new_path = candidate.to_string_lossy().to_string();
-            
-            // Comparación de rutas de forma normalizada (ignorando separadores y minúsculas)
+
+            // ComparaciÃ³n de rutas de forma normalizada (ignorando separadores y minÃºsculas)
             let norm_current = current_path.replace("\\", "/").to_lowercase();
             let norm_new = new_path.replace("\\", "/").to_lowercase();
 
             if norm_current != norm_new {
-                update_playlist_track_path(&conn, playlist_id, &current_path, &new_path)?;
+                update_playlist_track_path(conn, playlist_id, &current_path_owned, &new_path)?;
+                eprintln!(
+                    "[PlaylistDebug][try_reconcile] Reconciled path: playlist_id={} name={} old={} new={}",
+                    playlist_id, playlist_name, current_path, new_path
+                );
                 return Ok(Some(new_path));
             } else {
-                println!("[Reconcile] Track is already physical (path matches).");
+                eprintln!(
+                    "[PlaylistDebug][try_reconcile] Candidate already matches current path: playlist_id={} name={} path={}",
+                    playlist_id, playlist_name, new_path
+                );
                 return Ok(Some(new_path));
             }
         }
     }
 
-    println!("[Reconcile] No physical alternative found for {}", current_path);
+    eprintln!(
+        "[PlaylistDebug][try_reconcile] No physical alternative found: playlist_id={} name={} current_path={}",
+        playlist_id, playlist_name, current_path
+    );
     Ok(None)
 }
 
-fn update_playlist_track_path(conn: &Connection, playlist_id: i64, old_path: &str, new_path: &str) -> Result<(), String> {
+fn update_playlist_track_path(
+    conn: &Connection,
+    playlist_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> Result<(), String> {
     conn.execute(
         "UPDATE playlist_tracks SET track_path = ?1 WHERE playlist_id = ?2 AND track_path = ?3",
-        params![new_path, playlist_id, old_path]
-    ).map_err(|e| e.to_string())?;
-    println!("[Reconcile] DB Updated succesfully: {} -> {}", old_path, new_path);
+        params![new_path, playlist_id, old_path],
+    )
+    .map_err(|e| e.to_string())?;
+    // println!("[Reconcile] DB Updated succesfully: {} -> {}", old_path, new_path);
     Ok(())
 }
 
@@ -1693,20 +2082,20 @@ fn delete_playlist(
 
 #[tauri::command]
 fn get_output_device_info() -> Result<OutputDeviceInfo, String> {
-    // Necesitamos importar los traits de cpal aquí para poder usar sus métodos
+    // Necesitamos importar los traits de cpal aquÃ­ para poder usar sus mÃ©todos
     use cpal::traits::{DeviceTrait, HostTrait};
 
     let host = cpal::default_host();
 
-    // Obtenemos el dispositivo de salida que el OS está usando ahora mismo
+    // Obtenemos el dispositivo de salida que el OS estÃ¡ usando ahora mismo
     let device = host
         .default_output_device()
-        .ok_or_else(|| "No se encontró dispositivo de salida de audio".to_string())?;
+        .ok_or_else(|| "No se encontrÃ³ dispositivo de salida de audio".to_string())?;
 
-    // Obtenemos la configuración de hardware actual de ese dispositivo
+    // Obtenemos la configuraciÃ³n de hardware actual de ese dispositivo
     let config = device
         .default_output_config()
-        .map_err(|e| format!("Error al obtener configuración de hardware: {}", e))?;
+        .map_err(|e| format!("Error al obtener configuraciÃ³n de hardware: {}", e))?;
 
     let name = device
         .name()
@@ -1864,7 +2253,7 @@ fn spotiflac_file_exists(path: String) -> bool {
 #[allow(dead_code)]
 fn spotiflac_get_file_size_mb(path: String) -> Result<f64, String> {
     let metadata = fs::metadata(&path)
-        .map_err(|error| format!("No se pudo leer el tamaño de {}: {}", path, error))?;
+        .map_err(|error| format!("No se pudo leer el tamaÃ±o de {}: {}", path, error))?;
     Ok((metadata.len() as f64) / (1024.0 * 1024.0))
 }
 
@@ -1917,12 +2306,12 @@ async fn spotiflac_download_track(
     request: serde_json::Value,
     download_state: State<'_, SpotiFlacDownloadState>,
 ) -> Result<serde_json::Value, String> {
-    let queued_at = Instant::now();
+    let _queued_at = Instant::now();
     let _download_guard = download_state.lock.lock().await;
-    eprintln!(
-        "[spotiflac][download-gate] acquired wait_ms={}",
-        queued_at.elapsed().as_millis()
-    );
+    // eprintln!(
+    // "[spotiflac][download-gate] acquired wait_ms={}",
+    // queued_at.elapsed().as_millis()
+    // );
     tauri::async_runtime::spawn_blocking(move || run_spotiflac_bridge("download-track", request))
         .await
         .map_err(|error| format!("Fallo ejecutando descarga de SpotiFLAC: {}", error))?
@@ -1933,36 +2322,36 @@ fn debug_spotiflac_written_tags(file_path: &str) {
     match read_from_path(file_path) {
         Ok(tagged_file) => {
             let Some(tag) = tagged_file.primary_tag() else {
-                eprintln!("[spotiflac][tags] file={} primary_tag=missing", file_path);
+                // eprintln!("[spotiflac][tags] file={} primary_tag=missing", file_path);
                 return;
             };
 
-            let year = tag
+            let _year = tag
                 .get_string(ItemKey::Year)
                 .or_else(|| tag.get_string(ItemKey::ReleaseDate))
                 .map(|value| value.to_string());
-            let title = tag.title().map(|value| value.to_string());
-            let artist = tag.artist().map(|value| value.to_string());
-            let album = tag.album().map(|value| value.to_string());
-            let genre = tag.genre().map(|value| value.to_string());
-            let item_keys: Vec<String> = tag
+            let _title = tag.title().map(|value| value.to_string());
+            let _artist = tag.artist().map(|value| value.to_string());
+            let _album = tag.album().map(|value| value.to_string());
+            let _genre = tag.genre().map(|value| value.to_string());
+            let _item_keys: Vec<String> = tag
                 .items()
                 .map(|item| format!("{:?}={:?}", item.key(), item.value()))
                 .collect();
 
-            eprintln!(
-                "[spotiflac][tags] file={} title={:?} artist={:?} album={:?} year={:?} genre={:?} items={}",
-                file_path,
-                title,
-                artist,
-                album,
-                year,
-                genre,
-                item_keys.join(" | ")
-            );
+            // eprintln!(
+            // "[spotiflac][tags] file={} title={:?} artist={:?} album={:?} year={:?} genre={:?} items={}",
+            // file_path,
+            // title,
+            // artist,
+            // album,
+            // year,
+            // genre,
+            // item_keys.join(" | ")
+            // );
         }
-        Err(error) => {
-            eprintln!("[spotiflac][tags] file={} read_error={}", file_path, error);
+        Err(_error) => {
+            // eprintln!("[spotiflac][tags] file={} read_error={}", file_path, error);
         }
     }
 }
@@ -2069,11 +2458,11 @@ fn fetch_spotiflac_deezer_genres(isrc: &str) -> Result<Vec<String>, String> {
         .unwrap_or_default();
 
     if !genres.is_empty() {
-        eprintln!(
-            "[spotiflac][genre] source=deezer isrc={} genres={}",
-            clean_isrc,
-            genres.join(" | ")
-        );
+        // eprintln!(
+        // "[spotiflac][genre] source=deezer isrc={} genres={}",
+        // clean_isrc,
+        // genres.join(" | ")
+        // );
     }
 
     Ok(genres)
@@ -2177,11 +2566,11 @@ fn fetch_spotiflac_fallback_genres(
     for candidate in split_spotiflac_artist_candidates(primary_artist_name) {
         let genres = fetch_spotiflac_artist_genres(&candidate)?;
         if !genres.is_empty() {
-            eprintln!(
-                "[spotiflac][genre] artist={} genres={}",
-                candidate,
-                genres.join(" | ")
-            );
+            // eprintln!(
+            // "[spotiflac][genre] artist={} genres={}",
+            // candidate,
+            // genres.join(" | ")
+            // );
             return Ok(genres);
         }
     }
@@ -2322,10 +2711,10 @@ fn run_spotiflac_bridge(
     command_name: &str,
     request: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let trace_id = SPOTIFLAC_BRIDGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
-    let started_at = Instant::now();
+    let _trace_id = SPOTIFLAC_BRIDGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+    let _started_at = Instant::now();
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    println!("[BACKEND] Using workspace root: {:?}", workspace_root);
+    // println!("[BACKEND] Using workspace root: {:?}", workspace_root);
     let workspace_root = workspace_root
         .parent()
         .ok_or_else(|| "No se pudo resolver el workspace root".to_string())?
@@ -2345,43 +2734,43 @@ fn run_spotiflac_bridge(
 
     let request_json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
     let is_download_track = command_name == "download-track";
-    let inflight_downloads = if is_download_track {
+    let _inflight_downloads = if is_download_track {
         SPOTIFLAC_DOWNLOADS_IN_FLIGHT.fetch_add(1, Ordering::SeqCst) + 1
     } else {
         SPOTIFLAC_DOWNLOADS_IN_FLIGHT.load(Ordering::SeqCst)
     };
 
-    eprintln!(
-        "[spotiflac][bridge:start] trace_id={} command={} inflight_downloads={} request_bytes={}",
-        trace_id,
-        command_name,
-        inflight_downloads,
-        request_json.len()
-    );
+    // eprintln!(
+    // "[spotiflac][bridge:start] trace_id={} command={} inflight_downloads={} request_bytes={}",
+    // trace_id,
+    // command_name,
+    // inflight_downloads,
+    // request_json.len()
+    // );
 
     if is_download_track {
         let genres_value = request.get("genres");
-        let genres_kind = match genres_value {
+        let _genres_kind = match genres_value {
             Some(serde_json::Value::Array(_)) => "array",
             Some(serde_json::Value::String(_)) => "string",
             Some(serde_json::Value::Null) => "null",
             Some(_) => "other",
             None => "missing",
         };
-        eprintln!(
-            "[spotiflac][request] service={:?} spotify_id={:?} track={:?} release_date={:?} publisher={:?} embed_genre={:?} use_single_genre={:?} genres_kind={} genres={}",
-            request.get("service"),
-            request.get("spotify_id"),
-            request.get("track_name"),
-            request.get("release_date"),
-            request.get("publisher"),
-            request.get("embed_genre"),
-            request.get("use_single_genre"),
-            genres_kind,
-            genres_value
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "null".to_string())
-        );
+        // eprintln!(
+        // "[spotiflac][request] service={:?} spotify_id={:?} track={:?} release_date={:?} publisher={:?} embed_genre={:?} use_single_genre={:?} genres_kind={} genres={}",
+        // request.get("service"),
+        // request.get("spotify_id"),
+        // request.get("track_name"),
+        // request.get("release_date"),
+        // request.get("publisher"),
+        // request.get("embed_genre"),
+        // request.get("use_single_genre"),
+        // genres_kind,
+        // genres_value
+        // .map(|value| value.to_string())
+        // .unwrap_or_else(|| "null".to_string())
+        // );
     }
 
     let mut child = Command::new(&bridge_path)
@@ -2401,12 +2790,12 @@ fn run_spotiflac_bridge(
         .spawn()
         .map_err(|e| format!("No se pudo ejecutar el bridge: {}", e))?;
 
-    eprintln!(
-        "[spotiflac][bridge:spawned] trace_id={} command={} pid={}",
-        trace_id,
-        command_name,
-        child.id()
-    );
+    // eprintln!(
+    // "[spotiflac][bridge:spawned] trace_id={} command={} pid={}",
+    // trace_id,
+    // command_name,
+    // child.id()
+    // );
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin
@@ -2436,34 +2825,34 @@ fn run_spotiflac_bridge(
         )
     })?;
 
-    eprintln!(
-        "[spotiflac][bridge:end] trace_id={} command={} success={} duration_ms={} stderr={}",
-        trace_id,
-        command_name,
-        output.status.success(),
-        started_at.elapsed().as_millis(),
-        if stderr.is_empty() {
-            "<empty>"
-        } else {
-            &stderr
-        }
-    );
+    // eprintln!(
+    // "[spotiflac][bridge:end] trace_id={} command={} success={} duration_ms={} stderr={}",
+    // trace_id,
+    // command_name,
+    // output.status.success(),
+    // started_at.elapsed().as_millis(),
+    // if stderr.is_empty() {
+    // "<empty>"
+    // } else {
+    // &stderr
+    // }
+    // );
 
     if is_download_track {
-        eprintln!(
-            "[spotiflac][response] success={} stderr={} body={}",
-            output.status.success(),
-            if stderr.is_empty() {
-                "<empty>"
-            } else {
-                &stderr
-            },
-            parsed
-        );
+        // eprintln!(
+        // "[spotiflac][response] success={} stderr={} body={}",
+        // output.status.success(),
+        // if stderr.is_empty() {
+        // "<empty>"
+        // } else {
+        // &stderr
+        // },
+        // parsed
+        // );
 
         if output.status.success() {
             if let Some(file_path) = parsed.get("file").and_then(|value| value.as_str()) {
-                if let Err(error) = normalize_spotiflac_written_tags(
+                if let Err(_error) = normalize_spotiflac_written_tags(
                     file_path,
                     request.get("release_date").and_then(|value| value.as_str()),
                     request.get("spotify_id").and_then(|value| value.as_str()),
@@ -2476,7 +2865,7 @@ fn run_spotiflac_bridge(
                         .and_then(|value| value.as_bool())
                         .unwrap_or(false),
                 ) {
-                    eprintln!("[spotiflac][normalize] file={} error={}", file_path, error);
+                    // eprintln!("[spotiflac][normalize] file={} error={}", file_path, error);
                 }
                 debug_spotiflac_written_tags(file_path);
             }
@@ -2484,13 +2873,13 @@ fn run_spotiflac_bridge(
     }
 
     if is_download_track {
-        let remaining = SPOTIFLAC_DOWNLOADS_IN_FLIGHT
+        let _remaining = SPOTIFLAC_DOWNLOADS_IN_FLIGHT
             .fetch_sub(1, Ordering::SeqCst)
             .saturating_sub(1);
-        eprintln!(
-            "[spotiflac][bridge:settled] trace_id={} inflight_downloads={}",
-            trace_id, remaining
-        );
+        // eprintln!(
+        // "[spotiflac][bridge:settled] trace_id={} inflight_downloads={}",
+        // trace_id, remaining
+        // );
     }
 
     if output.status.success() {
@@ -2649,19 +3038,19 @@ fn get_library_metadata_batch(
                 let fallback_name = Path::new(path)
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("Sin título")
+                    .unwrap_or("Sin tÃ­tulo")
                     .to_string();
 
                 result.push(LibraryTrackMetadataLite {
                     path: path.clone(),
                     title: fallback_name,
                     artist: "Artista desconocido".to_string(),
-                    album: "—".to_string(),
+                    album: "â€”".to_string(),
                     album_artist: "Artista desconocido".to_string(),
                     duration_seconds: 0,
-                    duration_formatted: "—".to_string(),
+                    duration_formatted: "â€”".to_string(),
                     cover_path: None,
-                    track_number: None, // <-- CORRECCIÓN AQUÍ
+                    track_number: None, // <-- CORRECCIÃ“N AQUÃ
                     spotify_id: None,
                 });
                 continue;
@@ -2678,7 +3067,7 @@ fn get_library_metadata_batch(
         let file_name = Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("Sin título")
+            .unwrap_or("Sin tÃ­tulo")
             .to_string();
 
         // Pasamos covers_dir a read_light_metadata
@@ -2692,12 +3081,12 @@ fn get_library_metadata_batch(
                     path: path.clone(),
                     title: file_name.clone(),
                     artist: "Artista desconocido".to_string(),
-                    album: "—".to_string(),
+                    album: "â€”".to_string(),
                     album_artist: "Artista desconocido".to_string(),
                     duration_seconds: 0,
-                    duration_formatted: "—".to_string(),
+                    duration_formatted: "â€”".to_string(),
                     cover_path: None,
-                    track_number: None, // <-- CORRECCIÓN AQUÍ
+                    track_number: None, // <-- CORRECCIÃ“N AQUÃ
                     spotify_id: None,
                 };
 
@@ -2907,7 +3296,7 @@ fn leer_metadata(
 }
 
 // ==========================================
-// 4. NUEVOS COMANDOS DE TAURI (Súper rápidos)
+// 4. NUEVOS COMANDOS DE TAURI (SÃºper rÃ¡pidos)
 // ==========================================
 
 #[tauri::command]
@@ -2915,7 +3304,7 @@ fn play_audio_file(path: String, state: State<'_, AudioPlayerState>) -> Result<(
     state
         .tx
         .send(AudioCommand::Play(path, 0.0))
-        .map_err(|_| "Error de comunicación con el hilo de audio".into())
+        .map_err(|_| "Error de comunicaciÃ³n con el hilo de audio".into())
 }
 
 #[tauri::command]
@@ -2927,7 +3316,7 @@ fn play_audio_file_at(
     state
         .tx
         .send(AudioCommand::Play(path, position))
-        .map_err(|_| "Error de comunicación".into())
+        .map_err(|_| "Error de comunicaciÃ³n".into())
 }
 
 #[tauri::command]
@@ -3104,6 +3493,10 @@ fn scan_directories(directories: Vec<String>) -> Vec<PlaylistTrack> {
 }
 
 fn is_library_relevant_path(path: &Path) -> bool {
+    if path.is_dir() {
+        return true;
+    }
+
     let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
         return false;
     };
@@ -3145,7 +3538,7 @@ fn watch_directories(
         }
     });
 
-    // 1. Creamos un nuevo watcher que reaccionará a cambios en el sistema operativo
+    // 1. Creamos un nuevo watcher que reaccionarÃ¡ a cambios en el sistema operativo
     let mut watcher =
         notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
             Ok(event) => {
@@ -3156,14 +3549,18 @@ fn watch_directories(
                         .any(|path| is_library_relevant_path(path));
 
                 if should_refresh {
+                    eprintln!(
+                        "[LibraryDebug][watcher] Refresh triggered: kind={:?} paths={:?}",
+                        event.kind, event.paths
+                    );
                     let _ = refresh_tx.send(());
                 }
             }
-            Err(e) => eprintln!("Error en el watcher: {:?}", e),
+            Err(_) => {}
         })
         .map_err(|e| e.to_string())?;
 
-    // 2. Le decimos al watcher qué carpetas vigilar
+    // 2. Le decimos al watcher quÃ© carpetas vigilar
     for dir in directories {
         let path = std::path::Path::new(&dir);
         if path.exists() {
@@ -3178,7 +3575,7 @@ fn watch_directories(
 }
 
 // ==========================================
-// NUEVO: FUNCIÓN PARA RECREAR EL DISPOSITIVO DE AUDIO
+// NUEVO: FUNCIÃ“N PARA RECREAR EL DISPOSITIVO DE AUDIO
 // ==========================================
 fn create_cpal_stream() -> Option<(Sender<f32>, cpal::Stream, String, u32)> {
     let host = cpal::default_host();
@@ -3186,13 +3583,13 @@ fn create_cpal_stream() -> Option<(Sender<f32>, cpal::Stream, String, u32)> {
 
     let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
 
-    // Usamos EXACTAMENTE la configuración que pide el hardware por defecto.
+    // Usamos EXACTAMENTE la configuraciÃ³n que pide el hardware por defecto.
     // Modificar esto causa que el Bluetooth rechace el stream y genere el bucle infinito.
     let config = device.default_output_config().ok()?;
     let hardware_sample_rate = config.sample_rate().0;
 
     let (sample_tx, sample_rx) = bounded::<f32>(8192);
-    let err_fn = |err| eprintln!("Error en CPAL: {}", err);
+    let err_fn = |_err| {};
 
     let stream = match config.sample_format() {
         SampleFormat::F32 => device
@@ -3237,7 +3634,7 @@ fn create_cpal_stream() -> Option<(Sender<f32>, cpal::Stream, String, u32)> {
     };
 
     stream.play().ok()?;
-    // Retornamos también el sample_rate nativo del equipo
+    // Retornamos tambiÃ©n el sample_rate nativo del equipo
     Some((sample_tx, stream, device_name, hardware_sample_rate))
 }
 
@@ -3255,7 +3652,7 @@ fn start_audio_thread(
         let mut active_stream: Option<cpal::Stream> = None;
         let mut current_device_name = String::new();
         let mut current_stream_rate = 0u32;
-        let mut fractional_position = 0.0f32; // Para el resampler matemático
+        let mut fractional_position = 0.0f32; // Para el resampler matemÃ¡tico
 
         let mut format: Option<Box<dyn FormatReader>> = None;
         let mut decoder: Option<Box<dyn symphonia::core::codecs::Decoder>> = None;
@@ -3398,7 +3795,7 @@ fn start_audio_thread(
             }
 
             // ========================================================
-            // LÓGICA DE REPRODUCCIÓN, RESAMPLING Y RECONEXIÓN
+            // LÃ“GICA DE REPRODUCCIÃ“N, RESAMPLING Y RECONEXIÃ“N
             // ========================================================
             if is_playing {
                 if let (Some(fmt), Some(dec)) = (format.as_mut(), decoder.as_mut()) {
@@ -3413,9 +3810,9 @@ fn start_audio_thread(
                                     let spec = *decoded.spec();
                                     let needed_frames = decoded.capacity() as u64;
                                     let needed_channels = spec.channels.count();
-                                    let needed_rate = spec.rate; // Hz de la canción
+                                    let needed_rate = spec.rate; // Hz de la canciÃ³n
 
-                                    // 1. INICIAR STREAM O RECUPERARLO SI SE PERDIÓ
+                                    // 1. INICIAR STREAM O RECUPERARLO SI SE PERDIÃ“
                                     if active_stream.is_none() {
                                         sample_tx = None; // Soltamos el canal viejo
                                         if let Some((new_tx, new_stream, dev_name, dev_rate)) =
@@ -3445,7 +3842,7 @@ fn start_audio_thread(
                                                 if name != current_device_name
                                                     && !current_device_name.is_empty()
                                                 {
-                                                    // El usuario conectó/desconectó algo. Matamos el stream viejo.
+                                                    // El usuario conectÃ³/desconectÃ³ algo. Matamos el stream viejo.
                                                     active_stream = None;
                                                     let _ =
                                                         app_handle.emit("audio-device-changed", ());
@@ -3486,7 +3883,7 @@ fn start_audio_thread(
                                                     }
                                                 }
                                             } else {
-                                                // Distintos Hz, aplicamos Interpolación Lineal
+                                                // Distintos Hz, aplicamos InterpolaciÃ³n Lineal
                                                 let samples = buf.samples();
                                                 let frames = samples.len() / needed_channels;
                                                 let mut i = fractional_position;
@@ -3523,14 +3920,14 @@ fn start_audio_thread(
                                             device_lost = true;
                                         }
 
-                                        // 4. MANEJO DE CAÍDA DEL DISPOSITIVO
+                                        // 4. MANEJO DE CAÃDA DEL DISPOSITIVO
                                         if device_lost {
                                             // Pausamos medio segundo para darle tiempo al OS a reasignar el audio
                                             std::thread::sleep(std::time::Duration::from_millis(
                                                 500,
                                             ));
 
-                                            // Destruimos la conexión muerta
+                                            // Destruimos la conexiÃ³n muerta
                                             active_stream = None;
                                             sample_tx = None;
 
@@ -3566,13 +3963,13 @@ fn start_audio_thread(
 }
 
 // ==========================================
-// 6. INICIALIZACIÓN DE TAURI
+// 6. INICIALIZACIÃ“N DE TAURI
 // ==========================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let tauri_start = Instant::now();
-    println!("[Tauri][init:start] {:.1?}", tauri_start.elapsed());
+    let _tauri_start = Instant::now();
+    // println!("[Tauri][init:start] {:.1?}", tauri_start.elapsed());
 
     let (tx, rx) = unbounded::<AudioCommand>();
     let position_state = Arc::new(Mutex::new(0.0));
@@ -3580,11 +3977,11 @@ pub fn run() {
     let player_state = AudioPlayerState {
         tx,
         // Clonamos la referencia de Arc para el estado de Tauri,
-        // así nos queda el original para el hilo de audio
+        // asÃ­ nos queda el original para el hilo de audio
         current_position_secs: Arc::clone(&position_state),
     };
 
-    println!("[Tauri] Initializing application...");
+    // println!("[Tauri] Initializing application...");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -3594,29 +3991,31 @@ pub fn run() {
             watcher: std::sync::Mutex::new(None),
         })
         .setup(move |app| {
-            // <-- IMPORTANTE: Añadir 'move' aquí
+            // <-- IMPORTANTE: AÃ±adir 'move' aquÃ­
             if let Some(main_window) = app.get_webview_window("main") {
                 let background = Color(15, 17, 21, 255);
                 let _ = main_window.set_background_color(Some(background));
             }
 
-            println!("[Tauri][db:init:start] {:.1?}", tauri_start.elapsed());
+            // println!("[Tauri][db:init:start] {:.1?}", tauri_start.elapsed());
             let db_path = init_library_cache_db(app.handle())?;
-            println!("[Tauri][db:init:end] {:.1?}", tauri_start.elapsed());
+            // println!("[Tauri][db:init:end] {:.1?}", tauri_start.elapsed());
             app.manage(LibraryCacheState { db_path });
 
             // ==========================================
-            // NUEVO: Iniciamos el hilo de audio AQUÍ
+            // NUEVO: Iniciamos el hilo de audio AQUÃ
             // ==========================================
             let app_handle = app.handle().clone();
             start_audio_thread(rx, position_state, app_handle);
             // ==========================================
 
-            // === INICIALIZACIÓN MOTOR SPOTIFLAC NATUVO ===
-            let db_path = app.path().app_data_dir()
+            // === INICIALIZACIÃ“N MOTOR SPOTIFLAC NATUVO ===
+            let db_path = app
+                .path()
+                .app_data_dir()
                 .map(|p| p.join("spotiflac.db"))
                 .ok();
-            
+
             let engine = SpotiFLACEngine::new(db_path);
             let progress_handler = Box::new(TauriProgressHandler::new(app.handle().clone()));
             engine.progress.set_handler(progress_handler);
@@ -3709,13 +4108,13 @@ pub fn run() {
             spotiflac::commands::get_platform,
             spotiflac::commands::get_app_version,
             // =================================
-
             get_music_directories,
             save_music_directories,
             set_music_directories,
             get_playlists,
             create_playlist,
             add_track_to_playlist,
+            reorder_playlist_tracks,
             remove_track_from_playlist,
             rename_playlist,
             try_reconcile_physical_path,
@@ -3732,5 +4131,5 @@ pub fn run() {
             invalidate_library_cache,
         ])
         .run(tauri::generate_context!())
-        .expect("Error al iniciar la aplicación Tauri");
+        .expect("Error al iniciar la aplicaciÃ³n Tauri");
 }

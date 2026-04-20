@@ -1,4 +1,4 @@
-import {
+﻿import {
   computed,
   onBeforeUnmount,
   onMounted,
@@ -109,7 +109,8 @@ export function useAppLogic() {
     updatedAt: number;
     trackPaths: string[];
     spotifyUrl?: string | null;
-    spotifySyncedIds?: string | null; // <-- NUEVO
+    spotifySyncedIds?: string | null;
+    lastSnapshotId?: string | null;
     isSystem: number; // 1 para playlist protegida (ej: Tus Me Gusta)
   };
 
@@ -358,6 +359,141 @@ export function useAppLogic() {
   const asBoolean = (value: unknown): boolean | null =>
     typeof value === "boolean" ? value : null;
 
+  const PLAYLIST_SPOTIFY_URL_MEMORY_KEY =
+    "app-desk-musica-spotiflac-playlist-url-memory";
+
+  type PlaylistSpotifyUrlMemory = Record<string, string>;
+
+  const normalizePlaylistMemoryName = (value: string | null | undefined) =>
+    (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['â€™`Â´]/g, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+      .toLowerCase();
+
+  let playlistSpotifyUrlMemoryCache: PlaylistSpotifyUrlMemory | null = null;
+
+  const loadPlaylistSpotifyUrlMemory = (): PlaylistSpotifyUrlMemory => {
+    if (playlistSpotifyUrlMemoryCache) {
+      return playlistSpotifyUrlMemoryCache;
+    }
+
+    if (typeof window === "undefined") {
+      playlistSpotifyUrlMemoryCache = {};
+      return playlistSpotifyUrlMemoryCache;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(PLAYLIST_SPOTIFY_URL_MEMORY_KEY);
+      if (!raw) {
+        playlistSpotifyUrlMemoryCache = {};
+        return playlistSpotifyUrlMemoryCache;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        playlistSpotifyUrlMemoryCache = {};
+        return playlistSpotifyUrlMemoryCache;
+      }
+
+      const sanitizedEntries = Object.entries(parsed).reduce<
+        Array<[string, string]>
+      >((entries, [key, value]) => {
+        if (
+          typeof key === "string" &&
+          key.trim().length > 0 &&
+          typeof value === "string" &&
+          value.trim().length > 0
+        ) {
+          entries.push([key, value]);
+        }
+        return entries;
+      }, []);
+
+      const sanitizedMemory = Object.fromEntries(
+        sanitizedEntries,
+      ) as PlaylistSpotifyUrlMemory;
+      playlistSpotifyUrlMemoryCache = sanitizedMemory;
+      return sanitizedMemory;
+    } catch (error) {
+      console.warn(
+        "[PlaylistDebug][urlMemory] Could not load persisted playlist URLs",
+        { error },
+      );
+      playlistSpotifyUrlMemoryCache = {};
+      return playlistSpotifyUrlMemoryCache;
+    }
+  };
+
+  const persistPlaylistSpotifyUrlMemory = (
+    memory: PlaylistSpotifyUrlMemory,
+  ) => {
+    playlistSpotifyUrlMemoryCache = memory;
+
+    if (typeof window === "undefined") return;
+
+    try {
+      window.localStorage.setItem(
+        PLAYLIST_SPOTIFY_URL_MEMORY_KEY,
+        JSON.stringify(memory),
+      );
+    } catch (error) {
+      console.warn(
+        "[PlaylistDebug][urlMemory] Could not persist playlist URLs",
+        { error, entryCount: Object.keys(memory).length },
+      );
+    }
+  };
+
+  const rememberPlaylistSpotifyUrl = (
+    playlistName: string | null | undefined,
+    spotifyUrl: string | null | undefined,
+    source: string,
+  ) => {
+    const normalizedName = normalizePlaylistMemoryName(playlistName);
+    const normalizedUrl = asString(spotifyUrl);
+
+    if (!normalizedName || !normalizedUrl) {
+      console.log("[PlaylistDebug][urlMemory] Skipped remember request", {
+        playlistName,
+        spotifyUrl,
+        source,
+      });
+      return;
+    }
+
+    const currentMemory = { ...loadPlaylistSpotifyUrlMemory() };
+    currentMemory[normalizedName] = normalizedUrl;
+    persistPlaylistSpotifyUrlMemory(currentMemory);
+
+    console.log("[PlaylistDebug][urlMemory] Remembered playlist URL", {
+      playlistName,
+      normalizedName,
+      spotifyUrl: normalizedUrl,
+      source,
+    });
+  };
+
+  const findRememberedPlaylistSpotifyUrl = (
+    playlistName: string | null | undefined,
+  ) => {
+    const normalizedName = normalizePlaylistMemoryName(playlistName);
+    if (!normalizedName) return null;
+
+    const spotifyUrl = loadPlaylistSpotifyUrlMemory()[normalizedName] ?? null;
+
+    console.log("[PlaylistDebug][urlMemory] Lookup playlist URL", {
+      playlistName,
+      normalizedName,
+      found: Boolean(spotifyUrl),
+      spotifyUrl,
+    });
+
+    return spotifyUrl;
+  };
+
   const asNumber = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
@@ -371,7 +507,9 @@ export function useAppLogic() {
 
   const joinPathSegments = (...segments: Array<string | null | undefined>) =>
     segments
-      .filter((segment): segment is string => !!segment && segment.trim().length > 0)
+      .filter(
+        (segment): segment is string => !!segment && segment.trim().length > 0,
+      )
       .map((segment, index) =>
         index === 0
           ? segment.replace(/[\\/]+$/g, "")
@@ -405,7 +543,10 @@ export function useAppLogic() {
     return "Lossless";
   };
 
-  const buildAutoOrder = (preferredDownloader: string, rawSettings: Record<string, unknown>) => {
+  const buildAutoOrder = (
+    preferredDownloader: string,
+    rawSettings: Record<string, unknown>,
+  ) => {
     const configured = asStringArray(rawSettings.auto_order);
     if (configured.length > 0) {
       return configured;
@@ -424,10 +565,10 @@ export function useAppLogic() {
       invoke<unknown>("load_settings").catch(() => null),
     ]);
 
-    console.log("[DEBUG][Sync] loadNativeSpotiFlacSettings resolved", {
-      hostInfo,
-      rawSettings,
-    });
+    // console.log("[DEBUG][Sync] loadNativeSpotiFlacSettings resolved", {
+    //   hostInfo,
+    //   rawSettings,
+    // });
 
     return {
       hostInfo,
@@ -456,9 +597,7 @@ export function useAppLogic() {
       : baseOutputDir;
 
     const preferredDownloader =
-      asString(request.service) ??
-      asString(rawSettings.downloader) ??
-      "auto";
+      asString(request.service) ?? asString(rawSettings.downloader) ?? "auto";
     const config = {
       output_dir: outputDir,
       download_quality: normalizeDownloadQuality(
@@ -492,8 +631,8 @@ export function useAppLogic() {
         asBoolean(request.overwrite) === true
           ? false
           : (asBoolean(rawSettings.redownload_with_suffix) ??
-              asBoolean(rawSettings.redownloadWithSuffix) ??
-              false),
+            asBoolean(rawSettings.redownloadWithSuffix) ??
+            false),
       download_artist_images:
         asBoolean(rawSettings.download_artist_images) ??
         asBoolean(rawSettings.downloadArtistImages) ??
@@ -515,9 +654,7 @@ export function useAppLogic() {
         asBoolean(rawSettings.allowResolverFallback) ??
         true,
       folder_structure: "flat",
-      separator:
-        asString(rawSettings.separator) ??
-        ";",
+      separator: asString(rawSettings.separator) ?? ";",
       use_first_artist_only:
         asBoolean(rawSettings.use_first_artist_only) ??
         asBoolean(rawSettings.useFirstArtistOnly) ??
@@ -535,33 +672,41 @@ export function useAppLogic() {
         null,
     };
 
-    console.log("[DEBUG][Sync] buildNativeSpotiFlacConfig resolved", {
-      request,
-      baseOutputDir,
-      playlistFolder,
-      preferredDownloader,
-      config,
-    });
+    // console.log("[DEBUG][Sync] buildNativeSpotiFlacConfig resolved", {
+    //   request,
+    //   baseOutputDir,
+    //   playlistFolder,
+    //   preferredDownloader,
+    //   config,
+    // });
 
     return config;
   };
 
   const fetchSpotifyMetadataNative = async (url: string) => {
-    console.log(`[DEBUG][Sync] fetchSpotifyMetadataNative called with URL: "${url}"`);
+    // console.log(
+    //   `[DEBUG][Sync] fetchSpotifyMetadataNative called with URL: "${url}"`,
+    // );
     try {
       const result = await invoke<any>("get_spotify_metadata", { url });
       const rawTracks = result ? result.track_list || result.tracks : null;
-      console.log(`[DEBUG][Sync] fetchSpotifyMetadataNative SUCCESS for "${url}"`, result);
-      console.log("[DEBUG][Sync] fetchSpotifyMetadataNative summary", {
-        url,
-        hasTrackList: Array.isArray(result?.track_list),
-        hasTracks: Array.isArray(result?.tracks),
-        trackCount: Array.isArray(rawTracks) ? rawTracks.length : null,
-        keys: result && typeof result === "object" ? Object.keys(result) : [],
-      });
+      // console.log(
+      //   `[DEBUG][Sync] fetchSpotifyMetadataNative SUCCESS for "${url}"`,
+      //   result,
+      // );
+      // console.log("[DEBUG][Sync] fetchSpotifyMetadataNative summary", {
+      //   url,
+      //   hasTrackList: Array.isArray(result?.track_list),
+      //   hasTracks: Array.isArray(result?.tracks),
+      //   trackCount: Array.isArray(rawTracks) ? rawTracks.length : null,
+      //   keys: result && typeof result === "object" ? Object.keys(result) : [],
+      // });
       return result;
     } catch (err) {
-      console.error(`[DEBUG][Sync] fetchSpotifyMetadataNative ERROR for "${url}":`, err);
+      // console.error(
+      //   `[DEBUG][Sync] fetchSpotifyMetadataNative ERROR for "${url}":`,
+      //   err,
+      // );
       throw err;
     }
   };
@@ -573,7 +718,9 @@ export function useAppLogic() {
         : payload;
     const url =
       asString(request.url) ??
-      (asString(request.spotify_id) ? buildSpotifyTrackUrl(asString(request.spotify_id)!) : null) ??
+      (asString(request.spotify_id)
+        ? buildSpotifyTrackUrl(asString(request.spotify_id)!)
+        : null) ??
       asString(request.spotifyUrl);
 
     if (!url) {
@@ -581,15 +728,15 @@ export function useAppLogic() {
     }
 
     const config = await buildNativeSpotiFlacConfig(request);
-    console.log("[DEBUG][Sync] downloadTrackNative prepared request", {
-      request,
-      resolvedUrl: url,
-      config,
-      tidalIdOverride:
-        asString(request.tidal_id_override) ??
-        asString(request.tidalIdOverride) ??
-        null,
-    });
+    // console.log("[DEBUG][Sync] downloadTrackNative prepared request", {
+    //   request,
+    //   resolvedUrl: url,
+    //   config,
+    //   tidalIdOverride:
+    //     asString(request.tidal_id_override) ??
+    //     asString(request.tidalIdOverride) ??
+    //     null,
+    // });
     const downloadedPath = await invoke<string>("download_track", {
       url,
       config,
@@ -602,7 +749,9 @@ export function useAppLogic() {
     return {
       file: downloadedPath,
       used_service:
-        config.downloader === "auto" ? config.auto_order[0] ?? "auto" : config.downloader,
+        config.downloader === "auto"
+          ? (config.auto_order[0] ?? "auto")
+          : config.downloader,
     };
   };
 
@@ -618,7 +767,7 @@ export function useAppLogic() {
 
     const previousHost = rootWindow.__spotiflacHost;
     const bridgeMessageSource = "spotiflac-host-bridge";
-    let lastSpotifyUrlAttempted: string | undefined = undefined; // Memoria para compensar olvidos del bridge
+    let lastSpotifyUrlAttempted: string | undefined = undefined; // Fallback legacy
 
     const handleBridgeInvoke = async (event: MessageEvent) => {
       const payload =
@@ -634,14 +783,14 @@ export function useAppLogic() {
         return;
       }
 
-      // ✅ CORRECCIÓN AQUÍ: Primero declaramos 'method' extrayéndolo del payload
+      // âœ… CORRECCIÃ“N AQUÃ: Primero declaramos 'method' extrayÃ©ndolo del payload
       const method =
         typeof payload.method === "string"
           ? (payload.method as SpotiFlacHostInvoke)
           : null;
 
-      // ✅ AHORA SÍ lo podemos imprimir en la consola sin errores
-      console.log(`[Bridge][Invoke] Method: ${method}`, payload);
+      // âœ… AHORA SÃ lo podemos imprimir en la consola sin errores
+      // console.log(`[Bridge][Invoke] Method: ${method}`, payload);
 
       const replyTarget = event.source;
       if (
@@ -783,12 +932,12 @@ export function useAppLogic() {
             const startedAt = performance.now();
             const queueDepthBeforeStart = spotiFlacDownloadsInFlight;
             spotiFlacDownloadsInFlight += 1;
-            console.log("[SpotiFLAC][download:queued]", {
-              traceId,
-              pending: spotiFlacDownloadsInFlight,
-              queueDepthBeforeStart,
-              ...summarizeSpotiFlacDownloadRequest(payload),
-            });
+            // console.log("[SpotiFLAC][download:queued]", {
+            //   traceId,
+            //   pending: spotiFlacDownloadsInFlight,
+            //   queueDepthBeforeStart,
+            //   ...summarizeSpotiFlacDownloadRequest(payload),
+            // });
 
             const previousQueueTail = spotiFlacDownloadQueueTail;
             let releaseQueue!: () => void;
@@ -798,26 +947,26 @@ export function useAppLogic() {
 
             try {
               await previousQueueTail;
-              console.log("[SpotiFLAC][download:start]", {
-                traceId,
-                pending: spotiFlacDownloadsInFlight,
-                ...summarizeSpotiFlacDownloadRequest(payload),
-              });
+              // console.log("[SpotiFLAC][download:start]", {
+              //   traceId,
+              //   pending: spotiFlacDownloadsInFlight,
+              //   ...summarizeSpotiFlacDownloadRequest(payload),
+              // });
               const response = await downloadTrackNative(asRecord(request));
-              console.log("[SpotiFLAC][download:end]", {
-                traceId,
-                pending: spotiFlacDownloadsInFlight,
-                durationMs: Math.round(performance.now() - startedAt),
-                response,
-              });
+              // console.log("[SpotiFLAC][download:end]", {
+              //   traceId,
+              //   pending: spotiFlacDownloadsInFlight,
+              //   durationMs: Math.round(performance.now() - startedAt),
+              //   response,
+              // });
               return response;
             } catch (error) {
-              console.error("[SpotiFLAC][download:error]", {
-                traceId,
-                pending: spotiFlacDownloadsInFlight,
-                durationMs: Math.round(performance.now() - startedAt),
-                error,
-              });
+              // console.error("[SpotiFLAC][download:error]", {
+              //   traceId,
+              //   pending: spotiFlacDownloadsInFlight,
+              //   durationMs: Math.round(performance.now() - startedAt),
+              //   error,
+              // });
               throw error;
             } finally {
               releaseQueue();
@@ -825,10 +974,10 @@ export function useAppLogic() {
                 0,
                 spotiFlacDownloadsInFlight - 1,
               );
-              console.log("[SpotiFLAC][download:settled]", {
-                traceId,
-                pending: spotiFlacDownloadsInFlight,
-              });
+              // console.log("[SpotiFLAC][download:settled]", {
+              //   traceId,
+              //   pending: spotiFlacDownloadsInFlight,
+              // });
             }
           }
           case "getStreamingURLs":
@@ -863,26 +1012,48 @@ export function useAppLogic() {
           case "getSpotifyMetadata": {
             const url =
               typeof payload.url === "string" ? payload.url : undefined;
-            // Solo recordamos si es una URL de Playlist (no de track individual)
-            if (url && url.includes("/playlist/")) {
-              lastSpotifyUrlAttempted = url;
-              console.log(
-                "[SpotifySync][Memory] Playlist URL remembered:",
-                url,
-              );
-            }
-            console.log(`[DEBUG][Host][getSpotifyMetadata] URL: "${url}"`, { 
-              batch: payload.batch, 
-              delay: payload.delay, 
-              timeout: payload.timeout, 
-              separator: payload.separator 
-            });
+            //  console.log(`[DEBUG][Host][getSpotifyMetadata] URL: "${url}"`, {
+            //   batch: payload.batch,
+            //   delay: payload.delay,
+            //   timeout: payload.timeout,
+            //   separator: payload.separator,
+            // });
             if (!url) {
-              console.error("[DEBUG][Host][getSpotifyMetadata] ERROR: No URL provided");
+              // console.error(
+              //   "[DEBUG][Host][getSpotifyMetadata] ERROR: No URL provided",
+              // );
               throw new Error("URL de Spotify requerida.");
             }
             const result = await fetchSpotifyMetadataNative(url);
-            console.log(`[DEBUG][Host][getSpotifyMetadata] SUCCESS for "${url}"`);
+            if (url.includes("/playlist/")) {
+              lastSpotifyUrlAttempted = url;
+              const resultRecord = asRecord(result);
+              const playlistInfo = asRecord(resultRecord.playlist_info);
+              const resolvedPlaylistName =
+                asString(playlistInfo.name) ??
+                asString(resultRecord.name) ??
+                asString(payload.name);
+
+              rememberPlaylistSpotifyUrl(
+                resolvedPlaylistName,
+                url,
+                "getSpotifyMetadata",
+              );
+
+              console.log(
+                "[PlaylistDebug][getSpotifyMetadata] Playlist metadata loaded",
+                {
+                  requestedUrl: url,
+                  resolvedPlaylistName,
+                  hasPlaylistInfo:
+                    Object.keys(playlistInfo).length > 0 ||
+                    Boolean(resultRecord.playlist_info),
+                },
+              );
+            }
+            // console.log(
+            //   `[DEBUG][Host][getSpotifyMetadata] SUCCESS for "${url}"`,
+            // );
             return result;
           }
           case "syncDownloadedPlaylist": {
@@ -905,12 +1076,32 @@ export function useAppLogic() {
               );
             }
 
+            const payloadSpotifyUrl = asString(payload.spotifyUrl);
+            const rememberedSpotifyUrl = findRememberedPlaylistSpotifyUrl(name);
+            const resolvedSpotifyUrl =
+              payloadSpotifyUrl ?? rememberedSpotifyUrl ?? lastSpotifyUrlAttempted;
+
+            console.log(
+              "[PlaylistDebug][syncDownloadedPlaylist] Resolved playlist URL",
+              {
+                name,
+                payloadSpotifyUrl,
+                rememberedSpotifyUrl,
+                lastSpotifyUrlAttempted,
+                resolvedSpotifyUrl,
+                source: payloadSpotifyUrl
+                  ? "payload"
+                  : rememberedSpotifyUrl
+                    ? "urlMemory"
+                    : lastSpotifyUrlAttempted
+                      ? "lastAttemptLegacy"
+                      : "none",
+              },
+            );
+
             return await syncSpotiFlacCollectionToPlaylist(name, trackPaths, {
               openAfterSync: payload.openAfterSync === true,
-              spotifyUrl:
-                typeof payload.spotifyUrl === "string" && payload.spotifyUrl
-                  ? payload.spotifyUrl
-                  : lastSpotifyUrlAttempted, // <-- USAMOS LA MEMORIA SI FALTA
+              spotifyUrl: resolvedSpotifyUrl,
               position:
                 typeof payload.position === "number"
                   ? payload.position
@@ -944,17 +1135,17 @@ export function useAppLogic() {
         performanceObserver = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             if (entry.duration >= 120) {
-              console.warn("[Perf][longtask]", {
-                name: entry.name,
-                startTime: Math.round(entry.startTime),
-                durationMs: Math.round(entry.duration),
-              });
+              // console.warn("[Perf][longtask]", {
+              //   name: entry.name,
+              //   startTime: Math.round(entry.startTime),
+              //   durationMs: Math.round(entry.duration),
+              // });
             }
           }
         });
         performanceObserver.observe({ entryTypes: ["longtask"] });
       } catch (error) {
-        console.warn("[Perf][longtask:unsupported]", error);
+        // console.warn("[Perf][longtask:unsupported]", error);
       }
     }
 
@@ -963,12 +1154,12 @@ export function useAppLogic() {
       const now = performance.now();
       const lagMs = now - expectedAt;
       if (lagMs >= 180) {
-        console.warn("[Perf][event-loop-lag]", {
-          lagMs: Math.round(lagMs),
-          view: currentViewMode.value,
-          pendingDownloads: spotiFlacDownloadsInFlight,
-          libraryTracks: playlist.value.length,
-        });
+        // console.warn("[Perf][event-loop-lag]", {
+        //   lagMs: Math.round(lagMs),
+        //   view: currentViewMode.value,
+        //   pendingDownloads: spotiFlacDownloadsInFlight,
+        //   libraryTracks: playlist.value.length,
+        // });
       }
       expectedAt = now + 500;
     }, 500);
@@ -1018,7 +1209,7 @@ export function useAppLogic() {
       if (!Array.isArray(items)) return [];
       return items.filter(isRecentSearchItem);
     } catch (error) {
-      console.warn("No se pudo cargar el historial de busqueda global:", error);
+      // console.warn("No se pudo cargar el historial de busqueda global:", error);
       return [];
     }
   };
@@ -1068,10 +1259,10 @@ export function useAppLogic() {
       });
       return true;
     } catch (error) {
-      console.warn(
-        "No se pudo guardar el historial de busqueda global:",
-        error,
-      );
+      // console.warn(
+      //   "No se pudo guardar el historial de busqueda global:",
+      //   error,
+      // );
       return false;
     }
   };
@@ -1080,7 +1271,7 @@ export function useAppLogic() {
     try {
       return await invoke<AppSessionSnapshot | null>("get_app_session");
     } catch (error) {
-      console.warn("No se pudo cargar la sesion de la app:", error);
+      // warn("No se pudo cargar la sesion de la app:", error);
       return null;
     }
   };
@@ -1089,18 +1280,18 @@ export function useAppLogic() {
     try {
       await invoke("set_app_session", { session });
     } catch (error) {
-      console.warn("No se pudo guardar la sesion de la app:", error);
+      // console.warn("No se pudo guardar la sesion de la app:", error);
     }
   };
 
-  // Función para preguntarle a Rust qué dispositivo se está usando
+  // FunciÃ³n para preguntarle a Rust quÃ© dispositivo se estÃ¡ usando
   const fetchOutputDeviceInfo = async () => {
     try {
       outputDeviceInfo.value = await invoke<OutputDeviceInfo>(
         "get_output_device_info",
       );
     } catch (error) {
-      console.error("No se pudo obtener info de salida del hardware:", error);
+      // console.error("No se pudo obtener info de salida del hardware:", error);
     }
   };
 
@@ -1108,7 +1299,7 @@ export function useAppLogic() {
     try {
       desktopDeviceName.value = await invoke<string>("get_computer_name");
     } catch (error) {
-      console.warn("No se pudo obtener el nombre de la PC:", error);
+      // console.warn("No se pudo obtener el nombre de la PC:", error);
     }
   };
 
@@ -1117,10 +1308,10 @@ export function useAppLogic() {
   // 1. Crea una variable reactiva para el Canvas
   const canvasUrl = ref<string | null>(null);
 
-  // 2. Crea una función para manejar el error si el video no existe
+  // 2. Crea una funciÃ³n para manejar el error si el video no existe
   const handleCanvasError = () => {
     pauseCanvas();
-    canvasUrl.value = null; // Si falla, lo anulamos y Vue mostrará la carátula normal
+    canvasUrl.value = null; // Si falla, lo anulamos y Vue mostrarÃ¡ la carÃ¡tula normal
   };
 
   const libraryMetadataMap = ref<Record<string, LibraryTrackMetadata>>({});
@@ -1230,7 +1421,7 @@ export function useAppLogic() {
     try {
       await video.play();
     } catch (error) {
-      console.warn("No se pudo reproducir el canvas:", error);
+      // console.warn("No se pudo reproducir el canvas:", error);
     }
   };
 
@@ -1619,7 +1810,7 @@ export function useAppLogic() {
   const goToContextMenuAlbum = () => {
     if (!contextMenu.value.track) return;
     const album = getLibraryTrackAlbum(contextMenu.value.track);
-    if (!album || album === "—") return;
+    if (!album || album === "â€”") return;
     goToAlbum(album, getAlbumArtistForTrack(contextMenu.value.track));
     closeTrackContextMenu();
   };
@@ -1637,7 +1828,7 @@ export function useAppLogic() {
     track: PlaylistTrack,
     index: number,
   ) => {
-    // 1. Lógica de Selección (Multi-select)
+    // 1. LÃ³gica de SelecciÃ³n (Multi-select)
     if (event.button === 2) {
       if (multiSelectedLibraryTracks.value.some((t) => t.index === index)) {
         return;
@@ -1679,7 +1870,7 @@ export function useAppLogic() {
 
     selectLibraryTrack(track, index);
 
-    // 2. Lógica de Drag and Drop
+    // 2. LÃ³gica de Drag and Drop
     if (event.button !== 0) return;
 
     const target = event.target as HTMLElement | null;
@@ -1712,7 +1903,7 @@ export function useAppLogic() {
   const addSelectionToQueue = () => {
     if (multiSelectedLibraryTracks.value.length === 0) return;
 
-    // Obtener los tracks reales de la selección
+    // Obtener los tracks reales de la selecciÃ³n
     const tracksToQueue = multiSelectedLibraryTracks.value
       .map((s) => displayedTracks.value[s.index])
       .filter((t) => !!t) as PlaylistTrack[];
@@ -1737,7 +1928,7 @@ export function useAppLogic() {
       closeTrackContextMenu();
       clearMultiSelection();
     } catch (err) {
-      console.error("Error al añadir selección a playlist:", err);
+      // console.error("Error al aÃ±adir selecciÃ³n a playlist:", err);
     }
   };
 
@@ -1745,7 +1936,7 @@ export function useAppLogic() {
   //   if (contextMenu.value.playlistId == null) return;
   //   const playlistId = contextMenu.value.playlistId;
   //
-  //   // Copia de la selección porque se va a limpiar
+  //   // Copia de la selecciÃ³n porque se va a limpiar
   //   const selection = [...multiSelectedLibraryTracks.value].sort(
   //     (a, b) => b.index - a.index,
   //   );
@@ -1764,7 +1955,7 @@ export function useAppLogic() {
   //     closeTrackDeleteModal();
   //     clearMultiSelection();
   //   } catch (err) {
-  //     console.error("Error al eliminar selección de playlist:", err);
+  //     console.error("Error al eliminar selecciÃ³n de playlist:", err);
   //   }
   // };
 
@@ -1773,7 +1964,7 @@ export function useAppLogic() {
     track: PlaylistTrack,
     index?: number,
   ) => {
-    // Si el track no está en la selección múltiple, lo seleccionamos solo a él
+    // Si el track no estÃ¡ en la selecciÃ³n mÃºltiple, lo seleccionamos solo a Ã©l
     if (
       typeof index === "number" &&
       !multiSelectedLibraryTracks.value.some((t) => t.index === index)
@@ -1947,7 +2138,7 @@ export function useAppLogic() {
     const isInteractiveElement =
       Boolean(interactiveContainer) || isTypingElement;
 
-    // Ctrl/Cmd + F => enfocar búsqueda
+    // Ctrl/Cmd + F => enfocar bÃºsqueda
     const isGlobalSearchShortcut =
       (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l";
 
@@ -1975,7 +2166,7 @@ export function useAppLogic() {
     }
 
     // Espacio => play / pause
-    // Solo si NO está interactuando con un control de la UI
+    // Solo si NO estÃ¡ interactuando con un control de la UI
     const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
 
     if (isSpace && !isInteractiveElement) {
@@ -2177,7 +2368,7 @@ export function useAppLogic() {
 
   const loopTooltip = computed(() => {
     if (loopMode.value === "off") return "Habilitar repetir";
-    if (loopMode.value === "all") return "Repetir una canción";
+    if (loopMode.value === "all") return "Repetir una canciÃ³n";
     return "Desactivar repetir";
   });
 
@@ -2223,7 +2414,7 @@ export function useAppLogic() {
 
   let unlistenFsChanges: UnlistenFn | null = null;
 
-  // ====== BIBLIOTECA / BÚSQUEDA / PANEL ======
+  // ====== BIBLIOTECA / BÃšSQUEDA / PANEL ======
   const librarySearch = ref("");
 
   const globalSearch = ref("");
@@ -2240,7 +2431,7 @@ export function useAppLogic() {
   const customLyricsPath = ref<string | null>(null);
   const customCoversPath = ref<string | null>(null);
 
-  // ====== NAVEGACIÓN ARTISTA / ÁLBUM ======
+  // ====== NAVEGACIÃ“N ARTISTA / ÃLBUM ======
   type ViewMode =
     | "library"
     | "artist"
@@ -2471,7 +2662,7 @@ export function useAppLogic() {
   };
 
   const getQueuePlaybackContext = (): PlaybackContext => {
-    return createPlaybackContext("queue", "Fila de reproducción");
+    return createPlaybackContext("queue", "Fila de reproducciÃ³n");
   };
 
   // Ir a la vista de Artista
@@ -2488,9 +2679,9 @@ export function useAppLogic() {
     });
   };
 
-  // Ir a la vista de Álbum
+  // Ir a la vista de Ãlbum
   const goToAlbum = (album: string, artist?: string | null) => {
-    if (!album || album === "—") return;
+    if (!album || album === "â€”") return;
     navigateToView({
       mode: "album",
       artist: artist ?? activeArtistView.value,
@@ -2502,18 +2693,18 @@ export function useAppLogic() {
     });
   };
 
-  // ====== NUEVO: Función para dividir artistas por punto y coma ======
+  // ====== NUEVO: FunciÃ³n para dividir artistas por punto y coma ======
   const goToPlaylist = (playlistId: number) => {
-    console.log(
-      `[SpotifySync][Flow] goToPlaylist called for ID: ${playlistId}`,
-    );
+    // console.log(
+    //   `[SpotifySync][Flow] goToPlaylist called for ID: ${playlistId}`,
+    // );
     const targetPlaylist = playlists.value.find(
       (item) => item.id === playlistId,
     );
     if (!targetPlaylist) {
-      console.warn(
-        `[SpotifySync][Flow] Playlist with ID ${playlistId} not found in local state.`,
-      );
+      // console.warn(
+      //   `[SpotifySync][Flow] Playlist with ID ${playlistId} not found in local state.`,
+      // );
       return;
     }
 
@@ -2527,33 +2718,57 @@ export function useAppLogic() {
       globalQuery: globalSearch.value.trim(),
     });
 
-    console.log(`[DEBUG][Nav] Switched to Playlist ID: ${playlistId}. activePlaylistViewId is now: ${activePlaylistViewId.value}`);
+    // console.log(
+    // `[DEBUG][Nav] Switched to Playlist ID: ${playlistId}. activePlaylistViewId is now: ${activePlaylistViewId.value}`,
+    // );
 
-    // ======== OPTIMIZACIÓN DE SINCRONIZACIÓN ========
+    // ======== OPTIMIZACIÃ“N DE SINCRONIZACIÃ“N ========
     // 1. Cancelamos estados de carga y procesos en vuelo INMEDIATAMENTE
-    console.log(`[DEBUG][Sync] Navigation clean-up. Reseting manualSync and currentActiveSyncId.`);
+    // console.log(
+    //   `[DEBUG][Sync] Navigation clean-up. Reseting manualSync and currentActiveSyncId.`,
+    // );
     isManualSyncing.value = null;
-    currentActiveSyncId = null; 
+    currentActiveSyncId = null;
 
-    // 2. Limpiamos cualquier chequeo previo si estamos saltando rápido entre playlists
     if (syncCheckTimeout) {
-      console.log(`[DEBUG][Sync] Clearing previous pending debounce timeout.`);
+      // console.log(`[DEBUG][Sync] Clearing previous pending debounce timeout.`);
       clearTimeout(syncCheckTimeout);
     }
 
-    // 2. Esperamos un poco (debounce) para asegurar que el usuario quiere ver esta playlist
     syncCheckTimeout = setTimeout(() => {
-      // Usamos forceState=true para que el tiempo de chequeo sea de solo 30s
       void checkSpecificSpotifyPlaylist(playlistId, true);
-    }, 800); 
-    // ===============================================
+    }, 800);
   };
 
   const loadPlaylists = async () => {
     try {
       playlists.value = await invoke<PlaylistSummary[]>("get_playlists");
+      console.log("[PlaylistDebug][loadPlaylists] Loaded playlists", {
+        count: playlists.value.length,
+        names: playlists.value.map((playlist) => ({
+          id: playlist.id,
+          name: playlist.name,
+          trackCount: playlist.trackCount,
+          trackPaths: playlist.trackPaths,
+          spotifyUrl: playlist.spotifyUrl ?? null,
+          hasSpotifyUrl: Boolean(playlist.spotifyUrl),
+          spotifySyncedIds: playlist.spotifySyncedIds ?? null,
+          hasSpotifySyncedIds: Boolean(playlist.spotifySyncedIds),
+          syncedIdsCount: (() => {
+            if (!playlist.spotifySyncedIds) return 0;
+            try {
+              const parsed = JSON.parse(playlist.spotifySyncedIds);
+              return Array.isArray(parsed) ? parsed.length : 0;
+            } catch {
+              return -1;
+            }
+          })(),
+        })),
+      });
     } catch (error) {
-      console.error("No se pudieron cargar las playlists:", error);
+      console.error("[PlaylistDebug][loadPlaylists] Failed to load playlists", {
+        error,
+      });
     }
   };
 
@@ -2600,10 +2815,6 @@ export function useAppLogic() {
       positions?: number[];
     } = {},
   ) => {
-    console.log(
-      `[SpotifySync][Flow] syncSpotiFlacCollectionToPlaylist called for "${name}"`,
-      { options },
-    );
     const trimmedName = name.trim();
     const normalizedTrackPaths = Array.from(
       new Set(
@@ -2614,8 +2825,20 @@ export function useAppLogic() {
     );
 
     if (!trimmedName || normalizedTrackPaths.length === 0) {
+      console.warn("[PlaylistDebug][syncCollection] Ignored empty sync request", {
+        name,
+        trackPaths,
+        options,
+      });
       return null;
     }
+
+    console.log("[PlaylistDebug][syncCollection] Starting sync", {
+      name: trimmedName,
+      trackCount: normalizedTrackPaths.length,
+      trackPaths: normalizedTrackPaths,
+      options,
+    });
 
     await loadPlaylists();
 
@@ -2627,31 +2850,61 @@ export function useAppLogic() {
 
     let targetPlaylistId = existingPlaylist?.id ?? null;
 
+    console.log("[PlaylistDebug][syncCollection] Playlist lookup result", {
+      requestedName: trimmedName,
+      existingPlaylist,
+      currentPlaylists: playlists.value.map((playlist) => ({
+        id: playlist.id,
+        name: playlist.name,
+        trackCount: playlist.trackCount,
+      })),
+    });
+
     if (!targetPlaylistId) {
       const createdPlaylist = await invoke<PlaylistSummary>("create_playlist", {
         name: trimmedName,
       });
       targetPlaylistId = createdPlaylist.id;
+      console.log("[PlaylistDebug][syncCollection] Created playlist", {
+        createdPlaylist,
+      });
     }
 
     const playlistId = targetPlaylistId;
 
+    console.log("[PlaylistDebug][syncCollection] Spotify linkage input", {
+      playlistId,
+      playlistName: trimmedName,
+      spotifyUrl: options.spotifyUrl ?? null,
+      hasSpotifyUrl: Boolean(options.spotifyUrl),
+    });
+
     // NUEVO: Vincular con Spotify si hay URL
     if (options.spotifyUrl) {
-      console.log(
-        `[SpotifySync][Link] Linking playlist ${playlistId} with URL: ${options.spotifyUrl}`,
+      rememberPlaylistSpotifyUrl(
+        trimmedName,
+        options.spotifyUrl,
+        "syncSpotiFlacCollectionToPlaylist",
       );
+      // console.log(
+      //   `[SpotifySync][Link] Linking playlist ${playlistId} with URL: ${options.spotifyUrl}`,
+      // );
       try {
         await invoke("set_playlist_spotify_url", {
           playlistId,
           spotifyUrl: options.spotifyUrl,
         });
-        console.log(`[SpotifySync][Link] URL saved successfully.`);
+        console.log("[PlaylistDebug][syncCollection] Saved spotifyUrl in DB", {
+          playlistId,
+          playlistName: trimmedName,
+          spotifyUrl: options.spotifyUrl,
+        });
+        // console.log(`[SpotifySync][Link] URL saved successfully.`);
 
-        // También obtenemos los IDs actuales para que no los marque como "nuevos" justo después de descargar
-        console.log(
-          `[SpotifySync][Link] Fetching current Spotify IDs to initialize sync state...`,
-        );
+        // TambiÃ©n obtenemos los IDs actuales para que no los marque como "nuevos" justo despuÃ©s de descargar
+        // console.log(
+        //   `[SpotifySync][Link] Fetching current Spotify IDs to initialize sync state...`,
+        // );
         const remoteData = await fetchSpotifyMetadataNative(options.spotifyUrl);
 
         // Soporta tanto 'tracks' como 'track_list' (el formato de SpotiFLAC)
@@ -2665,38 +2918,82 @@ export function useAppLogic() {
             .map((t: any) => t.id || t.spotify_id || t.track_id)
             .filter((id) => !!id);
           console.log(
-            `[SpotifySync][Link] Obtained ${remoteIds.length} IDs from Spotify. Saving to DB...`,
+            "[PlaylistDebug][syncCollection] Spotify metadata IDs extracted",
+            {
+              playlistId,
+              playlistName: trimmedName,
+              rawTrackCount: rawTracks.length,
+              remoteIdsCount: remoteIds.length,
+              sampleRemoteIds: remoteIds.slice(0, 10),
+            },
           );
+          // console.log(
+          //   `[SpotifySync][Link] Obtained ${remoteIds.length} IDs from Spotify. Saving to DB...`,
+          // );
 
           if (remoteIds.length === 0 && rawTracks.length > 0) {
-            console.warn(
-              `[SpotifySync][Link] Tracks found but NO IDs detected. First track keys:`,
-              Object.keys(rawTracks[0]),
-            );
+            //  console.warn(
+            //   `[SpotifySync][Link] Tracks found but NO IDs detected. First track keys:`,
+            //   Object.keys(rawTracks[0]),
+            // );
           }
 
           await invoke("set_playlist_synced_ids", {
             playlistId,
             syncedIdsJson: JSON.stringify(remoteIds),
           });
-          console.log(
-            `[SpotifySync][Link] Synced IDs saved successfully in DB.`,
-          );
+          console.log("[PlaylistDebug][syncCollection] Saved spotifySyncedIds in DB", {
+            playlistId,
+            playlistName: trimmedName,
+            remoteIdsCount: remoteIds.length,
+          });
+          // console.log(
+          //   `[SpotifySync][Link] Synced IDs saved successfully in DB.`,
+          // );
         } else {
           console.warn(
-            `[SpotifySync][Link] Raw metadata structure:`,
-            remoteData,
+            "[PlaylistDebug][syncCollection] Could not extract Spotify metadata IDs",
+            {
+              playlistId,
+              playlistName: trimmedName,
+              hasRemoteData: Boolean(remoteData),
+              rawTracksType: Array.isArray(rawTracks)
+                ? "array"
+                : rawTracks === null
+                  ? "null"
+                  : typeof rawTracks,
+              remoteDataKeys:
+                remoteData && typeof remoteData === "object"
+                  ? Object.keys(remoteData as Record<string, unknown>)
+                  : [],
+            },
           );
-          console.warn(
-            `[SpotifySync][Link] Could not get track IDs from Spotify metadata.`,
-          );
+          // console.warn(
+          //   `[SpotifySync][Link] Raw metadata structure:`,
+          //   remoteData,
+          // );
+          // console.warn(
+          //   `[SpotifySync][Link] Could not get track IDs from Spotify metadata.`,
+          // );
         }
       } catch (e) {
-        console.error(
-          `[SpotifySync][Link] Error during Spotify linking/sync:`,
-          e,
-        );
+        console.error("[PlaylistDebug][syncCollection] Spotify linkage failed", {
+          playlistId,
+          playlistName: trimmedName,
+          spotifyUrl: options.spotifyUrl,
+          error: e,
+        });
+        // console.error(
+        //   `[SpotifySync][Link] Error during Spotify linking/sync:`,
+        //   e,
+        // );
       }
+    } else {
+      console.warn("[PlaylistDebug][syncCollection] Playlist created without spotifyUrl", {
+        playlistId,
+        playlistName: trimmedName,
+        trackCount: normalizedTrackPaths.length,
+      });
     }
 
     for (let i = 0; i < normalizedTrackPaths.length; i++) {
@@ -2712,9 +3009,21 @@ export function useAppLogic() {
         trackPath,
         position: targetPos !== undefined ? targetPos : null,
       });
+      console.log("[PlaylistDebug][syncCollection] Added track to playlist", {
+        playlistId,
+        playlistName: trimmedName,
+        trackPath,
+        position: targetPos !== undefined ? targetPos : null,
+      });
     }
 
     const commonDirectory = getCommonDirectoryFromPaths(normalizedTrackPaths);
+    console.log("[PlaylistDebug][syncCollection] Common directory resolved", {
+      playlistName: trimmedName,
+      commonDirectory,
+      musicDirectories: musicDirectories.value,
+    });
+
     if (commonDirectory) {
       const normalizedCommonDirectory =
         normalizeComparablePath(commonDirectory);
@@ -2732,6 +3041,17 @@ export function useAppLogic() {
         await invoke("watch_directories", {
           directories: musicDirectories.value,
         });
+        console.log("[PlaylistDebug][syncCollection] Added common directory to library roots", {
+          playlistName: trimmedName,
+          commonDirectory,
+          musicDirectories: musicDirectories.value,
+        });
+      } else {
+        console.log("[PlaylistDebug][syncCollection] Common directory already tracked", {
+          playlistName: trimmedName,
+          commonDirectory,
+          musicDirectories: musicDirectories.value,
+        });
       }
     }
 
@@ -2746,8 +3066,24 @@ export function useAppLogic() {
     libraryMetadataMap.value = nextMap;
 
     await syncLibrary();
+    console.log("[PlaylistDebug][syncCollection] Library sync finished", {
+      playlistName: trimmedName,
+      libraryTrackCount: playlist.value.length,
+    });
 
     await loadPlaylists();
+    console.log("[PlaylistDebug][syncCollection] Reloaded playlists after sync", {
+      playlistId,
+      playlistName: trimmedName,
+      playlists: playlists.value.map((playlist) => ({
+        id: playlist.id,
+        name: playlist.name,
+        trackCount: playlist.trackCount,
+        spotifyUrl: playlist.spotifyUrl ?? null,
+        hasSpotifyUrl: Boolean(playlist.spotifyUrl),
+        hasSpotifySyncedIds: Boolean(playlist.spotifySyncedIds),
+      })),
+    });
 
     if (options.openAfterSync) {
       goToPlaylist(playlistId);
@@ -2811,7 +3147,7 @@ export function useAppLogic() {
       cancelPlaylistCreator();
       goToPlaylist(created.id);
     } catch (error) {
-      console.error("No se pudo crear la playlist:", error);
+      //console.error("No se pudo crear la playlist:", error);
     }
   };
 
@@ -2870,14 +3206,14 @@ export function useAppLogic() {
         return;
       }
 
-      console.log("[playlist-dnd] addTrackToPlaylist:start", {
-        playlistId,
-        playlistName: targetPlaylist?.name ?? null,
-        trackPath: track.path,
-        trackTitle: getTrackDisplayTitle(track),
-        alreadyIncluded,
-        allowDuplicate: options?.allowDuplicate ?? false,
-      });
+      // console.log("[playlist-dnd] addTrackToPlaylist:start", {
+      //   playlistId,
+      //   playlistName: targetPlaylist?.name ?? null,
+      //   trackPath: track.path,
+      //   trackTitle: getTrackDisplayTitle(track),
+      //   alreadyIncluded,
+      //   allowDuplicate: options?.allowDuplicate ?? false,
+      // });
 
       await invoke("add_track_to_playlist", {
         playlistId,
@@ -2892,19 +3228,19 @@ export function useAppLogic() {
       const nowIncluded =
         updatedPlaylist?.trackPaths.includes(track.path) ?? false;
 
-      console.log("[playlist-dnd] addTrackToPlaylist:after-load", {
-        playlistId,
-        playlistName: updatedPlaylist?.name ?? targetPlaylist?.name ?? null,
-        trackPath: track.path,
-        nowIncluded,
-        trackCount: updatedPlaylist?.trackPaths.length ?? null,
-      });
+      // console.log("[playlist-dnd] addTrackToPlaylist:after-load", {
+      //   playlistId,
+      //   playlistName: updatedPlaylist?.name ?? targetPlaylist?.name ?? null,
+      //   trackPath: track.path,
+      //   nowIncluded,
+      //   trackCount: updatedPlaylist?.trackPaths.length ?? null,
+      // });
 
       if (targetPlaylist) {
         showPlaylistAddToast(playlistId, targetPlaylist.name, track);
       }
     } catch (error) {
-      console.error("No se pudo agregar la canción a la playlist:", error);
+      //console.error("No se pudo agregar la canciÃ³n a la playlist:", error);
     }
   };
 
@@ -2995,7 +3331,7 @@ export function useAppLogic() {
         selectedLibraryTrack.value = null;
       }
     } catch (error) {
-      console.error("No se pudo quitar la canción de la playlist:", error);
+      // console.error("No se pudo quitar la canciÃ³n de la playlist:", error);
     }
   };
 
@@ -3033,7 +3369,7 @@ export function useAppLogic() {
           track = { ...track, path: reconciledPath };
         }
       } catch (e) {
-        console.warn("Error reconciliando track:", track.path);
+        // console.warn("Error reconciliando track:", track.path);
       }
 
       const normalizedPath = track.path.replace(/\\/g, "/");
@@ -3128,12 +3464,12 @@ export function useAppLogic() {
     );
 
     if (target !== sidebarDropTargetPlaylistId.value) {
-      console.log("[playlist-dnd] pointer-hover-playlist", {
-        x: clientX,
-        y: clientY,
-        hoveredPlaylistId: target,
-        draggedTrackPath: draggedTrack.value?.path ?? null,
-      });
+      // console.log("[playlist-dnd] pointer-hover-playlist", {
+      // x: clientX,
+      // y: clientY,
+      // hoveredPlaylistId: target,
+      // draggedTrackPath: draggedTrack.value?.path ?? null,
+      // });
     }
 
     sidebarDropTargetPlaylistId.value = target;
@@ -3149,20 +3485,20 @@ export function useAppLogic() {
       "";
 
     if (!trackPath) {
-      console.warn("[playlist-dnd] resolveDraggedTrack:no-track-path", {
-        hasDraggedTrack: draggedTrack.value != null,
-        types: event?.dataTransfer ? Array.from(event.dataTransfer.types) : [],
-      });
+      // console.warn("[playlist-dnd] resolveDraggedTrack:no-track-path", {
+      // hasDraggedTrack: draggedTrack.value != null,
+      // types: event?.dataTransfer ? Array.from(event.dataTransfer.types) : [],
+      // });
       return null;
     }
 
     const resolved =
       playlist.value.find((track) => track.path === trackPath) ?? null;
-    console.log("[playlist-dnd] resolveDraggedTrack", {
-      trackPath,
-      resolved: resolved != null,
-      title: resolved ? getTrackDisplayTitle(resolved) : null,
-    });
+    // console.log("[playlist-dnd] resolveDraggedTrack", {
+    // trackPath,
+    // resolved: resolved != null,
+    // title: resolved ? getTrackDisplayTitle(resolved) : null,
+    // });
     return resolved;
   };
 
@@ -3225,7 +3561,7 @@ export function useAppLogic() {
         fontSize: "18px",
         color: "rgba(255, 255, 255, 0.92)",
       } satisfies Partial<CSSStyleDeclaration>);
-      coverWrap.textContent = "♪";
+      coverWrap.textContent = "â™ª";
     }
 
     const textWrap = document.createElement("div");
@@ -3321,21 +3657,21 @@ export function useAppLogic() {
       lastLoggedDragPosition = "";
       createTrackDragPreview(pendingTrackPointerDrag.track);
 
-      console.log("[playlist-dnd] custom-drag-start", {
-        trackPath: pendingTrackPointerDrag.track.path,
-        title: getTrackDisplayTitle(pendingTrackPointerDrag.track),
-        artist: getLibraryTrackArtist(pendingTrackPointerDrag.track),
-        x: event.clientX,
-        y: event.clientY,
-      });
+      // console.log("[playlist-dnd] custom-drag-start", {
+      // trackPath: pendingTrackPointerDrag.track.path,
+      // title: getTrackDisplayTitle(pendingTrackPointerDrag.track),
+      // artist: getLibraryTrackArtist(pendingTrackPointerDrag.track),
+      // x: event.clientX,
+      // y: event.clientY,
+      // });
     }
 
     const positionKey = `${event.clientX}:${event.clientY}`;
     if (positionKey !== lastLoggedDragPosition) {
-      console.log("[playlist-dnd] custom-drag-move", {
-        x: event.clientX,
-        y: event.clientY,
-      });
+      // console.log("[playlist-dnd] custom-drag-move", {
+      // x: event.clientX,
+      // y: event.clientY,
+      // });
       lastLoggedDragPosition = positionKey;
     }
 
@@ -3358,12 +3694,12 @@ export function useAppLogic() {
       event.clientY,
     );
 
-    console.log("[playlist-dnd] custom-drag-end", {
-      x: event.clientX,
-      y: event.clientY,
-      targetPlaylistId,
-      trackPath: draggedTrack.value.path,
-    });
+    // console.log("[playlist-dnd] custom-drag-end", {
+    // x: event.clientX,
+    // y: event.clientY,
+    // targetPlaylistId,
+    // trackPath: draggedTrack.value.path,
+    // });
 
     shouldSuppressNextWindowClick = true;
     window.setTimeout(() => {
@@ -3372,11 +3708,11 @@ export function useAppLogic() {
 
     try {
       if (targetPlaylistId == null) {
-        console.warn("[playlist-dnd] custom-drop:no-target", {
-          x: event.clientX,
-          y: event.clientY,
-          trackPath: draggedTrack.value.path,
-        });
+        // console.warn("[playlist-dnd] custom-drop:no-target", {
+        // x: event.clientX,
+        // y: event.clientY,
+        // trackPath: draggedTrack.value.path,
+        // });
         return;
       }
 
@@ -3391,12 +3727,12 @@ export function useAppLogic() {
     item: SidebarLibraryItem,
   ) => {
     if (!isSidebarItemDropEnabled(item) || item.playlistId == null) return;
-    console.log("[playlist-dnd] sidebar-item-dragenter", {
-      playlistId: item.playlistId,
-      playlistTitle: item.title,
-      x: event.clientX,
-      y: event.clientY,
-    });
+    // console.log("[playlist-dnd] sidebar-item-dragenter", {
+    // playlistId: item.playlistId,
+    // playlistTitle: item.title,
+    // x: event.clientX,
+    // y: event.clientY,
+    // });
     event.preventDefault();
     sidebarDropTargetPlaylistId.value = item.playlistId;
   };
@@ -3406,12 +3742,12 @@ export function useAppLogic() {
     item: SidebarLibraryItem,
   ) => {
     if (!isSidebarItemDropEnabled(item) || item.playlistId == null) return;
-    console.log("[playlist-dnd] sidebar-item-dragover", {
-      playlistId: item.playlistId,
-      playlistTitle: item.title,
-      x: event.clientX,
-      y: event.clientY,
-    });
+    // console.log("[playlist-dnd] sidebar-item-dragover", {
+    // playlistId: item.playlistId,
+    // playlistTitle: item.title,
+    // x: event.clientX,
+    // y: event.clientY,
+    // });
     event.preventDefault();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = "copy";
@@ -3441,12 +3777,12 @@ export function useAppLogic() {
   const handleSidebarListDrop = async (event: DragEvent) => {
     const track = resolveDraggedTrack(event);
     if (!track) {
-      console.warn("[playlist-dnd] sidebar-list-drop:no-track", {
-        x: event.clientX,
-        y: event.clientY,
-        hoveredPlaylistId: sidebarDropTargetPlaylistId.value,
-        types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
-      });
+      // console.warn("[playlist-dnd] sidebar-list-drop:no-track", {
+      // x: event.clientX,
+      // y: event.clientY,
+      // hoveredPlaylistId: sidebarDropTargetPlaylistId.value,
+      // types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
+      // });
       return;
     }
 
@@ -3455,21 +3791,21 @@ export function useAppLogic() {
         document.elementFromPoint(event.clientX, event.clientY),
       ) ?? sidebarDropTargetPlaylistId.value;
 
-    console.log("[playlist-dnd] sidebar-list-drop", {
-      x: event.clientX,
-      y: event.clientY,
-      targetPlaylistId,
-      hoveredPlaylistId: sidebarDropTargetPlaylistId.value,
-      trackPath: track.path,
-      types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
-    });
+    // console.log("[playlist-dnd] sidebar-list-drop", {
+    // x: event.clientX,
+    // y: event.clientY,
+    // targetPlaylistId,
+    // hoveredPlaylistId: sidebarDropTargetPlaylistId.value,
+    // trackPath: track.path,
+    // types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
+    // });
 
     if (targetPlaylistId == null) {
-      console.warn("[playlist-dnd] sidebar-list-drop:no-target", {
-        x: event.clientX,
-        y: event.clientY,
-        trackPath: track.path,
-      });
+      // console.warn("[playlist-dnd] sidebar-list-drop:no-target", {
+      // x: event.clientX,
+      // y: event.clientY,
+      // trackPath: track.path,
+      // });
       cleanupTrackDragState();
       return;
     }
@@ -3527,24 +3863,24 @@ export function useAppLogic() {
   ) => {
     const track = resolveDraggedTrack(event);
     if (!track || item.playlistId == null || item.kind !== "playlist") {
-      console.warn("[playlist-dnd] sidebar-item-drop:blocked", {
-        hasTrack: track != null,
-        playlistId: item.playlistId,
-        kind: item.kind,
-        x: event.clientX,
-        y: event.clientY,
-        types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
-      });
+      // console.warn("[playlist-dnd] sidebar-item-drop:blocked", {
+      // hasTrack: track != null,
+      // playlistId: item.playlistId,
+      // kind: item.kind,
+      // x: event.clientX,
+      // y: event.clientY,
+      // types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [],
+      // });
       return;
     }
 
-    console.log("[playlist-dnd] sidebar-item-drop", {
-      playlistId: item.playlistId,
-      playlistTitle: item.title,
-      trackPath: track.path,
-      x: event.clientX,
-      y: event.clientY,
-    });
+    // console.log("[playlist-dnd] sidebar-item-drop", {
+    // playlistId: item.playlistId,
+    // playlistTitle: item.title,
+    // trackPath: track.path,
+    // x: event.clientX,
+    // y: event.clientY,
+    // });
     event.preventDefault();
     sidebarDropTargetPlaylistId.value = item.playlistId;
 
@@ -3581,7 +3917,7 @@ export function useAppLogic() {
       await loadPlaylists();
       closePlaylistRenameModal();
     } catch (error) {
-      console.error("No se pudo renombrar la playlist:", error);
+      // console.error("No se pudo renombrar la playlist:", error);
     }
   };
 
@@ -3623,7 +3959,7 @@ export function useAppLogic() {
         });
       }
     } catch (error) {
-      console.error("No se pudo eliminar la playlist:", error);
+      // console.error("No se pudo eliminar la playlist:", error);
     }
   };
 
@@ -3683,7 +4019,7 @@ export function useAppLogic() {
 
     playlist.value.forEach((track) => {
       const album = getLibraryTrackAlbum(track);
-      if (!album || album === "—") return;
+      if (!album || album === "â€”") return;
 
       const artist =
         getLibraryTrackMetadata(track)?.album_artist ||
@@ -3718,17 +4054,17 @@ export function useAppLogic() {
     return playlist.value.filter((t) => {
       // Obtenemos los artistas de la pista y los dividimos en un arreglo
       const trackArtists = splitArtists(getLibraryTrackArtist(t));
-      // Retornamos true si el artista que estamos viendo ESTÁ INCLUIDO en ese arreglo
+      // Retornamos true si el artista que estamos viendo ESTÃ INCLUIDO en ese arreglo
       return trackArtists.includes(activeArtistView.value!);
     });
   });
 
-  // Computado: Álbumes únicos del artista actual con su carátula
+  // Computado: Ãlbumes Ãºnicos del artista actual con su carÃ¡tula
   const activeArtistAlbums = computed(() => {
     const albumsMap = new Map<string, string | null>();
     activeArtistTracks.value.forEach((t) => {
       const al = getLibraryTrackAlbum(t);
-      if (al && al !== "—" && !albumsMap.has(al)) {
+      if (al && al !== "â€”" && !albumsMap.has(al)) {
         albumsMap.set(al, getLibraryTrackCover(t));
       }
     });
@@ -3738,7 +4074,7 @@ export function useAppLogic() {
     }));
   });
 
-  // Computado: Canciones del álbum actual
+  // Computado: Canciones del Ã¡lbum actual
   const activePlaylist = computed(() => {
     if (activePlaylistViewId.value == null) return null;
     return (
@@ -3780,8 +4116,8 @@ export function useAppLogic() {
     }
   };
 
-  // CACHÉ DE ALTO RENDIMIENTO: Mapa indexado de toda la biblioteca por ruta
-  // Esto hace que las búsquedas pasen de O(N) a O(1), eliminando el lag en listas grandes.
+  // CACHÃ‰ DE ALTO RENDIMIENTO: Mapa indexado de toda la biblioteca por ruta
+  // Esto hace que las bÃºsquedas pasen de O(N) a O(1), eliminando el lag en listas grandes.
   const libraryTrackMap = computed(() => {
     const map = new Map<string, PlaylistTrack>();
     for (const t of playlist.value) {
@@ -3836,7 +4172,9 @@ export function useAppLogic() {
   });
 
   const isActivePlaylistPlaying = computed(() => {
-    if (!activePlaylist.value || !filePath.value) return false;
+    if (!activePlaylist.value || !filePath.value || !isPlaying.value) {
+      return false;
+    }
 
     return (
       activePlaylistTracks.value.some(
@@ -3929,19 +4267,19 @@ export function useAppLogic() {
     const albumArtist =
       activeAlbumArtistView.value?.trim().toLowerCase() ?? null;
 
-    // 1. Filtramos las canciones que pertenecen a este álbum
+    // 1. Filtramos las canciones que pertenecen a este Ã¡lbum
     const tracks = playlist.value.filter((t) => {
       if (getLibraryTrackAlbum(t) !== activeAlbumView.value) return false;
       if (!albumArtist) return true;
       return getAlbumArtistForTrack(t).trim().toLowerCase() === albumArtist;
     });
 
-    // 2. Ordenamos por el número de pista
+    // 2. Ordenamos por el nÃºmero de pista
     return tracks.sort((a, b) => {
       const metaA = getLibraryTrackMetadata(a);
       const metaB = getLibraryTrackMetadata(b);
 
-      // Si alguna canción no tiene metadata o track_number, la mandamos al final (9999)
+      // Si alguna canciÃ³n no tiene metadata o track_number, la mandamos al final (9999)
       const numA = metaA?.track_number ?? 9999;
       const numB = metaB?.track_number ?? 9999;
 
@@ -3949,7 +4287,7 @@ export function useAppLogic() {
     });
   });
 
-  // ====== METADATA PARA LA VISTA DE ÁLBUM TIPO SPOTIFY ======
+  // ====== METADATA PARA LA VISTA DE ÃLBUM TIPO SPOTIFY ======
   const activeAlbumCover = computed(() => {
     if (!activeAlbumTracks.value.length) return null;
     return getLibraryTrackCover(activeAlbumTracks.value[0]);
@@ -3995,10 +4333,10 @@ export function useAppLogic() {
     const activeP = activePlaylist.value;
     if (!activeP) return [];
 
-    // Accedemos al contador para que sea reactivo al botón "Refrescar"
+    // Accedemos al contador para que sea reactivo al botÃ³n "Refrescar"
     void recommendationRefreshCounter.value;
 
-    // 1. Excluir tracks que ya están en la playlist activa
+    // 1. Excluir tracks que ya estÃ¡n en la playlist activa
     const currentPaths = new Set(activeP.trackPaths);
     const availableTracks = playlist.value.filter(
       (t) => !currentPaths.has(t.path),
@@ -4006,13 +4344,13 @@ export function useAppLogic() {
 
     const query = emptyPlaylistSearch.value.trim();
     if (query) {
-      // Si hay búsqueda, devolvemos resultados de búsqueda filtrando los ya presentes
+      // Si hay bÃºsqueda, devolvemos resultados de bÃºsqueda filtrando los ya presentes
       return getTracksForSearchQuery(query)
         .filter((t) => !currentPaths.has(t.path))
         .slice(0, 10);
     }
 
-    // 2. Recomendaciones Inteligentes (si no hay búsqueda)
+    // 2. Recomendaciones Inteligentes (si no hay bÃºsqueda)
     let recommendations: PlaylistTrack[] = [];
 
     // A. Basado en Artistas ya presentes en la playlist
@@ -4027,7 +4365,7 @@ export function useAppLogic() {
       );
     }
 
-    // B. Aleatorización para que no siempre salgan los mismos (Fallback)
+    // B. AleatorizaciÃ³n para que no siempre salgan los mismos (Fallback)
     // Usamos una semilla simple basada en el tiempo o solo shuffle
     const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
 
@@ -4037,7 +4375,7 @@ export function useAppLogic() {
     return finalResults.slice(0, 10);
   });
 
-  // Función para reproducir el álbum completo desde la primera canción
+  // FunciÃ³n para reproducir el Ã¡lbum completo desde la primera canciÃ³n
   const playAlbum = async () => {
     if (!activeAlbumTracks.value.length) return;
 
@@ -4287,7 +4625,7 @@ export function useAppLogic() {
     return false;
   };
 
-  // ESTE ES EL COMPUTADO MÁGICO: Reemplazará a `filteredPlaylist` en tu v-for del template
+  // ESTE ES EL COMPUTADO MÃGICO: ReemplazarÃ¡ a `filteredPlaylist` en tu v-for del template
   const displayedTracks = computed(() => {
     let tracks = [];
     if (currentViewMode.value === "artist") tracks = activeArtistTracks.value;
@@ -4297,7 +4635,7 @@ export function useAppLogic() {
       tracks = activePlaylistTracks.value;
     else tracks = filteredPlaylist.value;
 
-    // Aplicar búsqueda incluso dentro de la vista de artista o álbum
+    // Aplicar bÃºsqueda incluso dentro de la vista de artista o Ã¡lbum
     if (normalizedLibrarySearch.value) {
       return tracks.filter((track) => {
         const base = normalizeSearchValue(
@@ -4315,7 +4653,7 @@ export function useAppLogic() {
     }
 
     if (currentViewMode.value === "album" && activeAlbumView.value) {
-      return `Buscar en el álbum ${activeAlbumView.value}...`;
+      return `Buscar en el Ã¡lbum ${activeAlbumView.value}...`;
     }
 
     if (currentViewMode.value === "playlist" && activePlaylist.value) {
@@ -4427,7 +4765,7 @@ export function useAppLogic() {
     }
   };
 
-  // ====== ESTADO Y LÓGICA PARA LETRAS ======
+  // ====== ESTADO Y LÃ“GICA PARA LETRAS ======
   const isLyricsMode = ref(false);
 
   const parsedLyrics = ref<ParsedLyric[]>([]);
@@ -4479,7 +4817,7 @@ export function useAppLogic() {
     (value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .replace(/['’`´]/g, "")
+      .replace(/['â€™`Â´]/g, "")
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim()
       .toLowerCase();
@@ -4585,7 +4923,7 @@ export function useAppLogic() {
     return {
       query,
       title: getTrackDisplayTitle(track),
-      subtitle: `Cancion â€¢ ${getLibraryTrackArtist(track)}`,
+      subtitle: `Canción • ${getLibraryTrackArtist(track)}`,
       cover: getLibraryTrackCover(track),
       kind: "song",
     };
@@ -4691,7 +5029,7 @@ export function useAppLogic() {
       return {
         query,
         title: getTrackDisplayTitle(track),
-        subtitle: `Cancion • ${getLibraryTrackArtist(track)}`,
+        subtitle: `Canción • ${getLibraryTrackArtist(track)}`,
         cover: getLibraryTrackCover(track),
         kind: "song",
         entityKey: `song:${track.path.toLowerCase()}`,
@@ -4943,7 +5281,7 @@ export function useAppLogic() {
   };
 
   const goToRecentSearchAlbum = (album: string, artist?: string | null) => {
-    if (!album || album === "—") return;
+    if (!album || album === "â€”") return;
     closeGlobalSearchPopover();
     clearGlobalSearchState();
     navigateToView({
@@ -5098,7 +5436,7 @@ export function useAppLogic() {
         getLibraryTrackArtist(track),
         getLibraryTrackAlbum(track),
       ].forEach((value) => {
-        if (!value || value === "—") return;
+        if (!value || value === "â€”") return;
         const lower = value.toLowerCase();
         if (lower.includes(normalized)) {
           options.add(value);
@@ -5334,7 +5672,7 @@ export function useAppLogic() {
     return {
       title: row.title || "Sin título",
       artist: row.artist || "Artista desconocido",
-      album: row.album || "—",
+      album: row.album || "â€”",
       album_artist: row.album_artist || row.artist || "Artista desconocido",
       year: row.year || null,
       duration_seconds: Number(row.duration_seconds || 0),
@@ -5348,11 +5686,11 @@ export function useAppLogic() {
   const createFallbackLibraryMetadata = (
     track: PlaylistTrack,
   ): LibraryTrackMetadata => ({
-    title: track.fileName || "Sin título",
+    title: track.fileName || "Sin tÃ­tulo",
     artist: "Artista desconocido",
-    album: "—",
+    album: "â€”",
     duration_seconds: 0,
-    duration_formatted: "—",
+    duration_formatted: "â€”",
     cover_art: null,
   });
 
@@ -5373,8 +5711,8 @@ export function useAppLogic() {
     }
 
     try {
-      console.log("[Library][sync:start]", {
-        directories: musicDirectories.value.length,
+      console.log("[LibraryDebug][sync:start]", {
+        directories: musicDirectories.value,
         currentPlaylistSize: playlist.value.length,
       });
       const tracks: PlaylistTrack[] = await invoke("scan_directories", {
@@ -5382,6 +5720,10 @@ export function useAppLogic() {
       });
 
       playlist.value = tracks;
+      console.log("[LibraryDebug][sync:tracks]", {
+        count: tracks.length,
+        sample: tracks.slice(0, 10).map((track) => track.path),
+      });
 
       // limpiar metadata de archivos que ya no existen
       const validPaths = new Set(tracks.map((t) => t.path));
@@ -5441,15 +5783,15 @@ export function useAppLogic() {
           startAt: 0,
         });
       }
-      console.log("[Library][sync:end]", {
+      console.log("[LibraryDebug][sync:end]", {
         tracks: tracks.length,
         durationMs: Math.round(performance.now() - syncStartedAt),
       });
     } catch (error) {
-      console.error("Error al sincronizar la biblioteca:", error);
-      console.error("[Library][sync:error]", {
+      console.error("[LibraryDebug][sync:error]", {
         durationMs: Math.round(performance.now() - syncStartedAt),
         error,
+        directories: musicDirectories.value,
       });
     }
   };
@@ -5467,6 +5809,8 @@ export function useAppLogic() {
         librarySyncQueued = false;
         await runLibrarySync();
       } while (librarySyncQueued);
+
+      await loadPlaylists();
     } finally {
       librarySyncInFlight = false;
     }
@@ -5475,21 +5819,21 @@ export function useAppLogic() {
   const scheduleLibrarySync = (delay = 2500) => {
     if (librarySyncTimer != null) {
       window.clearTimeout(librarySyncTimer);
-      console.log("[Library][sync:coalesce]", {
-        delay,
-      });
+      // console.log("[Library][sync:coalesce]", {
+      // delay,
+      // });
     }
 
     librarySyncTimer = window.setTimeout(() => {
       librarySyncTimer = null;
-      console.log("[Library][sync:scheduled]", {
-        delay,
-      });
+      // console.log("[Library][sync:scheduled]", {
+      // delay,
+      // });
       void syncLibrary();
     }, delay);
   };
 
-  const añadirRutaMusica = async () => {
+  const anadirRutaMusica = async () => {
     try {
       const selected = await open({
         multiple: true,
@@ -5514,7 +5858,7 @@ export function useAppLogic() {
         directories: musicDirectories.value,
       });
     } catch (error) {
-      console.error("Error al seleccionar carpeta:", error);
+      // console.error("Error al seleccionar carpeta:", error);
     }
   };
 
@@ -5536,7 +5880,7 @@ export function useAppLogic() {
         directories: musicDirectories.value,
       });
     } catch (error) {
-      console.error("Error al quitar carpeta:", error);
+      // console.error("Error al quitar carpeta:", error);
     }
   };
 
@@ -5566,7 +5910,7 @@ export function useAppLogic() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Seleccionar Carpeta para Carátulas",
+      title: "Seleccionar Carpeta para CarÃ¡tulas",
     });
     if (selected) {
       customCoversPath.value = selected as string;
@@ -5583,7 +5927,7 @@ export function useAppLogic() {
         directories: musicDirectories.value,
       });
     } catch (error) {
-      console.error("Error al limpiar carpetas:", error);
+      // console.error("Error al limpiar carpetas:", error);
     }
   };
 
@@ -5712,7 +6056,7 @@ export function useAppLogic() {
     switch (currentPlaybackContext.value.kind) {
       case "album":
         return Boolean(
-          displayAlbum.value && displayAlbum.value !== "Ãlbum desconocido",
+          displayAlbum.value && displayAlbum.value !== "Álbum desconocido",
         );
       case "artist":
         return Boolean(
@@ -5804,14 +6148,14 @@ export function useAppLogic() {
     const n = metadata.value?.track_number?.trim();
     const total = metadata.value?.track_total?.trim();
     if (n && total) return `${n}/${total}`;
-    return n || total || "—";
+    return n || total || "â€”";
   });
 
   const discLabel = computed(() => {
     const n = metadata.value?.disc_number?.trim();
     const total = metadata.value?.disc_total?.trim();
     if (n && total) return `${n}/${total}`;
-    return n || total || "—";
+    return n || total || "â€”";
   });
 
   const visibleCurrentTime = computed(() => {
@@ -6077,6 +6421,21 @@ export function useAppLogic() {
     );
   };
 
+  const normalizeTrackSearch = (text: string) => {
+    if (!text) return "";
+    return text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Quitar tildes
+      .replace(/[^a-z0-9]/g, "") // Solo alfanumÃ©rico
+      .trim();
+  };
+
+  const getTrackFingerprint = (title: string, artist: string) => {
+    const artistStr = Array.isArray(artist) ? artist.join(", ") : artist;
+    return `${normalizeTrackSearch(title)}_${normalizeTrackSearch(artistStr)}`;
+  };
+
   const pendingSpotifySyncs = ref<
     {
       playlistId: number;
@@ -6085,21 +6444,34 @@ export function useAppLogic() {
       removedTracks: any[];
       spotifyUrl?: string | null;
       remoteIds?: string[];
+      remoteInstanceKeys?: string[];
+      remoteSnapshotId?: string | null;
+      isDeepMode?: boolean;
+      isScanning?: boolean;
+      isForcedFromUpToDate?: boolean;
     }[]
   >([]);
 
   const selectedRemovedTracks = ref<string[]>([]); // Rutas seleccionadas para borrar
+  const selectedNewTracks = ref<string[]>([]); // IDs de Spotify seleccionados para descargar
+  const selectedRemovedTracksSet = computed(
+    () => new Set(selectedRemovedTracks.value),
+  );
+  const selectedNewTracksSet = computed(() => new Set(selectedNewTracks.value));
+  const isBulkSelectingNewTracks = ref(false);
+  const isBulkSelectingRemovedTracks = ref(false);
   const sessionDismissedNuevas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks nuevas descartadas
   const sessionDismissedBajas = ref<Record<number, string>>({}); // PlaylistId -> Hash de tracks eliminadas descartadas
-  const spotifySyncLastChecked = ref<Record<number, number>>({}); // PlaylistId -> Timestamp de último chequeo exitoso
-  let syncCheckTimeout: any = null; // Timer para el debounce de navegación
-  let currentActiveSyncId: number | null = null; // ID ÚNICO para cancelar procesos en vuelo instantáneamente
+  const spotifySyncLastChecked = ref<Record<number, number>>({}); // PlaylistId -> Timestamp de Ãºltimo chequeo exitoso
+  let syncCheckTimeout: any = null; // Timer para el debounce de navegaciÃ³n
+  let currentActiveSyncId: number | null = null; // ID ÃšNICO para cancelar procesos en vuelo instantÃ¡neamente
 
   const isSyncDownloading = ref(false); // Indica si hay una descarga masiva en curso en el modal
-  const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con éxito
-  const isManualSyncing = ref<number | null>(null); // ID de la playlist que se está sincronizando manualmente
+  const isSyncSuccess = ref<number | null>(null); // Indica el ID de la playlist que acaba de sincronizarse con Ã©xito
+  const isManualSyncing = ref<number | null>(null); // ID de la playlist que se estÃ¡ sincronizando manualmente
+  const isSpotifyOrdering = ref<number | null>(null); // ID de la playlist que se estÃ¡ reordenando manualmente
 
-  // Obtiene el estado de sincronización de la playlist activa actualmente
+  // Obtiene el estado de sincronizaciÃ³n de la playlist activa actualmente
   const activePlaylistSync = computed(() => {
     if (!activePlaylist.value) return null;
     return (
@@ -6109,8 +6481,106 @@ export function useAppLogic() {
     );
   });
 
+  const activePendingSpotifySync = computed(
+    () => pendingSpotifySyncs.value[0] || null,
+  );
+
+  const activePendingNewTrackIds = computed(
+    () =>
+      activePendingSpotifySync.value?.newTracks.map((track) => track.id) || [],
+  );
+
+  const activePendingRemovedTrackPaths = computed(
+    () =>
+      activePendingSpotifySync.value?.removedTracks.map(
+        (track) => track.path,
+      ) || [],
+  );
+  const syncNewTracksListRef = ref<HTMLElement | null>(null);
+  const syncRemovedTracksListRef = ref<HTMLElement | null>(null);
+  const syncNewTracksScrollTop = ref(0);
+  const syncRemovedTracksScrollTop = ref(0);
+  const syncNewTracksViewportHeight = ref(520);
+  const syncRemovedTracksViewportHeight = ref(520);
+  const SYNC_TRACK_LIST_OVERSCAN = 8;
+  const SYNC_NEW_TRACK_ROW_HEIGHT = 72;
+  const SYNC_REMOVED_TRACK_ROW_HEIGHT = 72;
+
+  const updateSyncVirtualListMetrics = (
+    listRef: typeof syncNewTracksListRef,
+    scrollTopRef: typeof syncNewTracksScrollTop,
+    viewportHeightRef: typeof syncNewTracksViewportHeight,
+    element?: HTMLElement | null,
+  ) => {
+    const target = element || listRef.value;
+    if (!target) return;
+    scrollTopRef.value = target.scrollTop;
+    viewportHeightRef.value = target.clientHeight || 520;
+  };
+
+  const onSyncNewTracksScroll = (event: Event) => {
+    updateSyncVirtualListMetrics(
+      syncNewTracksListRef,
+      syncNewTracksScrollTop,
+      syncNewTracksViewportHeight,
+      event.target as HTMLElement,
+    );
+  };
+
+  const onSyncRemovedTracksScroll = (event: Event) => {
+    updateSyncVirtualListMetrics(
+      syncRemovedTracksListRef,
+      syncRemovedTracksScrollTop,
+      syncRemovedTracksViewportHeight,
+      event.target as HTMLElement,
+    );
+  };
+
+  const buildVirtualTrackWindow = <T>(
+    tracks: T[],
+    scrollTop: number,
+    viewportHeight: number,
+    rowHeight: number,
+  ) => {
+    const safeViewportHeight = Math.max(viewportHeight, rowHeight);
+    const startIndex = Math.max(
+      0,
+      Math.floor(scrollTop / rowHeight) - SYNC_TRACK_LIST_OVERSCAN,
+    );
+    const visibleCount =
+      Math.ceil(safeViewportHeight / rowHeight) + SYNC_TRACK_LIST_OVERSCAN * 2;
+    const endIndex = Math.min(tracks.length, startIndex + visibleCount);
+
+    return {
+      items: tracks.slice(startIndex, endIndex).map((track, localIndex) => ({
+        track,
+        index: startIndex + localIndex,
+      })),
+      topPadding: startIndex * rowHeight,
+      bottomPadding: Math.max(0, (tracks.length - endIndex) * rowHeight),
+    };
+  };
+
+  const virtualNewTracksWindow = computed(() =>
+    buildVirtualTrackWindow(
+      activePendingSpotifySync.value?.newTracks || [],
+      syncNewTracksScrollTop.value,
+      syncNewTracksViewportHeight.value,
+      SYNC_NEW_TRACK_ROW_HEIGHT,
+    ),
+  );
+
+  const virtualRemovedTracksWindow = computed(() =>
+    buildVirtualTrackWindow(
+      activePendingSpotifySync.value?.removedTracks || [],
+      syncRemovedTracksScrollTop.value,
+      syncRemovedTracksViewportHeight.value,
+      SYNC_REMOVED_TRACK_ROW_HEIGHT,
+    ),
+  );
+
   const toggleRemovedTrackSelection = (path: string) => {
-    if (selectedRemovedTracks.value.includes(path)) {
+    if (selectedRemovedTracksSet.value.has(path)) {
       selectedRemovedTracks.value = selectedRemovedTracks.value.filter(
         (p) => p !== path,
       );
@@ -6118,6 +6588,299 @@ export function useAppLogic() {
       selectedRemovedTracks.value.push(path);
     }
   };
+
+  const toggleNewTrackSelection = (trackId: string) => {
+    if (selectedNewTracksSet.value.has(trackId)) {
+      selectedNewTracks.value = selectedNewTracks.value.filter(
+        (id) => id !== trackId,
+      );
+    } else {
+      selectedNewTracks.value.push(trackId);
+    }
+  };
+
+  const setAllNewTracksSelection = async (
+    trackIds: string[],
+    select: boolean,
+  ) => {
+    if (isBulkSelectingNewTracks.value) return;
+
+    const nextSelection = select ? trackIds : [];
+    const currentSelection = selectedNewTracks.value;
+    const isSameSelection =
+      currentSelection.length === nextSelection.length &&
+      currentSelection.every(
+        (trackId, index) => trackId === nextSelection[index],
+      );
+
+    if (isSameSelection) return;
+
+    isBulkSelectingNewTracks.value = true;
+    try {
+      await nextTick();
+      await waitForNextPaint();
+
+      if (select) {
+        selectedNewTracks.value = [...trackIds];
+      } else {
+        selectedNewTracks.value = [];
+      }
+
+      await nextTick();
+      await waitForNextPaint();
+    } finally {
+      isBulkSelectingNewTracks.value = false;
+    }
+  };
+
+  const setAllRemovedTracksSelection = async (
+    paths: string[],
+    select: boolean,
+  ) => {
+    if (isBulkSelectingRemovedTracks.value) return;
+
+    const nextSelection = select ? paths : [];
+    const currentSelection = selectedRemovedTracks.value;
+    const isSameSelection =
+      currentSelection.length === nextSelection.length &&
+      currentSelection.every((path, index) => path === nextSelection[index]);
+
+    if (isSameSelection) return;
+
+    isBulkSelectingRemovedTracks.value = true;
+    try {
+      await nextTick();
+      await waitForNextPaint();
+
+      if (select) {
+        selectedRemovedTracks.value = [...paths];
+      } else {
+        selectedRemovedTracks.value = [];
+      }
+
+      await nextTick();
+      await waitForNextPaint();
+    } finally {
+      isBulkSelectingRemovedTracks.value = false;
+    }
+  };
+
+  const isNewTrackSelected = (trackId: string) =>
+    selectedNewTracksSet.value.has(trackId);
+
+  const isRemovedTrackSelected = (path: string) =>
+    selectedRemovedTracksSet.value.has(path);
+
+  const areAllNewTracksSelected = (trackIds: string[]) =>
+    trackIds.length > 0 &&
+    trackIds.every((trackId) => selectedNewTracksSet.value.has(trackId));
+
+  const areAllRemovedTracksSelected = (paths: string[]) =>
+    paths.length > 0 &&
+    paths.every((path) => selectedRemovedTracksSet.value.has(path));
+
+  const reorderPlaylistToRemoteOrder = async (
+    playlistId: number,
+    playlistName: string,
+    currentTrackPaths: string[],
+    rawTracks: any[],
+    localTracksWithMeta: { path: string; meta: any }[],
+  ) => {
+    if (currentTrackPaths.length <= 1 || rawTracks.length === 0) {
+      // console.log("[SpotifyOrder] Reorder skipped: insufficient data.", {
+      // playlistId,
+      // playlistName,
+      // localCount: currentTrackPaths.length,
+      // remoteCount: rawTracks.length,
+      // });
+      return false;
+    }
+
+    const localTrackByPath = new Map(
+      localTracksWithMeta.map((track) => [track.path, track]),
+    );
+    const queuedLocalPathsBySpotifyId = new Map<string, string[]>();
+    const queuedLocalPathsByFingerprint = new Map<string, string[]>();
+    for (const localTrack of localTracksWithMeta) {
+      const spotifyId = localTrack.meta.spotify_id;
+      const fingerprint = getTrackFingerprint(
+        localTrack.meta.title || "",
+        localTrack.meta.artist || "",
+      );
+      if (spotifyId) {
+        const queue = queuedLocalPathsBySpotifyId.get(spotifyId) || [];
+        queue.push(localTrack.path);
+        queuedLocalPathsBySpotifyId.set(spotifyId, queue);
+      }
+      if (fingerprint) {
+        const queue = queuedLocalPathsByFingerprint.get(fingerprint) || [];
+        queue.push(localTrack.path);
+        queuedLocalPathsByFingerprint.set(fingerprint, queue);
+      }
+    }
+
+    const remoteOrderedPaths: string[] = [];
+    const matchedRemoteDebug: Array<{
+      index: number;
+      spotifyId: string | null;
+      title: string;
+      artist: string;
+      localPath: string | null;
+      matchType: "spotify_id" | "fingerprint" | "unmatched";
+    }> = [];
+    for (const remoteTrack of rawTracks) {
+      const spotifyId =
+        remoteTrack.id || remoteTrack.spotify_id || remoteTrack.track_id;
+      const remoteFingerprint = getTrackFingerprint(
+        remoteTrack.name || remoteTrack.track_name || remoteTrack.title || "",
+        remoteTrack.artists || remoteTrack.artist_name || "",
+      );
+      let nextPath: string | undefined;
+      let matchType: "spotify_id" | "fingerprint" | "unmatched" = "unmatched";
+      if (spotifyId) {
+        const queue = queuedLocalPathsBySpotifyId.get(spotifyId);
+        nextPath = queue?.shift();
+        if (nextPath) matchType = "spotify_id";
+      }
+      if (!nextPath && remoteFingerprint) {
+        const queue = queuedLocalPathsByFingerprint.get(remoteFingerprint);
+        nextPath = queue?.shift();
+        if (nextPath) matchType = "fingerprint";
+      }
+      matchedRemoteDebug.push({
+        index: matchedRemoteDebug.length,
+        spotifyId: spotifyId || null,
+        title:
+          remoteTrack.name ||
+          remoteTrack.track_name ||
+          remoteTrack.title ||
+          "Unknown Title",
+        artist:
+          remoteTrack.artists || remoteTrack.artist_name || "Unknown Artist",
+        localPath: nextPath || null,
+        matchType,
+      });
+      if (nextPath) {
+        remoteOrderedPaths.push(nextPath);
+      }
+    }
+
+    const currentOrderDebug = currentTrackPaths.map((path, index) => {
+      const meta = localTrackByPath.get(path)?.meta;
+      return {
+        index,
+        spotifyId: meta?.spotify_id || null,
+        title: meta?.title || path.split(/[\\/]/).pop() || path,
+        artist: meta?.artist || null,
+        path,
+      };
+    });
+
+    const officialOrderDebug = rawTracks.map((track: any, index: number) => ({
+      index,
+      spotifyId: track.id || track.spotify_id || track.track_id || null,
+      title: track.name || track.track_name || track.title || "Unknown Title",
+      artist: track.artists || track.artist_name || "Unknown Artist",
+    }));
+
+    console.groupCollapsed(
+      `[SpotifyOrder] Playlist "${playlistName}" (#${playlistId}) comparison`,
+    );
+    // console.log("Current local order:", currentOrderDebug);
+    // console.log("Official Spotify order:", officialOrderDebug);
+    // console.log("Remote-to-local matches:", matchedRemoteDebug);
+    // console.log(
+    // "Matched local paths in Spotify order:",
+    // remoteOrderedPaths.map((path, index) => {
+    // const meta = localTrackByPath.get(path)?.meta;
+    // return {
+    // index,
+    // spotifyId: meta?.spotify_id || null,
+    // title: meta?.title || path.split(/[\\/]/).pop() || path,
+    // artist: meta?.artist || null,
+    // path,
+    // };
+    // }),
+    // );
+    console.groupEnd();
+
+    if (remoteOrderedPaths.length === 0) {
+      // console.warn(
+      // "[SpotifyOrder] Reorder failed: no local tracks matched Spotify by ID or fingerprint.",
+      // {
+      // playlistId,
+      // playlistName,
+      // },
+      // );
+      return false;
+    }
+
+    const remoteOrderedSet = new Set(remoteOrderedPaths);
+    const trailingPaths = currentTrackPaths.filter(
+      (path) => !remoteOrderedSet.has(path),
+    );
+    const desiredTrackPaths = [...remoteOrderedPaths, ...trailingPaths];
+
+    const sameOrder =
+      desiredTrackPaths.length === currentTrackPaths.length &&
+      desiredTrackPaths.every(
+        (path, index) => path === currentTrackPaths[index],
+      );
+
+    if (sameOrder) {
+      // console.log("[SpotifyOrder] Playlist already matches Spotify order.", {
+      // playlistId,
+      // playlistName,
+      // });
+      return false;
+    }
+
+    // console.log("[SpotifyOrder] Applying reordered track paths.", {
+    // playlistId,
+    // playlistName,
+    // desiredTrackPaths,
+    // trailingPaths,
+    // });
+
+    await invoke("reorder_playlist_tracks", {
+      playlistId,
+      orderedTrackPaths: desiredTrackPaths,
+    });
+
+    const playlistEntry = playlists.value.find(
+      (item) => item.id === playlistId,
+    );
+    if (playlistEntry) {
+      playlistEntry.trackPaths = [...desiredTrackPaths];
+    }
+
+    // console.log("[SpotifyOrder] Playlist reorder applied successfully.", {
+    // playlistId,
+    // playlistName,
+    // finalOrder: desiredTrackPaths,
+    // });
+
+    return true;
+  };
+
+  watch(
+    () => activePendingSpotifySync.value?.playlistId ?? null,
+    async () => {
+      syncNewTracksScrollTop.value = 0;
+      syncRemovedTracksScrollTop.value = 0;
+      await nextTick();
+      updateSyncVirtualListMetrics(
+        syncNewTracksListRef,
+        syncNewTracksScrollTop,
+        syncNewTracksViewportHeight,
+      );
+      updateSyncVirtualListMetrics(
+        syncRemovedTracksListRef,
+        syncRemovedTracksScrollTop,
+        syncRemovedTracksViewportHeight,
+      );
+    },
+  );
 
   let isSpotifyCheckInFlight = false;
 
@@ -6127,81 +6890,106 @@ export function useAppLogic() {
     if (syncedPlaylists.length === 0) return;
 
     isSpotifyCheckInFlight = true;
-    console.log(`[DEBUG][Sync] Global mass check START for ${syncedPlaylists.length} playlists.`);
+    // console.log(
+    //   `[DEBUG][Sync] Global mass check START for ${syncedPlaylists.length} playlists.`,
+    // );
 
     for (const p of syncedPlaylists) {
-      // Si el usuario está sincronizando algo manualmente, pausamos el loop global para dar prioridad
+      // Si el usuario estÃ¡ sincronizando algo manualmente, pausamos el loop global para dar prioridad
       if (isManualSyncing.value !== null) {
-        console.log(`[DEBUG][Sync] Global loop paused: manual sync in progress.`);
+        // console.log(
+        //   `[DEBUG][Sync] Global loop paused: manual sync in progress.`,
+        // );
         break;
       }
-      
-      // OPTIMIZACIÓN: Dejamos un respiro de 200ms entre cada playlist para no saturar el canal de Tauri
-      await new Promise(resolve => setTimeout(resolve, 200)); 
-      
-      // Si el usuario navegó a otra playlist, abortamos el loop global para no causar lag
-      // El loop se retomará en el próximo ciclo automático.
+
+      // OPTIMIZACIÃ“N: Dejamos un respiro de 200ms entre cada playlist para no saturar el canal de Tauri
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Si el usuario navegÃ³ a otra playlist, abortamos el loop global para no causar lag
+      // El loop se retomarÃ¡ en el prÃ³ximo ciclo automÃ¡tico.
       await checkSpecificSpotifyPlaylist(p.id, false);
     }
     isSpotifyCheckInFlight = false;
-    console.log(`[DEBUG][Sync] Global mass check FINISHED.`);
+    // console.log(`[DEBUG][Sync] Global mass check FINISHED.`);
   };
 
   const checkSpecificSpotifyPlaylist = async (
     playlistId: number,
-    forceState = true,
+    forceState = false,
+    ignoreHistory = false,
+    wasUpToDate = false,
   ): Promise<boolean> => {
     const p = playlists.value.find((item) => item.id === playlistId);
     if (!p || !p.spotifyUrl) return false;
 
-    // Token de sesión local para este cierre (clousure) específico
+    // Token de sesiÃ³n local para este cierre (clousure) especÃ­fico
     const thisSessionToken = playlistId;
     if (forceState) currentActiveSyncId = thisSessionToken;
 
     // ESTRATEGIA DE THROTTLING INTELIGENTE:
-    // Manual/Navegación: 30 segundos de gracia para ser inmediato.
-    // Automático (Background): 10 minutos para ahorrar batería/red.
     const now = Date.now();
     const lastCheck = spotifySyncLastChecked.value[playlistId] || 0;
-    const throttleTime = forceState ? 1000 * 30 : 1000 * 60 * 10; 
+    const throttleTime = forceState ? 1000 * 30 : 1000 * 60 * 10;
 
     if (now - lastCheck < throttleTime) {
-      // Si ya hay un proceso manual, no lo interrumpimos, pero si es solo tiempo, salimos
       if (!forceState) return true;
     }
 
     if (pendingSpotifySyncs.value.some((s) => s.playlistId === playlistId)) {
       if (!forceState) return true;
-      pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter((s) => s.playlistId !== playlistId);
+      // Para evitar que el modal se cierre al re-escanear, solo marcamos como escaneando
+      const existing = pendingSpotifySyncs.value.find(
+        (s) => s.playlistId === playlistId,
+      );
+      if (existing) existing.isScanning = true;
     }
 
     try {
-      if (forceState) console.log(`[DEBUG][Sync] START Manual sync for ID: ${playlistId}`);
-      else console.log(`[DEBUG][Sync] START Automatic background check for ID: ${playlistId}`);
-
-      console.log(`[DEBUG][Sync] Fetching metadata for playlist "${p.name}" (ID: ${playlistId}) from URL: "${p.spotifyUrl}"`);
+      // console.log(
+      // `[DEBUG][Sync] Fetching metadata for playlist "${p.name}" (ID: ${playlistId}) from URL: "${p.spotifyUrl}"`,
+      // );
       const remoteData = await fetchSpotifyMetadataNative(p.spotifyUrl);
-      console.log(`[DEBUG][Sync] Metadata received for "${p.name}":`, remoteData);
+      // console.log(
+      // `[DEBUG][Sync] Metadata received for "${p.name}":`,
+      // remoteData,
+      // );
 
-      
-      // PAUSA TÁCTICA Y VALIDACIÓN DE MUERTE INTEGRAL
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // PAUSA TÃCTICA Y VALIDACIÃ“N DE MUERTE INTEGRAL
+      await new Promise((resolve) => setTimeout(resolve, 0));
       if (forceState && currentActiveSyncId !== thisSessionToken) return false;
-      if (!forceState && activePlaylistViewId.value !== playlistId) return false;
+      if (!forceState && activePlaylistViewId.value !== playlistId)
+        return false;
 
-      const rawTracks = remoteData ? remoteData.track_list || remoteData.tracks : null;
-      console.log(`[DEBUG][Sync] Tracks Info: Received=${rawTracks?.length || 0}, Total in Spotify=${remoteData.playlist_info?.tracks?.total}`);
+      const rawTracks = remoteData
+        ? remoteData.track_list || remoteData.tracks
+        : null;
+      // console.log(
+      // `[DEBUG][Sync] Tracks Info: Received=${rawTracks?.length || 0}, Total in Spotify=${remoteData.playlist_info?.tracks?.total}`,
+      // );
       if (!Array.isArray(rawTracks)) {
-        console.warn("[DEBUG][Sync] Playlist metadata did not contain a track array", {
-          playlistId,
-          playlistName: p.name,
-          spotifyUrl: p.spotifyUrl,
-          remoteData,
-        });
+        // console.warn(
+        // "[DEBUG][Sync] Playlist metadata did not contain a track array",
+        // {
+        // playlistId,
+        // playlistName: p.name,
+        // spotifyUrl: p.spotifyUrl,
+        // remoteData,
+        // },
+        // );
         return false;
       }
 
       const getTrackId = (t: any) => t.id || t.spotify_id || t.track_id;
+      const getTrackInstanceKey = (t: any, index: number) => {
+        const tid = getTrackId(t);
+        const addedAt = t.added_at;
+        return addedAt ? `${tid}_${addedAt}` : `${tid}_legacy_${index}`;
+      };
+
+      const remoteInstanceKeys = rawTracks
+        .map((t: any, i: number) => getTrackInstanceKey(t, i))
+        .filter((k: string) => !!k);
       const remoteIds = rawTracks.map(getTrackId).filter((id) => !!id);
 
       const localTracksWithMeta = p.trackPaths
@@ -6210,70 +6998,156 @@ export function useAppLogic() {
 
       if (forceState && currentActiveSyncId !== thisSessionToken) return false;
 
+      const remoteSnapshotId = remoteData.playlist_info?.snapshot_id;
+      const localSnapshotId = p.lastSnapshotId;
+
       const localTrackIds = localTracksWithMeta
         .map((x) => x.meta.spotify_id)
         .filter((id): id is string => id != null);
-
-      let syncState: { synced?: string[]; ignoredRemovals?: string[] } = { synced: [], ignoredRemovals: [] };
+      let syncState: {
+        synced?: string[];
+        ignoredRemovals?: string[];
+        lastSnapshotId?: string | null;
+      } = { synced: [], ignoredRemovals: [] };
       try {
-        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        if (Array.isArray(parsed)) syncState.synced = parsed; else syncState = parsed;
+        const parsed = JSON.parse(p.spotifySyncedIds || "{}");
+        if (Array.isArray(parsed)) {
+          syncState.synced = parsed;
+        } else {
+          syncState = { ...syncState, ...parsed };
+        }
       } catch (e) {}
 
-      console.log("[DEBUG][Sync] Playlist sync comparison snapshot", {
-        playlistId,
-        playlistName: p.name,
-        spotifyUrl: p.spotifyUrl,
-        rawTrackCount: rawTracks.length,
-        remoteIdsCount: remoteIds.length,
-        localTrackPathsCount: p.trackPaths.length,
-        localTracksWithMetaCount: localTracksWithMeta.length,
-        localTrackIdsCount: localTrackIds.length,
-        syncedIdsCount: (syncState.synced || []).length,
-        ignoredRemovalsCount: (syncState.ignoredRemovals || []).length,
-      });
+      if (!localSnapshotId && syncState.lastSnapshotId) {
+        p.lastSnapshotId = syncState.lastSnapshotId;
+      }
 
-      const syncedIds = syncState.synced || [];
+      // console.log("[DEBUG][Sync] Playlist sync comparison snapshot", {
+      //   playlistId,
+      //   playlistName: p.name,
+      //   spotifyUrl: p.spotifyUrl,
+      //   rawTrackCount: rawTracks.length,
+      //   remoteIdsCount: remoteIds.length,
+      //   localTrackPathsCount: p.trackPaths.length,
+      //   localTracksWithMetaCount: localTracksWithMeta.length,
+      //   localTrackIdsCount: localTrackIds.length,
+      //   syncedKeysCount: (syncState.synced || []).length,
+      //   ignoredRemovalsCount: (syncState.ignoredRemovals || []).length,
+      //   lastSnapshotId: localSnapshotId || syncState.lastSnapshotId,
+      //   remoteSnapshotId: remoteSnapshotId,
+      // });
+
+      const syncedKeys = syncState.synced || [];
       const ignoredRemovals = syncState.ignoredRemovals || [];
 
+      // BOOTSTRAP: Si es la primera vez que sincronizamos (no hay snapshot previo), marcamos todo como visto
+      const isFirstSync =
+        !localSnapshotId &&
+        !syncState.lastSnapshotId &&
+        syncedKeys.length === 0;
+      if (isFirstSync) {
+        // console.log(
+        //   `[DEBUG][Sync] BOOTSTRAP for "${p.name}". Marking all ${remoteInstanceKeys.length} items as seen.`,
+        // );
+        await acknowledgeSpotifySync(p.id, {
+          synced: remoteInstanceKeys,
+          ignoredRemovals: [],
+          lastSnapshotId: remoteSnapshotId,
+        });
+        p.lastSnapshotId = remoteSnapshotId;
+        spotifySyncLastChecked.value[playlistId] = Date.now();
+        return true;
+      }
+
       const localIdSet = new Set(localTrackIds);
-      const syncedIdSet = new Set(syncedIds);
+      const localFingerprintSet = new Set(
+        localTracksWithMeta.map((x) =>
+          getTrackFingerprint(x.meta.title, x.meta.artist),
+        ),
+      );
+      const syncedKeySet = new Set(syncedKeys);
       const newTracks = rawTracks
-        .filter((t: any) => { const tid = getTrackId(t); return tid && !localIdSet.has(tid) && !syncedIdSet.has(tid); })
-        .map((t: any) => ({
+        .map((t: any, i: number) => ({ track: t, remotePosition: i }))
+        .filter(({ track: t, remotePosition: i }) => {
+          const tid = getTrackId(t);
+          const key = getTrackInstanceKey(t, i);
+          const fingerprint = getTrackFingerprint(
+            t.name || t.track_name || t.title || "",
+            t.artists || t.artist_name || "",
+          );
+
+          // Es nueva solo si:
+          // 1. No la tenemos por ID
+          // 2. No la tenemos por "huella digital" (TÃ­tulo + Artista)
+          // 3. Y (es modo Deep o no la hemos sincronizado antes en esta sesiÃ³n)
+          return (
+            tid &&
+            !localIdSet.has(tid) &&
+            !localFingerprintSet.has(fingerprint) &&
+            (ignoreHistory || !syncedKeySet.has(key))
+          );
+        })
+        .map(({ track: t, remotePosition }) => ({
           id: getTrackId(t),
+          remotePosition,
           title: t.name || t.track_name || t.title || "Unknown Title",
           artists: t.artists || t.artist_name || "Unknown Artist",
           album: t.album_name || t.album || "Unknown Album",
-          cover: t.images || (t.album_images && t.album_images.length > 0 ? t.album_images[0].url : null),
+          cover:
+            t.images ||
+            (t.album_images && t.album_images.length > 0
+              ? t.album_images[0].url
+              : null),
+          added_at: t.added_at || null,
           release_date: t.release_date || null,
           isrc: t.isrc || (t.external_ids ? t.external_ids.isrc : null),
-          url: t.external_urls || t.track_url || t.url || `https://open.spotify.com/track/${getTrackId(t)}`,
+          url:
+            t.external_urls ||
+            t.track_url ||
+            t.url ||
+            `https://open.spotify.com/track/${getTrackId(t)}`,
         }));
 
       const remoteIdSet = new Set(remoteIds);
       const ignoredRemovalsSet = new Set(ignoredRemovals);
       const removedTracks = localTracksWithMeta
-        .filter((x) => x.meta.spotify_id && !remoteIdSet.has(x.meta.spotify_id) && !ignoredRemovalsSet.has(x.meta.spotify_id))
+        .filter(
+          (x) =>
+            x.meta.spotify_id &&
+            !remoteIdSet.has(x.meta.spotify_id) &&
+            !ignoredRemovalsSet.has(x.meta.spotify_id),
+        )
         .map((x) => ({
-          id: x.meta.spotify_id || "", title: x.meta.title || "Unknown Title", artists: x.meta.artist || "Unknown Artist", path: x.path, cover: x.meta.cover_art?.data_url || null,
+          id: x.meta.spotify_id || "",
+          title: x.meta.title || "Unknown Title",
+          artists: x.meta.artist || "Unknown Artist",
+          path: x.path,
+          cover: x.meta.cover_art?.data_url || null,
         }));
 
-      console.log("[DEBUG][Sync] Playlist diff computed", {
-        playlistId,
-        playlistName: p.name,
-        newTracksCount: newTracks.length,
-        removedTracksCount: removedTracks.length,
-        sampleNewTracks: newTracks.slice(0, 3),
-        sampleRemovedTracks: removedTracks.slice(0, 3),
-      });
+      // console.log("[DEBUG][Sync] Playlist diff computed", {
+      //   playlistId,
+      //   playlistName: p.name,
+      //   newTracksCount: newTracks.length,
+      //   removedTracksCount: removedTracks.length,
+      //   sampleNewTracks: newTracks.slice(0, 3),
+      //   sampleRemovedTracks: removedTracks.slice(0, 3),
+      // });
 
-      const isUpToDate = remoteIds.length === syncedIds.length && remoteIds.every((id) => syncedIdSet.has(id));
+      const isUpToDate =
+        remoteSnapshotId === localSnapshotId ||
+        (remoteInstanceKeys.length === syncedKeys.length &&
+          remoteInstanceKeys.every((key) => syncedKeySet.has(key)));
 
       if (newTracks.length === 0 && removedTracks.length === 0) {
         if (!isUpToDate) {
-          if (forceState && currentActiveSyncId !== thisSessionToken) return false;
-          await acknowledgeSpotifySync(p.id, { ...syncState, synced: remoteIds });
+          if (forceState && currentActiveSyncId !== thisSessionToken)
+            return false;
+          await acknowledgeSpotifySync(p.id, {
+            ...syncState,
+            synced: remoteInstanceKeys,
+            lastSnapshotId: remoteSnapshotId,
+          });
         }
         spotifySyncLastChecked.value[playlistId] = Date.now();
         return true;
@@ -6281,53 +7155,71 @@ export function useAppLogic() {
 
       if (forceState && currentActiveSyncId !== thisSessionToken) return false;
 
-      const syncObj = { playlistId: p.id, playlistName: p.name, newTracks, removedTracks, remoteIds };
-      const alreadyExistsIndex = pendingSpotifySyncs.value.findIndex((s) => s.playlistId === p.id);
+      const syncObj = {
+        playlistId: p.id,
+        playlistName: p.name,
+        newTracks,
+        removedTracks,
+        remoteInstanceKeys,
+        remoteSnapshotId,
+        isDeepMode: ignoreHistory,
+        isScanning: false,
+        isForcedFromUpToDate: wasUpToDate,
+      };
+      const alreadyExistsIndex = pendingSpotifySyncs.value.findIndex(
+        (s) => s.playlistId === p.id,
+      );
 
       if (alreadyExistsIndex === -1) {
         pendingSpotifySyncs.value = [...pendingSpotifySyncs.value, syncObj];
         selectedRemovedTracks.value = removedTracks.map((t) => t.path);
+        selectedNewTracks.value = newTracks.map((t) => t.id);
       } else {
         const newList = [...pendingSpotifySyncs.value];
         newList[alreadyExistsIndex] = syncObj;
         pendingSpotifySyncs.value = newList;
+        selectedNewTracks.value = newTracks.map((t) => t.id);
       }
       spotifySyncLastChecked.value[playlistId] = Date.now();
       return true;
     } catch (e) {
-      console.error(`[SpotifySync] Error checking ${p.name}:`, e);
-      console.error("[DEBUG][Sync] Error context for checkSpecificSpotifyPlaylist", {
-        playlistId,
-        playlistName: p.name,
-        spotifyUrl: p.spotifyUrl,
-        forceState,
-        currentActiveSyncId,
-        activePlaylistViewId: activePlaylistViewId.value,
-        spotifySyncedIds: p.spotifySyncedIds,
-        localTrackPathsCount: p.trackPaths.length,
-      });
+      // console.error(`[SpotifySync] Error checking ${p.name}:`, e);
+      // console.error(
+      // "[DEBUG][Sync] Error context for checkSpecificSpotifyPlaylist",
+      // {
+      // playlistId,
+      // playlistName: p.name,
+      // spotifyUrl: p.spotifyUrl,
+      // forceState,
+      // currentActiveSyncId,
+      // activePlaylistViewId: activePlaylistViewId.value,
+      // spotifySyncedIds: p.spotifySyncedIds,
+      // localTrackPathsCount: p.trackPaths.length,
+      // },
+      // );
       return false;
     } finally {
-      if (forceState && currentActiveSyncId === thisSessionToken) currentActiveSyncId = null;
+      if (forceState && currentActiveSyncId === thisSessionToken)
+        currentActiveSyncId = null;
     }
   };
 
   const acknowledgeSpotifySync = async (playlistId: number, state: any) => {
-    console.log(
-      `[SpotifySync][DB] Attempting to save sync state for playlist ${playlistId}...`,
-    );
+    // console.log(
+    // `[SpotifySync][DB] Attempting to save sync state for playlist ${playlistId}...`,
+    // );
     try {
       await invoke("set_playlist_synced_ids", {
         playlistId,
         syncedIdsJson: JSON.stringify(state),
       });
-      console.log(`[SpotifySync][DB] Save successful.`);
+      // console.log(`[SpotifySync][DB] Save successful.`);
 
       // Actualizamos localmente para no esperar a recargar todo
       const p = playlists.value.find((item) => item.id === playlistId);
       if (p) p.spotifySyncedIds = JSON.stringify(state);
     } catch (e) {
-      console.error(`[SpotifySync][DB] ERROR saving to database:`, e);
+      // console.error(`[SpotifySync][DB] ERROR saving to database:`, e);
     }
   };
 
@@ -6344,9 +7236,9 @@ export function useAppLogic() {
 
     // NUEVO: Procesar eliminaciones primero
     if (selectedRemovedTracks.value.length > 0) {
-      console.log(
-        `[SpotifySync] Removing ${selectedRemovedTracks.value.length} tracks from playlist "${playlistName}"...`,
-      );
+      // console.log(
+      // `[SpotifySync] Removing ${selectedRemovedTracks.value.length} tracks from playlist "${playlistName}"...`,
+      // );
       for (const path of selectedRemovedTracks.value) {
         try {
           await invoke("remove_track_from_playlist", {
@@ -6355,34 +7247,37 @@ export function useAppLogic() {
             deleteFiles: false,
           });
         } catch (e) {
-          console.error(`[SpotifySync] Error removing ${path}`, e);
+          // console.error(`[SpotifySync] Error removing ${path}`, e);
         }
       }
-      // Limpiamos selección
+      // Limpiamos selecciÃ³n
       selectedRemovedTracks.value = [];
     }
 
-    console.log(
-      `[SpotifySync] Downloading ${sync.newTracks.length} tracks for "${playlistName}"...`,
-    );
+    // console.log(
+    // `[SpotifySync] Downloading ${sync.newTracks.length} tracks for "${playlistName}"...`,
+    // );
 
     // Obtenemos todos los IDs actuales de Spotify para marcarlos como "vistos" solo al final si todo va bien
     let successIds: string[] = [];
     try {
       const p = playlists.value.find((item) => item.id === playlistId);
       if (p && p.spotifyUrl) {
-         // No marcamos como visto aquí todavía para permitir re-intentos si falla la descarga
-         console.log("[SpotifySync] Mass sync prepared.");
+        // No marcamos como visto aquÃ­ todavÃ­a para permitir re-intentos si falla la descarga
+        // console.log("[SpotifySync] Mass sync prepared.");
       }
     } catch (e) {
-      console.warn("[SpotifySync] Non-critical error during sync preparation", e);
+      // console.warn(
+      // "[SpotifySync] Non-critical error during sync preparation",
+      // e,
+      // );
     }
 
     const mainMusicDir = musicDirectories.value[0] || "";
 
     for (const track of sync.newTracks) {
       try {
-        // Petición completa con metadatos y flags de incrustación (según DownloadRequest en Go)
+        // PeticiÃ³n completa con metadatos y flags de incrustaciÃ³n (segÃºn DownloadRequest en Go)
         const request = {
           item_id: `${track.id}_${Date.now()}`,
           spotify_id: track.id,
@@ -6391,7 +7286,7 @@ export function useAppLogic() {
           album_name: track.album,
           cover_url: track.cover,
           release_date: track.release_date,
-          output_dir: mainMusicDir, // Pasamos la raíz, el bridge unirá con playlist_name solo si se le pasa
+          output_dir: mainMusicDir, // Pasamos la raÃ­z, el bridge unirÃ¡ con playlist_name solo si se le pasa
           playlist_name: sync.playlistName,
           service: "auto",
           allow_fallback: true,
@@ -6401,73 +7296,86 @@ export function useAppLogic() {
           overwrite: true,
         };
 
-        console.log("[DEBUG][Sync] applySpotifySync track request", {
-          playlistId,
-          playlistName,
-          track,
-          request,
-        });
+        // console.log("[DEBUG][Sync] applySpotifySync track request", {
+        //   playlistId,
+        //   playlistName,
+        //   track,
+        //   request,
+        // });
 
         const result = await downloadTrackNative(request);
 
         if (result && result.file) {
-          console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
+          // console.log(
+          // `[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || "unknown"}`,
+          // );
           (track as any).downloadedPath = result.file;
           successIds.push(track.id);
-          
+
           await invoke("add_track_to_playlist", {
             playlistId: sync.playlistId,
             trackPath: result.file,
-            position: null,
+            position:
+              typeof track.remotePosition === "number"
+                ? track.remotePosition
+                : null,
           });
 
-          // Forzar escaneo de metadatos para que el caché se actualice inmediatamente
+          // Forzar escaneo de metadatos para que el cachÃ© se actualice inmediatamente
           try {
             await invoke("get_library_metadata_batch", {
               paths: [result.file],
             });
           } catch (e) {
-            console.warn(
-              "[SpotifySync] Error indexing metadata for",
-              result.file,
-              e,
-            );
+            // console.warn(
+            // "[SpotifySync] Error indexing metadata for",
+            // result.file,
+            // e,
+            // );
           }
         } else {
-           console.error(`[SpotifySync] Download failed for ${track.title}:`, result);
+          // console.error(
+          // `[SpotifySync] Download failed for ${track.title}:`,
+          // result,
+          // );
         }
       } catch (e) {
-        console.error(
-          `[SpotifySync] Error during download of "${track.title}":`,
-          e,
-        );
+        // console.error(
+        // `[SpotifySync] Error during download of "${track.title}":`,
+        // e,
+        // );
       }
     }
 
-    // Al finalizar el bucle, marcamos como sincronizados los IDs remotos si hubo éxito parcial o total
-    if (sync.remoteIds && sync.remoteIds.length > 0) {
-       await acknowledgeSpotifySync(playlistId, { synced: sync.remoteIds });
+    // Al finalizar el bucle, marcamos como sincronizados los IDs remotos si hubo Ã©xito parcial o total
+    if (sync.remoteInstanceKeys && sync.remoteInstanceKeys.length > 0) {
+      await acknowledgeSpotifySync(playlistId, {
+        synced: sync.remoteInstanceKeys,
+        lastSnapshotId: (sync as any).remoteSnapshotId,
+      });
     }
 
-    // 1. Sincronización oficial de la biblioteca
+    // 1. SincronizaciÃ³n oficial de la biblioteca
     await syncLibrary();
 
     // 2. Recargar estructura de la playlist para el fondo
     await loadPlaylists();
-    
-    // 3. Verificación reactiva
+
+    // 3. VerificaciÃ³n reactiva
     let integrityVerified = false;
     let attempts = 0;
     const downloadedPaths = (sync.newTracks as any[])
-      .filter(t => t.downloadedPath)
-      .map(t => t.downloadedPath);
+      .filter((t) => t.downloadedPath)
+      .map((t) => t.downloadedPath);
 
     if (downloadedPaths.length > 0) {
       while (!integrityVerified && attempts < 20) {
-        const existingPaths = new Set(playlist.value.map(p => p.path));
-        integrityVerified = downloadedPaths.every(path => path && existingPaths.has(path));
+        const existingPaths = new Set(playlist.value.map((p) => p.path));
+        integrityVerified = downloadedPaths.every(
+          (path) => path && existingPaths.has(path),
+        );
         if (!integrityVerified) {
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise((r) => setTimeout(r, 100));
           attempts++;
         }
       }
@@ -6479,7 +7387,7 @@ export function useAppLogic() {
   };
 
   const discardSpotifySync = (playlistId: number, syncObj: any) => {
-    // ESTO ES UN DESCARTAR REAL: Silenciamos por el resto de la sesión para este hash exacto
+    // ESTO ES UN DESCARTAR REAL: Silenciamos por el resto de la sesiÃ³n para este hash exacto
     const newHash = (syncObj.newTracks || [])
       .map((t: any) => t.id)
       .sort()
@@ -6499,32 +7407,49 @@ export function useAppLogic() {
 
   const closeSyncModalSoft = (playlistId: number) => {
     // ESTO ES UN CERRAR SUAVE: No guardamos el hash, solo lo quitamos de la vista actual
-    // Al volver a entrar a la playlist o realizar un nuevo escaneo, el modal volverá a saltar
+    // Al volver a entrar a la playlist o realizar un nuevo escaneo, el modal volverÃ¡ a saltar
     pendingSpotifySyncs.value = pendingSpotifySyncs.value.filter(
       (s) => s.playlistId !== playlistId,
     );
   };
 
-  const manualForceSync = async (playlistId: number) => {
-    console.log(`[DEBUG][Sync] USER CLICKED Sync Button for ID: ${playlistId}. Setting state...`);
-    // Acción manual del usuario: Reseteamos descartes temporales para que el modal se vea sí o sí
+  const manualForceSync = async (
+    playlistId: number,
+    ignoreHistory = false,
+    wasUpToDate = false,
+  ) => {
+    // console.log(
+    //   `[DEBUG][Sync] USER CLICKED Sync Button for ID: ${playlistId}. Setting state...`,
+    // );
+    // AcciÃ³n manual del usuario: Reseteamos descartes temporales para que el modal se vea sÃ­ o sÃ­
     isManualSyncing.value = playlistId;
     isSyncSuccess.value = null;
 
     delete sessionDismissedNuevas.value[playlistId];
     delete sessionDismissedBajas.value[playlistId];
     try {
-      const success = await checkSpecificSpotifyPlaylist(playlistId);
+      const success = await checkSpecificSpotifyPlaylist(
+        playlistId,
+        true,
+        ignoreHistory,
+        wasUpToDate,
+      );
 
-      console.log(`[DEBUG][Sync] manualForceSync: Internal check finished for ID: ${playlistId}. Success=${success}`);
-      
-      // VERIFICACIÓN DE CANCELACIÓN ABSOLUTA:
+      // console.log(
+      //   `[DEBUG][Sync] manualForceSync: Internal check finished for ID: ${playlistId}. Success=${success}`,
+      // );
+
+      // VERIFICACIÃ“N DE CANCELACIÃ“N ABSOLUTA:
       if (!success || activePlaylistViewId.value !== playlistId) {
-        console.warn(`[DEBUG][Sync] manualForceSync ABORT: User navigated away or process was cancelled. (Success=${success}, CurrentView=${activePlaylistViewId.value})`);
+        // console.warn(
+        //   `[DEBUG][Sync] manualForceSync ABORT: User navigated away or process was cancelled. (Success=${success}, CurrentView=${activePlaylistViewId.value})`,
+        // );
         return;
       }
-      
-      console.log(`[DEBUG][Sync] Current view still matches. Proceding to show results.`);
+
+      // console.log(
+      //   `[DEBUG][Sync] Current view still matches. Proceding to show results.`,
+      // );
 
       const syncResult = pendingSpotifySyncs.value.find(
         (s) => s.playlistId === playlistId,
@@ -6547,6 +7472,97 @@ export function useAppLogic() {
     }
   };
 
+  const orderPlaylistFromSpotify = async (playlistId: number) => {
+    const p = playlists.value.find((item) => item.id === playlistId);
+    if (!p?.spotifyUrl || isSpotifyOrdering.value === playlistId) return false;
+
+    isSpotifyOrdering.value = playlistId;
+    try {
+      // console.log("[SpotifyOrder] Manual reorder requested.", {
+      // playlistId,
+      // playlistName: p.name,
+      // spotifyUrl: p.spotifyUrl,
+      // localTrackCount: p.trackPaths.length,
+      // });
+
+      const remoteData = await fetchSpotifyMetadataNative(p.spotifyUrl);
+      const rawTracks = remoteData
+        ? remoteData.track_list || remoteData.tracks
+        : null;
+      if (!Array.isArray(rawTracks)) {
+        // console.warn(
+        // "[SpotifySync] Could not fetch tracks for manual reorder.",
+        // {
+        // playlistId,
+        // playlistName: p.name,
+        // remoteData,
+        // },
+        // );
+        return false;
+      }
+
+      // console.log("[SpotifyOrder] Spotify metadata fetched for reorder.", {
+      // playlistId,
+      // playlistName: p.name,
+      // remoteTrackCount: rawTracks.length,
+      // snapshotId: remoteData?.playlist_info?.snapshot_id || null,
+      // });
+
+      const localTracksWithMeta = p.trackPaths
+        .map((path) => ({ path, meta: libraryMetadataMap.value[path] }))
+        .filter((x): x is { path: string; meta: any } => !!x.meta);
+
+      // console.log("[SpotifyOrder] Local metadata prepared for reorder.", {
+      // playlistId,
+      // playlistName: p.name,
+      // localTracksWithMetadata: localTracksWithMeta.length,
+      // localTracksWithoutMetadata:
+      // p.trackPaths.length - localTracksWithMeta.length,
+      // });
+
+      const didReorder = await reorderPlaylistToRemoteOrder(
+        playlistId,
+        p.name,
+        p.trackPaths,
+        rawTracks,
+        localTracksWithMeta,
+      );
+
+      if (didReorder) {
+        await loadPlaylists();
+        if (activePlaylist.value?.id === playlistId) {
+          await syncLibrary();
+        }
+        // console.log("[SpotifyOrder] Manual reorder finished successfully.", {
+        // playlistId,
+        // playlistName: p.name,
+        // });
+      } else {
+        // console.log("[SpotifyOrder] Manual reorder finished with no changes.", {
+        // playlistId,
+        // playlistName: p.name,
+        // });
+      }
+
+      return didReorder;
+    } catch (error) {
+      // console.error("[SpotifyOrder] Manual reorder failed.", {
+      // playlistId,
+      // playlistName: p.name,
+      // error,
+      // reason:
+      // error instanceof Error
+      // ? error.message
+      // : typeof error === "string"
+      // ? error
+      // : "Unknown error",
+      // });
+      return false;
+    } finally {
+      isSpotifyOrdering.value = null;
+    }
+  };
+
   const applyNewTracksSync = async (
     playlistId: number,
     tracks: any[],
@@ -6556,11 +7572,21 @@ export function useAppLogic() {
     if (!p) return;
 
     isSyncDownloading.value = true;
+    tracks.forEach((t: any) => {
+      if (selectedNewTracksSet.value.has(t.id) && t.status !== "done") {
+        t.status = "waiting";
+      }
+    });
     const mainMusicDir = musicDirectories.value[0] || "";
-    console.log("[DIAGNOSTICO] applyNewTracksSync: Start", { playlistId, tracksCount: tracks.length, mainMusicDir });
+    // console.log("[DIAGNOSTICO] applyNewTracksSync: Start", {
+    // playlistId,
+    // tracksCount: tracks.length,
+    // mainMusicDir,
+    // });
 
     for (const track of tracks) {
       if (track.status === "done") continue;
+      if (!selectedNewTracksSet.value.has(track.id)) continue;
 
       try {
         track.status = "downloading";
@@ -6582,24 +7608,35 @@ export function useAppLogic() {
           overwrite: true,
         };
 
-        console.log(`[DIAGNOSTICO] Request for "${track.title}":`, JSON.stringify(request, null, 2));
-        console.log("[DEBUG][Sync] applyNewTracksSync track request", {
-          playlistId,
-          playlistName: p.name,
-          track,
-          request,
-        });
+        // console.log(
+        //   `[DIAGNOSTICO] Request for "${track.title}":`,
+        //   JSON.stringify(request, null, 2),
+        // );
+        // console.log("[DEBUG][Sync] applyNewTracksSync track request", {
+        //   playlistId,
+        //   playlistName: p.name,
+        //   track,
+        //   request,
+        // });
 
         const result = await downloadTrackNative(request);
 
-        console.log(`[DIAGNOSTICO] Result for "${track.title}":`, JSON.stringify(result, null, 2));
+        // console.log(
+        // `[DIAGNOSTICO] Result for "${track.title}":`,
+        // JSON.stringify(result, null, 2),
+        // );
 
         if (result && result.file) {
-          console.log(`[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || 'unknown'}`);
+          // console.log(
+          // `[DIAGNOSTICO] Download SUCCESS using service: ${result.used_service || "unknown"}`,
+          // );
           await invoke("add_track_to_playlist", {
             playlistId: playlistId,
             trackPath: result.file,
-            position: null,
+            position:
+              typeof track.remotePosition === "number"
+                ? track.remotePosition
+                : null,
           });
 
           try {
@@ -6607,45 +7644,53 @@ export function useAppLogic() {
               paths: [result.file],
             });
           } catch (e) {}
-          
+
           track.downloadedPath = result.file;
-          track.status = "finishing"; 
+          track.status = "finishing";
         } else {
-          console.error(`[DIAGNOSTICO] Download FAIL for "${track.title}". Full error result:`, result);
+          // console.error(
+          // `[DIAGNOSTICO] Download FAIL for "${track.title}". Full error result:`,
+          // result,
+          // );
           track.status = "error";
         }
       } catch (e) {
-        console.error(`[DIAGNOSTICO] CRITICAL EXCEPTION downloading ${track.title}:`, e);
+        // console.error(
+        // `[DIAGNOSTICO] CRITICAL EXCEPTION downloading ${track.title}:`,
+        // e,
+        // );
         track.status = "error";
       }
     }
 
-    // 1. Sincronización oficial de la biblioteca (Metadatos)
+    // 1. SincronizaciÃ³n oficial de la biblioteca (Metadatos)
     await syncLibrary();
-    
+
     // 2. Recargar estructura de la playlist (Paths) para que el fondo se actualice YA
     await loadPlaylists();
-    
-    // 3. VERIFICACIÓN DE INTEGRIDAD RECTIVA:
-    // No confiamos en el tiempo, comprobamos que los archivos estén realmente en memoria
+
+    // 3. VERIFICACIÃ“N DE INTEGRIDAD RECTIVA:
+    // No confiamos en el tiempo, comprobamos que los archivos estÃ©n realmente en memoria
     let integrityVerified = false;
     let attempts = 0;
     while (!integrityVerified && attempts < 20) {
       const pendingPaths = tracks
-        .filter(t => t.status === "finishing")
-        .map(t => t.downloadedPath);
-        
+        .filter((t) => t.status === "finishing")
+        .map((t) => t.downloadedPath);
+
       if (pendingPaths.length === 0) {
         integrityVerified = true;
         break;
       }
 
       // Verificamos si todos los paths descargados ya existen en playlist.value
-      const existingPaths = new Set(playlist.value.map(p => p.path));
-      integrityVerified = pendingPaths.every(path => path && existingPaths.has(path));
+      const existingPaths = new Set(playlist.value.map((p) => p.path));
+      integrityVerified = pendingPaths.every(
+        (path) => path && existingPaths.has(path),
+      );
 
       if (!integrityVerified) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         attempts++;
       }
     }
@@ -6653,26 +7698,32 @@ export function useAppLogic() {
     // 3. Esperar al siguiente ciclo de pintura del navegador para asegurar el renderizado del cover
     await nextTick();
     await waitForNextPaint();
-    
-    tracks.forEach(t => {
+
+    tracks.forEach((t) => {
       if (t.status === "finishing") t.status = "done";
     });
 
-    const successfulDownloads = tracks.filter(t => t.status === "done").length;
-    const failedDownloads = tracks.filter(t => t.status === "error").length;
-    
+    const successfulDownloads = tracks.filter(
+      (t) => t.status === "done",
+    ).length;
+    const failedDownloads = tracks.filter((t) => t.status === "error").length;
+
     isSyncDownloading.value = false;
 
-    console.log(`[DIAGNOSTICO] Sync finished. Success: ${successfulDownloads}, Failed: ${failedDownloads}, Integrity Verified: ${integrityVerified}`);
+    // console.log(
+    // `[DIAGNOSTICO] Sync finished. Success: ${successfulDownloads}, Failed: ${failedDownloads}, Integrity Verified: ${integrityVerified}`,
+    // );
 
-    // Si todo salió bien (al menos intentamos todo), mostramos éxito un momento
+    // Si todo saliÃ³ bien (al menos intentamos todo), mostramos Ã©xito un momento
     if (failedDownloads === 0) {
       isSyncSuccess.value = playlistId;
     } else {
-      console.warn(`[DIAGNOSTICO] Sync had errors, NOT showing success checkmark.`);
+      // console.warn(
+      // `[DIAGNOSTICO] Sync had errors, NOT showing success checkmark.`,
+      // );
     }
 
-    // Esperamos 1.5 segundos para que el usuario vea el éxito
+    // Esperamos 1.5 segundos para que el usuario vea el Ã©xito
     setTimeout(async () => {
       // Al terminar, primero actualizamos el sync de esta playlist en el modal
       const syncIdx = pendingSpotifySyncs.value.findIndex(
@@ -6697,7 +7748,7 @@ export function useAppLogic() {
         }
       }
 
-      // SOLO AL FINAL, y tras un brevísimo respiro para que vue procese el cierre, reseteamos el éxito
+      // SOLO AL FINAL, y tras un brevÃ­simo respiro para que vue procese el cierre, reseteamos el Ã©xito
       await nextTick();
       isSyncSuccess.value = null;
     }, 1500);
@@ -6714,15 +7765,15 @@ export function useAppLogic() {
     const globalDeleteRequest = deleteSyncTracksWithFiles.value;
     const playlistName = p.name;
 
-    console.log(
-      `[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"... (Physical: ${globalDeleteRequest})`,
-    );
+    // console.log(
+    // `[SpotifySync] Removing ${trackPaths.length} tracks from "${p.name}"... (Physical: ${globalDeleteRequest})`,
+    // );
 
     for (const path of trackPaths) {
       try {
         let currentPath = path;
 
-        // NIVEL 2: RECONCILIACIÓN INTELIGENTE (BÚSQUEDA EN DISCO)
+        // NIVEL 2: RECONCILIACIÃ“N INTELIGENTE (BÃšSQUEDA EN DISCO)
         try {
           const reconciledPath = await invoke<string | null>(
             "try_reconcile_physical_path",
@@ -6735,15 +7786,15 @@ export function useAppLogic() {
             currentPath = reconciledPath;
           }
         } catch (e) {
-          console.warn("[SpotifySync] Error reconciling track:", currentPath);
+          // console.warn("[SpotifySync] Error reconciling track:", currentPath);
         }
 
-        // Si la canción borrada es la que está sonando, saltamos a la siguiente
+        // Si la canciÃ³n borrada es la que estÃ¡ sonando, saltamos a la siguiente
         if (filePath.value === currentPath && isPlaying.value) {
           await playNextTrack();
         }
 
-        // NIVEL 1: CHEQUEO DE PERTENENCIA FÍSICA (FOLDER NAME)
+        // NIVEL 1: CHEQUEO DE PERTENENCIA FÃSICA (FOLDER NAME)
         let actuallyPhysical = false;
         const normalizedPath = currentPath.replace(/\\/g, "/");
         const parts = normalizedPath.split("/");
@@ -6755,7 +7806,7 @@ export function useAppLogic() {
           }
         }
 
-        // EJECUCIÓN DEL BORRADO CON LA LÓGICA INTELIGENTE APLICADA
+        // EJECUCIÃ“N DEL BORRADO CON LA LÃ“GICA INTELIGENTE APLICADA
         const shouldDeleteFiles = globalDeleteRequest && actuallyPhysical;
 
         await invoke("remove_track_from_playlist", {
@@ -6764,17 +7815,17 @@ export function useAppLogic() {
           deleteFiles: shouldDeleteFiles,
         });
       } catch (e) {
-        console.error(`[SpotifySync] Error removing ${path}`, e);
+        // console.error(`[SpotifySync] Error removing ${path}`, e);
       }
     }
 
-    // Sincronización inmediata para que los cambios se vean al cerrar el modal
+    // SincronizaciÃ³n inmediata para que los cambios se vean al cerrar el modal
     await syncLibrary();
 
-    // Al terminar, activamos el estado de éxito para el feedback visual
+    // Al terminar, activamos el estado de Ã©xito para el feedback visual
     isSyncSuccess.value = playlistId;
 
-    // Esperamos 1.5 segundos para que el usuario vea el éxito
+    // Esperamos 1.5 segundos para que el usuario vea el Ã©xito
     setTimeout(async () => {
       const syncIdx = pendingSpotifySyncs.value.findIndex(
         (s) => s.playlistId === playlistId,
@@ -6811,29 +7862,37 @@ export function useAppLogic() {
     }, 1500);
   };
 
-  const ignoreNewTracksSync = async (playlistId: number, tracks: any[]) => {
+  const ignoreNewTracksSync = async (playlistId: number, _tracks: any[]) => {
     try {
       const p = playlists.value.find((item) => item.id === playlistId);
       if (!p) return;
 
+      const syncObj = pendingSpotifySyncs.value.find(
+        (s) => s.playlistId === playlistId,
+      );
+      if (!syncObj) return;
+
       // Leemos el estado actual
-      let syncState: any = { synced: [], ignoredRemovals: [] };
+      let syncState: {
+        synced?: string[];
+        ignoredRemovals?: string[];
+        lastSnapshotId?: string | null;
+      } = { synced: [], ignoredRemovals: [] };
       try {
-        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        syncState = Array.isArray(parsed)
-          ? { synced: parsed, ignoredRemovals: [] }
-          : parsed;
+        const parsed = JSON.parse(p.spotifySyncedIds || "{}");
+        if (Array.isArray(parsed)) {
+          syncState.synced = parsed;
+        } else {
+          syncState = { ...syncState, ...parsed };
+        }
       } catch (e) {}
 
-      // Añadimos los IDs de los tracks a la lista de "ya vistos"
-      const newIds = tracks.map((t) => t.id);
-      const updatedSynced = [
-        ...new Set([...(syncState.synced || []), ...newIds]),
-      ];
-
+      // Marcamos TODOS los tracks remotos actuales como "vistos" (usando sus claves Ãºnicas de instancia)
+      // y guardamos el snapshot actual de Spotify
       await acknowledgeSpotifySync(playlistId, {
-        ...syncState,
-        synced: updatedSynced,
+        synced: syncObj.remoteInstanceKeys || [],
+        ignoredRemovals: syncState.ignoredRemovals || [],
+        lastSnapshotId: syncObj.remoteSnapshotId,
       });
       await loadPlaylists();
 
@@ -6850,7 +7909,7 @@ export function useAppLogic() {
         }
       }
     } catch (e) {
-      console.error("[SpotifySync] Error ignoring new tracks", e);
+      // console.error("[SpotifySync] Error ignoring new tracks", e);
     }
   };
 
@@ -6862,13 +7921,23 @@ export function useAppLogic() {
       const p = playlists.value.find((item) => item.id === playlistId);
       if (!p) return;
 
+      const syncObj = pendingSpotifySyncs.value.find(
+        (s) => s.playlistId === playlistId,
+      );
+
       // Leemos el estado actual
-      let syncState: any = { synced: [], ignoredRemovals: [] };
+      let syncState: {
+        synced?: string[];
+        ignoredRemovals?: string[];
+        lastSnapshotId?: string | null;
+      } = { synced: [], ignoredRemovals: [] };
       try {
-        const parsed = JSON.parse(p.spotifySyncedIds || "[]");
-        syncState = Array.isArray(parsed)
-          ? { synced: parsed, ignoredRemovals: [] }
-          : parsed;
+        const parsed = JSON.parse(p.spotifySyncedIds || "{}");
+        if (Array.isArray(parsed)) {
+          syncState.synced = parsed;
+        } else {
+          syncState = { ...syncState, ...parsed };
+        }
       } catch (e) {}
 
       // Obtenemos los spotify_ids de esos paths
@@ -6877,7 +7946,7 @@ export function useAppLogic() {
       });
       const ignoredIds = metadata.map((m) => m.spotify_id).filter((id) => !!id);
 
-      // Los añadimos a la lista de "ignorados para borrado"
+      // Los aÃ±adimos a la lista de "ignorados para borrado"
       const updatedIgnored = [
         ...new Set([...(syncState.ignoredRemovals || []), ...ignoredIds]),
       ];
@@ -6885,6 +7954,7 @@ export function useAppLogic() {
       await acknowledgeSpotifySync(playlistId, {
         ...syncState,
         ignoredRemovals: updatedIgnored,
+        lastSnapshotId: syncObj?.remoteSnapshotId || syncState.lastSnapshotId,
       });
       await loadPlaylists();
 
@@ -6907,7 +7977,7 @@ export function useAppLogic() {
         }
       }
     } catch (e) {
-      console.error("[SpotifySync] Error ignoring removed tracks", e);
+      // console.error("[SpotifySync] Error ignoring removed tracks", e);
     }
   };
 
@@ -6922,7 +7992,7 @@ export function useAppLogic() {
         (s) => s.playlistId !== playlistId,
       );
     } catch (e) {
-      console.error("[SpotifySync] Error ignoring sync", e);
+      // console.error("[SpotifySync] Error ignoring sync", e);
     }
   };
 
@@ -6935,11 +8005,23 @@ export function useAppLogic() {
   };
 
   const getLibraryTrackAlbum = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.album || "—";
+    return getLibraryTrackMetadata(track)?.album || "â€”";
+  };
+
+  const formatMetadataListValue = (value?: string | null) => {
+    if (!value) return "";
+
+    return value
+      .replace(/semicolon/gi, "; ")
+      .replace(/comma/gi, ", ")
+      .replace(/\s*;\s*/g, "; ")
+      .replace(/\s*,\s*/g, ", ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   };
 
   const getLibraryTrackDuration = (track: PlaylistTrack) => {
-    return getLibraryTrackMetadata(track)?.duration_formatted || "—";
+    return getLibraryTrackMetadata(track)?.duration_formatted || "â€”";
   };
 
   const getLibraryTrackCover = (track: PlaylistTrack) => {
@@ -6975,10 +8057,10 @@ export function useAppLogic() {
         const pathsToLoad = Array.from(pendingLibraryMetadataPaths);
         pendingLibraryMetadataPaths.clear();
 
-        console.log("[Library][metadata:start]", {
-          tracks: tracks.length,
-          requested: pathsToLoad.length,
-        });
+        // console.log("[Library][metadata:start]", {
+        // tracks: tracks.length,
+        // requested: pathsToLoad.length,
+        // });
         const rows = await invoke<LibraryTrackMetadataLiteRow[]>(
           "get_library_metadata_batch",
           {
@@ -6991,7 +8073,7 @@ export function useAppLogic() {
         };
 
         for (const row of rows) {
-          // --- MAGIA AQUÍ: Convertimos la ruta local del disco duro a una URL web de Tauri ---
+          // --- MAGIA AQUÃ: Convertimos la ruta local del disco duro a una URL web de Tauri ---
           let coverUrl = null;
           if (row.cover_path) {
             coverUrl = convertFileSrc(row.cover_path);
@@ -7001,7 +8083,7 @@ export function useAppLogic() {
           nextMap[row.path] = {
             title: row.title || "Sin título",
             artist: row.artist || "Artista desconocido",
-            album: row.album || "—",
+            album: row.album || "â€”",
             album_artist:
               row.album_artist || row.artist || "Artista desconocido",
             year: row.year || null,
@@ -7010,7 +8092,7 @@ export function useAppLogic() {
               row.duration_formatted ||
               formatTime(Number(row.duration_seconds || 0)),
 
-            // Asignamos la URL nativa súper rápida en lugar de anularla a null
+            // Asignamos la URL nativa sÃºper rÃ¡pida en lugar de anularla a null
             cover_art: coverUrl ? { data_url: coverUrl } : null,
 
             track_number: row.track_number ?? null,
@@ -7019,22 +8101,22 @@ export function useAppLogic() {
         }
 
         libraryMetadataMap.value = nextMap;
-        console.log("[Library][metadata:end]", {
-          tracks: tracks.length,
-          rows: rows.length,
-          durationMs: Math.round(performance.now() - metadataStartedAt),
-        });
+        // console.log("[Library][metadata:end]", {
+        // tracks: tracks.length,
+        // rows: rows.length,
+        // durationMs: Math.round(performance.now() - metadataStartedAt),
+        // });
       }
     } catch (error) {
-      console.error(
-        "Error cargando metadata de biblioteca desde SQLite:",
-        error,
-      );
-      console.error("[Library][metadata:error]", {
-        tracks: tracks.length,
-        durationMs: Math.round(performance.now() - metadataStartedAt),
-        error,
-      });
+      // console.error(
+      // "Error cargando metadata de biblioteca desde SQLite:",
+      // error,
+      // );
+      // console.error("[Library][metadata:error]", {
+      // tracks: tracks.length,
+      // durationMs: Math.round(performance.now() - metadataStartedAt),
+      // error,
+      // });
 
       const fallbackMap: Record<string, LibraryTrackMetadata> = {};
 
@@ -7042,9 +8124,9 @@ export function useAppLogic() {
         fallbackMap[track.path] = {
           title: track.fileName || "Sin título",
           artist: "Artista desconocido",
-          album: "—",
+          album: "â€”",
           duration_seconds: 0,
-          duration_formatted: "—",
+          duration_formatted: "â€”",
           cover_art: null,
         };
       }
@@ -7104,7 +8186,7 @@ export function useAppLogic() {
         }
       }
     } catch (error) {
-      console.error("Error al sincronizar posición:", error);
+      // console.error("Error al sincronizar posiciÃ³n:", error);
     }
   };
 
@@ -7134,7 +8216,7 @@ export function useAppLogic() {
     try {
       await invoke("stop_audio_backend");
     } catch (error) {
-      console.error("Error al limpiar la pista actual:", error);
+      // console.error("Error al limpiar la pista actual:", error);
     }
 
     resetVisualState();
@@ -7202,10 +8284,10 @@ export function useAppLogic() {
 
     resetCanvas();
 
-    // RESOLUCIÓN DE CANVAS (UNIFICADO VS PERSONALIZADO)
+    // RESOLUCIÃ“N DE CANVAS (UNIFICADO VS PERSONALIZADO)
     let videoPath = "";
     if (assetStorageMode.value === "unified" && track.path) {
-      // En la misma carpeta que la canción
+      // En la misma carpeta que la canciÃ³n
       const trackDir = track.path.substring(
         0,
         track.path.lastIndexOf("\\") + 1,
@@ -7240,7 +8322,7 @@ export function useAppLogic() {
         parsedLyrics.value = parseLrc(metadata.value.lyrics);
       }
     } catch (error) {
-      console.error("Error al leer metadata:", error);
+      // console.error("Error al leer metadata:", error);
     }
 
     currentTime.value = Math.max(
@@ -7274,7 +8356,7 @@ export function useAppLogic() {
       await nextTick();
       await syncCanvasWithPlayback();
     } catch (error) {
-      console.error("Error al reproducir en Rust:", error);
+      // console.error("Error al reproducir en Rust:", error);
       isBackendTrackReady.value = false;
       isPlaying.value = false;
       audioError.value = "El motor nativo no pudo reproducir este archivo.";
@@ -7428,7 +8510,7 @@ export function useAppLogic() {
       );
     }
 
-    // Ahora la canción seleccionada quedó en la posición 0
+    // Ahora la canciÃ³n seleccionada quedÃ³ en la posiciÃ³n 0
     await loadTrack({
       source: "queue",
       index: 0,
@@ -7577,7 +8659,7 @@ export function useAppLogic() {
       startProgress();
       await playCanvas();
     } catch (error) {
-      console.error("Error al cambiar estado de reproducción:", error);
+      // console.error("Error al cambiar estado de reproducciÃ³n:", error);
     }
   };
 
@@ -7602,7 +8684,7 @@ export function useAppLogic() {
         startProgress();
       }
     } catch (error) {
-      console.error("Error al intentar saltar en el audio:", error);
+      // console.error("Error al intentar saltar en el audio:", error);
     } finally {
       if (requestId === seekRequestId) {
         isSeekInFlight.value = false;
@@ -8140,7 +9222,7 @@ export function useAppLogic() {
 
       await refreshConnectState();
     } catch (error) {
-      console.warn("No se pudieron leer comandos Desktop Connect:", error);
+      // console.warn("No se pudieron leer comandos Desktop Connect:", error);
     }
   };
 
@@ -8164,7 +9246,7 @@ export function useAppLogic() {
         "get_desktop_connect_state",
       );
     } catch (error) {
-      console.warn("No se pudo cargar Desktop Connect:", error);
+      // console.warn("No se pudo cargar Desktop Connect:", error);
     }
   };
 
@@ -8428,7 +9510,7 @@ export function useAppLogic() {
       e.preventDefault();
       e.stopPropagation();
       shouldSuppressNextWindowClick = false;
-      console.log("[playlist-dnd] suppressed-post-drag-click");
+      // console.log("[playlist-dnd] suppressed-post-drag-click");
       return;
     }
 
@@ -8444,7 +9526,7 @@ export function useAppLogic() {
       closeGlobalSearchPopover();
     }
 
-    // Si el click NO está dentro de una fila → deseleccionar
+    // Si el click NO estÃ¡ dentro de una fila â†’ deseleccionar
     if (!target.closest(".spotify-row") && !target.closest(".queue-row")) {
       selectedLibraryTrack.value = null;
     }
@@ -8589,7 +9671,7 @@ export function useAppLogic() {
 
   onMounted(async () => {
     const startBoot = performance.now();
-    console.log("[Boot] onMounted started");
+    // console.log("[Boot] onMounted started");
 
     installSpotiFlacHost();
     installPerformanceDiagnostics();
@@ -8598,7 +9680,7 @@ export function useAppLogic() {
     await nextTick();
     await waitForNextPaint();
 
-    console.log("[Boot] Basic setup took:", performance.now() - startBoot);
+    // console.log("[Boot] Basic setup took:", performance.now() - startBoot);
 
     try {
       const startListeners = performance.now();
@@ -8607,31 +9689,31 @@ export function useAppLogic() {
       });
 
       // ======== NUEVO ========
-      // Escuchamos el evento desde Rust cuando el dispositivo cambia automáticamente
+      // Escuchamos el evento desde Rust cuando el dispositivo cambia automÃ¡ticamente
       unlistenDeviceChanged = await listen("audio-device-changed", () => {
-        console.log("🔄 Dispositivo de audio cambiado. Actualizando UI...");
+        // console.log("ðŸ”„ Dispositivo de audio cambiado. Actualizando UI...");
         void fetchOutputDeviceInfo();
       });
       // =======================
-      console.log(
-        "[Boot] Listeners took:",
-        performance.now() - startListeners,
-      );
+      // console.log(
+      //   "[Boot] Listeners took:",
+      //   performance.now() - startListeners,
+      // );
 
       const startHardware = performance.now();
       await fetchComputerName();
       await fetchOutputDeviceInfo();
-      console.log(
-        "[Boot] Hardware info took:",
-        performance.now() - startHardware,
-      );
+      // console.log(
+      //   "[Boot] Hardware info took:",
+      //   performance.now() - startHardware,
+      // );
 
       const startPlaylists = performance.now();
       await loadPlaylists();
-      console.log(
-        "[Boot] Playlists took:",
-        performance.now() - startPlaylists,
-      );
+      // console.log(
+      //   "[Boot] Playlists took:",
+      //   performance.now() - startPlaylists,
+      // );
 
       const startSession = performance.now();
       const savedAppSession = await loadAppSession();
@@ -8641,10 +9723,10 @@ export function useAppLogic() {
       recentGlobalSearches.value = normalizeRecentGlobalSearches(
         await loadRecentGlobalSearches(),
       );
-      console.log(
-        "[Boot] Session load took:",
-        performance.now() - startSession,
-      );
+      // console.log(
+      //   "[Boot] Session load took:",
+      //   performance.now() - startSession,
+      // );
 
       if (
         recentGlobalSearches.value.length === 0 &&
@@ -8672,23 +9754,26 @@ export function useAppLogic() {
         );
 
         musicDirectories.value = savedDirectories;
-        console.log(
-          "[Boot] Directories load took:",
-          performance.now() - startDirs,
-        );
+        console.log("[LibraryDebug][boot:directories]", {
+          savedDirectories,
+        });
+        // console.log(
+        //   "[Boot] Directories load took:",
+        //   performance.now() - startDirs,
+        // );
 
         if (musicDirectories.value.length > 0) {
           const startLibrary = performance.now();
-          console.log("[Boot] Starting library sync...");
+          // console.log("[Boot] Starting library sync...");
           await syncLibrary();
-          console.log(
-            "[Boot] Library sync took:",
-            performance.now() - startLibrary,
-          );
+          // console.log(
+          //   "[Boot] Library sync took:",
+          //   performance.now() - startLibrary,
+          // );
 
           // ======== NUEVO ========
           void checkSpotifyPlaylistsForUpdates();
-          // Revisar cada 15 minutos mientras la app está abierta
+          // Revisar cada 15 minutos mientras la app estÃ¡ abierta
           setInterval(
             () => {
               void checkSpotifyPlaylistsForUpdates();
@@ -8701,16 +9786,16 @@ export function useAppLogic() {
           });
         }
       } catch (error) {
-        console.error("Error al cargar rutas guardadas:", error);
+        // console.error("Error al cargar rutas guardadas:", error);
       }
 
       const startRestore = performance.now();
       await restoreAppSession(savedAppSession);
       hasPendingAppSessionRestore = false;
-      console.log(
-        "[Boot] Restore session took:",
-        performance.now() - startRestore,
-      );
+      // console.log(
+      //   "[Boot] Restore session took:",
+      //   performance.now() - startRestore,
+      // );
 
       await refreshConnectState();
       startConnectCommandPolling();
@@ -8724,17 +9809,17 @@ export function useAppLogic() {
     } finally {
       isAppBooting.value = false;
       window.dispatchEvent(new Event("app-ready"));
-      console.log(
-        "[Boot] Total onMounted time:",
-        performance.now() - startBoot,
-      );
+      // console.log(
+      //   "[Boot] Total onMounted time:",
+      //   performance.now() - startBoot,
+      // );
     }
   });
 
   onBeforeUnmount(() => {
     void persistAppSessionNow();
     stopProgress();
-    invoke("stop_audio_backend").catch(console.error);
+    // invoke("stop_audio_backend").catch(console.error);
     pendingTrackPointerDrag = null;
     removePendingTrackPointerListeners();
     cleanupTrackDragState();
@@ -9166,7 +10251,7 @@ export function useAppLogic() {
     seekAndSync,
     parseLrc,
     syncLibrary,
-    añadirRutaMusica,
+    anadirRutaMusica,
     persistMusicDirectories,
     removeMusicDirectory,
     clearMusicDirectories,
@@ -9204,6 +10289,7 @@ export function useAppLogic() {
     getLibraryTrackMetadata,
     getLibraryTrackArtist,
     getLibraryTrackAlbum,
+    formatMetadataListValue,
     getLibraryTrackDuration,
     getLibraryTrackCover,
     preloadLibraryMetadata,
@@ -9264,13 +10350,34 @@ export function useAppLogic() {
     unlistenDeviceChanged,
     checkSpecificSpotifyPlaylist,
     manualForceSync,
+    orderPlaylistFromSpotify,
     isManualSyncing,
+    isSpotifyOrdering,
     isSyncDownloading,
     isSyncSuccess,
     activePlaylistSync,
+    activePendingSpotifySync,
+    activePendingNewTrackIds,
+    activePendingRemovedTrackPaths,
+    syncNewTracksListRef,
+    syncRemovedTracksListRef,
+    onSyncNewTracksScroll,
+    onSyncRemovedTracksScroll,
+    virtualNewTracksWindow,
+    virtualRemovedTracksWindow,
     pendingSpotifySyncs,
     selectedRemovedTracks,
+    selectedNewTracks,
+    isBulkSelectingNewTracks,
+    isBulkSelectingRemovedTracks,
+    isRemovedTrackSelected,
+    isNewTrackSelected,
+    areAllNewTracksSelected,
+    areAllRemovedTracksSelected,
     toggleRemovedTrackSelection,
+    toggleNewTrackSelection,
+    setAllNewTracksSelection,
+    setAllRemovedTracksSelection,
     applySpotifySync,
     applyNewTracksSync,
     applyRemovedTracksSync,

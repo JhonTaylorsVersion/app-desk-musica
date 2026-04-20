@@ -1,4 +1,4 @@
-import { ref, watch, onUnmounted } from 'vue';
+﻿import { ref, watch, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { 
   AnalysisResult, 
@@ -111,7 +111,7 @@ export function useAudioAnalysis() {
         }, updateProgress, () => token.cancelled);
       } catch (err: any) {
         // Fallback to FFmpeg decode if browser decoder fails (e.g. for high bit depth FLAC)
-        console.warn("Browser decoder failed, trying FFmpeg fallback:", err);
+        // console.warn("Browser decoder failed, trying FFmpeg fallback:", err);
         analysisProgress.value = { percent: 20, message: "Using FFmpeg fallback..." };
         
         const decoded: BackendAnalysisDecodeResponse = await invoke('decode_audio_for_analysis', { path: filePath });
@@ -140,7 +140,7 @@ export function useAudioAnalysis() {
 
     } catch (err: any) {
       if (err.message === "Analysis cancelled") return;
-      console.error("Analysis failed:", err);
+      // console.error("Analysis failed:", err);
       sessionError.value = err.message || "Failed to analyze file";
       toast.error("Analysis Failed", { description: sessionError.value || "" });
     } finally {
@@ -172,7 +172,7 @@ export function useAudioAnalysis() {
       toast.success("Spectrum updated");
     } catch (err: any) {
       if (err.message === "Analysis cancelled") return;
-      console.error("Spectrum re-analysis failed:", err);
+      // console.error("Spectrum re-analysis failed:", err);
       toast.error("Spectrum update failed");
     } finally {
       if (!token.cancelled) spectrumLoading.value = false;

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!-- Mirrors DebugLoggerPage.tsx 1:1 -->
   <div class="sf-debug-page">
     <div class="sf-debug-header">
@@ -80,7 +80,7 @@ async function handleCopy() {
     copied.value = true;
     setTimeout(() => (copied.value = false), 500);
   } catch (err) {
-    console.error('Failed to copy logs:', err);
+    // console.error('Failed to copy logs:', err);
   }
 }
 
@@ -95,7 +95,7 @@ async function handleExportFailed() {
   }
 }
 
-// Auto-scroll when logs update — mirrors useEffect([logs])
+// Auto-scroll when logs update â€” mirrors useEffect([logs])
 watch(logs, async () => {
   await nextTick();
   if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight;

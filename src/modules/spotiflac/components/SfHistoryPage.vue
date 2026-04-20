@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { 
@@ -69,7 +69,7 @@ const loadDownloadHistory = async () => {
     const items = await invoke<DownloadHistoryItem[]>('get_download_history');
     downloadHistory.value = items || [];
   } catch (err) {
-    console.error("Failed to load download history:", err);
+    // console.error("Failed to load download history:", err);
   }
 };
 
@@ -78,7 +78,7 @@ const loadFetchHistory = async () => {
     const items = await invoke<FetchHistoryItem[]>('get_fetch_history');
     fetchHistory.value = items || [];
   } catch (err) {
-    console.error("Failed to load fetch history:", err);
+    // console.error("Failed to load fetch history:", err);
   }
 };
 
@@ -145,7 +145,7 @@ const clearDownloads = async () => {
     await invoke('clear_download_history');
     await loadDownloadHistory();
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
 };
 
@@ -154,7 +154,7 @@ const clearFetch = async () => {
     await invoke('clear_fetch_history_by_type', { itemType: activeFetchTab.value });
     await loadFetchHistory();
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
 };
 
@@ -163,7 +163,7 @@ const deleteDownloadItem = async (id: string) => {
     await invoke('delete_download_history_item', { id });
     await loadDownloadHistory();
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
 };
 
@@ -172,7 +172,7 @@ const deleteFetchItem = async (id: string) => {
     await invoke('delete_fetch_history_item', { id });
     await loadFetchHistory();
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
 };
 
@@ -195,7 +195,7 @@ const openInBrowser = async (url: string) => {
   try {
     await invoke('open_url', { url });
   } catch (error) {
-    console.error("Failed to open URL via backend:", error);
+    // console.error("Failed to open URL via backend:", error);
     window.open(url, '_blank');
   }
 };
@@ -276,7 +276,7 @@ const showClearConfirm = ref(false);
               <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
                 <div class="flex-1 min-w-0">
                   <h4 class="font-bold text-sm truncate group-hover:text-primary transition-colors">{{ item.title }}</h4>
-                  <p class="text-xs text-muted-foreground truncate">{{ item.artists }} • {{ item.album }}</p>
+                <p class="text-xs text-muted-foreground truncate">{{ item.artists }} • {{ item.album }}</p>
                 </div>
                 
                 <div class="flex items-center gap-2 flex-shrink-0">

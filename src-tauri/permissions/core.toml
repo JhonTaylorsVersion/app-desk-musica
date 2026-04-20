@@ -22,6 +22,7 @@ commands = { allow = [
     "get_playlists",
     "create_playlist",
     "add_track_to_playlist",
+    "reorder_playlist_tracks",
     "remove_track_from_playlist",
     "rename_playlist",
     "try_reconcile_physical_path",

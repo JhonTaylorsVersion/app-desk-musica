@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+﻿import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event } from '@tauri-apps/api/event';
 
@@ -105,13 +105,13 @@ export const useDownloadStore = defineStore('download', {
             });
         },
 
-        // Poll the backend queue — mirrors the original 500ms interval in DownloadQueue.tsx
+        // Poll the backend queue â€” mirrors the original 500ms interval in DownloadQueue.tsx
         async fetchQueue() {
             try {
                 const info = await invoke<DownloadQueueInfo>('get_download_queue');
                 this.queueInfo = info;
             } catch (e) {
-                console.error('Failed to fetch download queue:', e);
+                // console.error('Failed to fetch download queue:', e);
             }
         },
 
